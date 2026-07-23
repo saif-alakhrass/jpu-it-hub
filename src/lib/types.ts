@@ -12,9 +12,10 @@ export interface Profile {
 export interface Subject {
   id: string;
   name: string;
+  code: string | null;
   description: string | null;
   major: string;
-  created_by: string;
+  created_by: string | null;
   created_at: string;
 }
 
@@ -41,9 +42,6 @@ export const TABS: { key: FileTab; label: string; icon: string }[] = [
 ];
 
 export const MAJORS = [
-  'عام',
-  'برمجة وهندسة برمجيات',
-  'شبكات وأمن معلومات',
-  'ذكاء اصطناعي وعلوم بيانات',
-  'أنظمة معلومات',
+  'علم الحاسوب',
+  'الأمن السيبراني',
 ];
