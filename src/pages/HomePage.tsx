@@ -5,6 +5,8 @@ import { Toast } from '@/components/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
+import { DifficultyBadge } from '@/components/DifficultyBadge';
+import { getCourseMeta } from '@/lib/courseDetails';
 import { MAJORS, type Subject } from '@/lib/types';
 
 export function HomePage() {
@@ -159,11 +161,14 @@ export function HomePage() {
                 <span className="mb-1 inline-block font-mono text-xs text-brand-400/80">{s.code}</span>
               )}
               <p className="text-sm text-slate-400 line-clamp-2 min-h-[2.5rem]">
-                {s.description ?? 'لا يوجد وصف'}
+                {getCourseMeta(s.name, s.description).description}
               </p>
-              <div className="mt-3 flex items-center gap-1 text-xs text-brand-400 font-bold opacity-0 transition group-hover:opacity-100">
-                عرض الموارد
-                <Icon name="ChevronLeft" className="h-4 w-4" />
+              <div className="mt-3 flex items-center justify-between">
+                <DifficultyBadge difficulty={getCourseMeta(s.name, s.description).difficulty} />
+                <span className="flex items-center gap-1 text-xs text-brand-400 font-bold opacity-0 transition group-hover:opacity-100">
+                  عرض الموارد
+                  <Icon name="ChevronLeft" className="h-4 w-4" />
+                </span>
               </div>
             </button>
           ))}

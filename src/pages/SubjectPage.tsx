@@ -5,6 +5,8 @@ import { Toast } from '@/components/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
+import { DifficultyBadge } from '@/components/DifficultyBadge';
+import { getCourseMeta } from '@/lib/courseDetails';
 import { TABS, type FileRow, type FileTab, type Subject } from '@/lib/types';
 
 export function SubjectPage({ subjectId }: { subjectId: string }) {
@@ -124,7 +126,11 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
             {subject.code && (
               <span className="mt-1 inline-block font-mono text-sm text-brand-400">{subject.code}</span>
             )}
-            <p className="mt-1 text-slate-400">{subject.description ?? 'لا يوجد وصف'}</p>
+            <p className="mt-1 text-slate-400">{getCourseMeta(subject.name, subject.description).description}</p>
+            <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+              <span>مستوى الصعوبة:</span>
+              <DifficultyBadge difficulty={getCourseMeta(subject.name, subject.description).difficulty} />
+            </div>
           </div>
           <button
             onClick={() => session ? setUploadOpen(true) : navigate('/auth')}
