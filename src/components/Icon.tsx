@@ -4,6 +4,8 @@ import {
   GraduationCap, Menu, LogOut, Home, ChevronLeft, File, Download,
   Clock, AlertCircle, Eye, UserCog, ArrowLeft, Loader2, BookOpen,
   Filter, Sparkles, Users, FolderOpen, Lock,
+  Telescope, Rocket, Gift, Target, Layers, Zap, Quote, Code,
+  Github, Linkedin, Mail, User, Info,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -13,6 +15,8 @@ const map: Record<string, LucideIcon> = {
   GraduationCap, Menu, LogOut, Home, ChevronLeft, File, Download,
   Clock, AlertCircle, Eye, UserCog, ArrowLeft, Loader2, BookOpen,
   Filter, Sparkles, Users, FolderOpen, Lock,
+  Telescope, Rocket, Gift, Target, Layers, Zap, Quote, Code,
+  Github, Linkedin, Mail, User, Info,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {

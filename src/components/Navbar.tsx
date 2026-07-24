@@ -26,7 +26,10 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-40 border-b border-white/5 bg-ink-950/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <button onClick={() => navigate('/')} className="flex items-center gap-2.5 transition hover:opacity-90">
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center gap-2.5 transition hover:opacity-90"
+        >
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
             <Icon name="GraduationCap" className="h-5 w-5" />
           </span>
@@ -37,12 +40,27 @@ export function Navbar() {
         </button>
 
         <nav className="hidden items-center gap-2 md:flex">
-          <button onClick={() => navigate('/')} className={`btn-ghost ${route.path === '/' ? 'bg-ink-700 text-brand-300' : ''}`}>
-            <Icon name="Home" className="h-4 w-4" /> الرئيسية
+          <button
+            onClick={() => navigate('/')}
+            className={`btn-ghost ${route.path === '/' ? 'bg-ink-700 text-brand-300' : ''}`}
+          >
+            <Icon name="Home" className="h-4 w-4" />
+            الرئيسية
+          </button>
+          <button
+            onClick={() => navigate('/about')}
+            className={`btn-ghost ${route.path === '/about' ? 'bg-ink-700 text-brand-300' : ''}`}
+          >
+            <Icon name="Info" className="h-4 w-4" />
+            من نحن
           </button>
           {isAdmin && (
-            <button onClick={() => navigate('/admin')} className={`btn-ghost ${route.path === '/admin' ? 'bg-ink-700 text-accent-400' : ''}`}>
-              <Icon name="ShieldCheck" className="h-4 w-4" /> لوحة الإدارة
+            <button
+              onClick={() => navigate('/admin')}
+              className={`btn-ghost ${route.path === '/admin' ? 'bg-ink-700 text-accent-400' : ''}`}
+            >
+              <Icon name="ShieldCheck" className="h-4 w-4" />
+              لوحة الإدارة
             </button>
           )}
         </nav>
@@ -55,17 +73,23 @@ export function Navbar() {
                 {roleBadge}
               </div>
               <button onClick={signOut} className="btn-ghost">
-                <Icon name="LogOut" className="h-4 w-4" /> خروج
+                <Icon name="LogOut" className="h-4 w-4" />
+                خروج
               </button>
             </>
           ) : (
             <button onClick={() => navigate('/auth')} className="btn-primary">
-              <Icon name="Lock" className="h-4 w-4" /> تسجيل الدخول
+              <Icon name="Lock" className="h-4 w-4" />
+              تسجيل الدخول
             </button>
           )}
         </div>
 
-        <button className="rounded-lg p-2 text-slate-300 hover:bg-white/5 md:hidden" onClick={() => setOpen((v) => !v)} aria-label="القائمة">
+        <button
+          className="rounded-lg p-2 text-slate-300 hover:bg-white/5 md:hidden"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="القائمة"
+        >
           <Icon name="Menu" className="h-6 w-6" />
         </button>
       </div>
@@ -75,6 +99,9 @@ export function Navbar() {
           <div className="flex flex-col gap-2">
             <button onClick={() => { navigate('/'); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Home" className="h-4 w-4" /> الرئيسية
+            </button>
+            <button onClick={() => { navigate('/about'); setOpen(false); }} className="btn-ghost justify-start">
+              <Icon name="Info" className="h-4 w-4" /> من نحن
             </button>
             {isAdmin && (
               <button onClick={() => { navigate('/admin'); setOpen(false); }} className="btn-ghost justify-start">

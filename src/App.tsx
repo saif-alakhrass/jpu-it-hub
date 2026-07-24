@@ -5,6 +5,7 @@ import { HomePage } from '@/pages/HomePage';
 import { SubjectPage } from '@/pages/SubjectPage';
 import { AuthPage } from '@/pages/AuthPage';
 import { AdminPage } from '@/pages/AdminPage';
+import { AboutPage } from '@/pages/AboutPage';
 
 function Routes() {
   const { route } = useRouter();
@@ -15,6 +16,8 @@ function Routes() {
       return <AdminPage />;
     case '/auth':
       return <AuthPage />;
+    case '/about':
+      return <AboutPage />;
     default:
       return <HomePage />;
   }

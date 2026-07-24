@@ -45,3 +45,13 @@ export const MAJORS = [
   'علم الحاسوب',
   'الأمن السيبراني',
 ];
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  image_url: string;
+  bio: string | null;
+  sort_order: number;
+  created_at: string;
+}
