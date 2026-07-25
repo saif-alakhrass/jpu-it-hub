@@ -237,7 +237,7 @@ export function SubjectPage() {
                     <span>{f.uploader?.full_name ?? 'مستخدم'}</span>
                     <span>·</span>
                     <span>{new Date(f.created_at).toLocaleDateString('ar')}</span>
-                    {f.file_type && <><span>·</span><span className="uppercase">{f.file_type}</span>}</>}
+                    {f.file_type && <span>·<span className="uppercase"> {f.file_type}</span></span>}
                   </div>
                 </div>
                 <div className="relative flex shrink-0 items-center gap-1">

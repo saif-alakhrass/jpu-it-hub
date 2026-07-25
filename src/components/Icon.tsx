@@ -8,7 +8,7 @@ import {
   Github, Linkedin, Mail, User, Info,
   ChevronDown, Settings, Save, BookMarked, Award, Hash,
   CheckCircle, Bookmark, BookmarkCheck, Folder, FolderTree,
-  StickyNote, Pencil, Trash,
+  StickyNote, Pencil, Trash, Compass, BookX, RotateCcw,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -22,7 +22,7 @@ const map: Record<string, LucideIcon> = {
   Github, Linkedin, Mail, User, Info,
   ChevronDown, Settings, Save, BookMarked, Award, Hash,
   CheckCircle, Bookmark, BookmarkCheck, Folder, FolderTree,
-  StickyNote, Pencil, Trash,
+  StickyNote, Pencil, Trash, Compass, BookX, RotateCcw,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {
