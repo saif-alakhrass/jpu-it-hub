@@ -22,7 +22,7 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
   async function loadSubject() {
     const { data } = await supabase
       .from('subjects')
-      .select('id, name, code, description, major, created_by, created_at')
+      .select('id, name, code, description, major, departments, created_by, created_at')
       .eq('id', subjectId)
       .maybeSingle();
     setSubject(data as Subject | null);
@@ -121,28 +121,32 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
       <header className="card mb-6 p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <span className="badge bg-ink-700 text-slate-300 border border-white/5 mb-2">{subject.major}</span>
+            <div className="mb-2 flex flex-wrap gap-1">
+              {(subject.departments?.length ? subject.departments : [subject.major]).map((d) => (
+                <span key={d} className="badge bg-ink-700 text-slate-300 border border-white/5">{d}</span>
+              ))}
+              {(subject.departments?.length ?? 0) > 1 && (
+                <span className="badge bg-brand-500/15 text-brand-300 border border-brand-500/30">
+                  <Icon name="Layers" className="h-3 w-3" />
+                  مشترك بين التخصصات
+                </span>
+              )}
+            </div>
             <h1 className="text-2xl font-extrabold text-slate-100 md:text-3xl">{subject.name}</h1>
-            {subject.code && (
-              <span className="mt-1 inline-block font-mono text-sm text-brand-400">{subject.code}</span>
-            )}
+            {subject.code && <span className="mt-1 inline-block font-mono text-sm text-brand-400">{subject.code}</span>}
             <p className="mt-1 text-slate-400">{getCourseMeta(subject.name, subject.description).description}</p>
             <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
               <span>مستوى الصعوبة:</span>
               <DifficultyBadge difficulty={getCourseMeta(subject.name, subject.description).difficulty} />
             </div>
           </div>
-          <button
-            onClick={() => session ? setUploadOpen(true) : navigate('/auth')}
-            className="btn-primary shrink-0"
-          >
+          <button onClick={() => session ? setUploadOpen(true) : navigate('/auth')} className="btn-primary shrink-0">
             <Icon name="Upload" className="h-4 w-4" />
             رفع ملف
           </button>
         </div>
       </header>
 
-      {/* Tabs */}
       <div className="mb-6 flex gap-2 overflow-x-auto border-b border-white/5 pb-px">
         {TABS.map((t) => (
           <button
@@ -160,7 +164,6 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
         ))}
       </div>
 
-      {/* Files */}
       {tabFiles.length === 0 ? (
         <div className="card p-12 text-center">
           <Icon name="FolderOpen" className="mx-auto mb-3 h-12 w-12 text-slate-600" />
@@ -177,12 +180,7 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
             const isOwn = profile?.id === f.uploader_id;
             const pending = f.status === 'pending';
             return (
-              <div
-                key={f.id}
-                className={`card flex items-center gap-4 p-4 transition hover:border-white/10 ${
-                  pending && !isOwn ? 'opacity-50' : ''
-                }`}
-              >
+              <div key={f.id} className={`card flex items-center gap-4 p-4 transition hover:border-white/10 ${pending && !isOwn ? 'opacity-50' : ''}`}>
                 <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink-700 text-brand-400">
                   <Icon name="File" className="h-5 w-5" />
                 </span>
@@ -204,13 +202,7 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
                   </div>
                 </div>
                 {!pending || isOwn ? (
-                  <a
-                    href={f.file_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-ghost shrink-0"
-                    title="معاينة / تنزيل"
-                  >
+                  <a href={f.file_url} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
                     <Icon name="Eye" className="h-4 w-4" />
                     <span className="hidden sm:inline">عرض</span>
                   </a>
@@ -225,7 +217,6 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
         </div>
       )}
 
-      {/* Upload modal */}
       <Modal open={uploadOpen} onClose={() => setUploadOpen(false)} title={`رفع ملف - ${TABS.find((t) => t.key === activeTab)?.label}`}>
         <form onSubmit={handleUpload} className="space-y-4">
           {!canPublishDirectly && (

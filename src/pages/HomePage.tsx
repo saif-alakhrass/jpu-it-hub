@@ -15,11 +15,10 @@ export function HomePage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [major, setMajor] = useState<string>('الكل');
+  const [major, setMajor] = useState<string>(MAJORS[0]);
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // create form
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [newMajor, setNewMajor] = useState(MAJORS[0]);
@@ -29,7 +28,7 @@ export function HomePage() {
     setLoading(true);
     const { data, error } = await supabase
       .from('subjects')
-      .select('id, name, code, description, major, created_by, created_at')
+      .select('id, name, code, description, major, departments, created_by, created_at')
       .order('created_at', { ascending: false });
     if (error) {
       setToast({ message: 'تعذر تحميل المواد', type: 'error' });
@@ -46,7 +45,8 @@ export function HomePage() {
   const filtered = useMemo(() => {
     return subjects.filter((s) => {
       const matchSearch = !search || s.name.includes(search) || (s.description ?? '').includes(search);
-      const matchMajor = major === 'الكل' || s.major === major;
+      const depts = s.departments?.length ? s.departments : [s.major];
+      const matchMajor = depts.includes(major);
       return matchSearch && matchMajor;
     });
   }, [subjects, search, major]);
@@ -60,8 +60,8 @@ export function HomePage() {
     setSubmitting(true);
     const { data, error } = await supabase
       .from('subjects')
-      .insert({ name, description: desc || null, major: newMajor })
-      .select('id, name, code, description, major, created_by, created_at')
+      .insert({ name, description: desc || null, major: newMajor, departments: [newMajor] })
+      .select('id, name, code, description, major, departments, created_by, created_at')
       .maybeSingle();
     setSubmitting(false);
     if (error || !data) {
@@ -76,7 +76,6 @@ export function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      {/* Hero */}
       <section className="relative overflow-hidden card mb-10 p-8 md:p-12">
         <div className="absolute -left-10 -top-10 h-40 w-40 rounded-full bg-brand-500/20 blur-3xl" />
         <div className="absolute -right-10 -bottom-10 h-40 w-40 rounded-full bg-accent-500/10 blur-3xl" />
@@ -95,7 +94,6 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* Controls */}
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="relative flex-1 max-w-md">
           <Icon name="Search" className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
@@ -108,7 +106,7 @@ export function HomePage() {
         </div>
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <Icon name="Filter" className="h-4 w-4 shrink-0 text-slate-500" />
-          {['الكل', ...MAJORS].map((m) => (
+          {MAJORS.map((m) => (
             <button
               key={m}
               onClick={() => setMajor(m)}
@@ -128,7 +126,6 @@ export function HomePage() {
         </button>
       </div>
 
-      {/* Grid */}
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -142,40 +139,55 @@ export function HomePage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => navigate(`/subject/${s.id}`)}
-              className="card group p-5 text-right transition-all duration-200 hover:-translate-y-1 hover:border-brand-500/40 hover:shadow-glow"
-            >
-              <div className="mb-3 flex items-start justify-between">
-                <span className="grid h-11 w-11 place-items-center rounded-xl bg-ink-700 text-brand-400 transition group-hover:bg-brand-500 group-hover:text-ink-950">
-                  <Icon name="BookOpen" className="h-5 w-5" />
-                </span>
-                <span className="badge bg-ink-700 text-slate-300 border border-white/5">{s.major}</span>
-              </div>
-              <h3 className="mb-1 text-lg font-bold text-slate-100 group-hover:text-brand-300 transition">
-                {s.name}
-              </h3>
-              {s.code && (
-                <span className="mb-1 inline-block font-mono text-xs text-brand-400/80">{s.code}</span>
-              )}
-              <p className="text-sm text-slate-400 line-clamp-2 min-h-[2.5rem]">
-                {getCourseMeta(s.name, s.description).description}
-              </p>
-              <div className="mt-3 flex items-center justify-between">
-                <DifficultyBadge difficulty={getCourseMeta(s.name, s.description).difficulty} />
-                <span className="flex items-center gap-1 text-xs text-brand-400 font-bold opacity-0 transition group-hover:opacity-100">
-                  عرض الموارد
-                  <Icon name="ChevronLeft" className="h-4 w-4" />
-                </span>
-              </div>
-            </button>
-          ))}
+          {filtered.map((s) => {
+            const depts = s.departments?.length ? s.departments : [s.major];
+            const isShared = depts.length > 1;
+            return (
+              <button
+                key={s.id}
+                onClick={() => navigate(`/subject/${s.id}`)}
+                className="card group p-5 text-right transition-all duration-200 hover:-translate-y-1 hover:border-brand-500/40 hover:shadow-glow"
+              >
+                <div className="mb-3 flex items-start justify-between">
+                  <span className="grid h-11 w-11 place-items-center rounded-xl bg-ink-700 text-brand-400 transition group-hover:bg-brand-500 group-hover:text-ink-950">
+                    <Icon name="BookOpen" className="h-5 w-5" />
+                  </span>
+                  <div className="flex flex-wrap justify-end gap-1">
+                    {depts.map((d) => (
+                      <span key={d} className="badge bg-ink-700 text-slate-300 border border-white/5 text-[10px]">
+                        {d}
+                      </span>
+                    ))}
+                    {isShared && (
+                      <span className="badge bg-brand-500/15 text-brand-300 border border-brand-500/30 text-[10px]">
+                        <Icon name="Layers" className="h-3 w-3" />
+                        مشترك
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <h3 className="mb-1 text-lg font-bold text-slate-100 group-hover:text-brand-300 transition">
+                  {s.name}
+                </h3>
+                {s.code && (
+                  <span className="mb-1 inline-block font-mono text-xs text-brand-400/80">{s.code}</span>
+                )}
+                <p className="text-sm text-slate-400 line-clamp-2 min-h-[2.5rem]">
+                  {getCourseMeta(s.name, s.description).description}
+                </p>
+                <div className="mt-3 flex items-center justify-between">
+                  <DifficultyBadge difficulty={getCourseMeta(s.name, s.description).difficulty} />
+                  <span className="flex items-center gap-1 text-xs text-brand-400 font-bold opacity-0 transition group-hover:opacity-100">
+                    عرض الموارد
+                    <Icon name="ChevronLeft" className="h-4 w-4" />
+                  </span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {/* Create modal */}
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="إنشاء مادة جديدة">
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
