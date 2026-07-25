@@ -8,14 +8,12 @@ import { TABS, type FileRow, type Profile, type Subject, type FileStatus } from 
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
 
-type AdminTab = 'pending' | 'files' | 'subjects' | 'users';
+type AdminTab = 'pending' | 'subjects' | 'users';
 
 export function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth();
   const [pending, setPending] = useState<FileRow[]>([]);
-  const [allFiles, setAllFiles] = useState<FileRow[]>([]);
-  const [filePage, setFilePage] = useState(0);
-  const [fileTotal, setFileTotal] = useState(0);
+  const [rejectedFiles, setRejectedFiles] = useState<FileRow[]>([]);
   const [rejectedCount, setRejectedCount] = useState(0);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Profile[]>([]);
@@ -35,18 +33,14 @@ export function AdminPage() {
     setPending((data ?? []) as unknown as FileRow[]);
   }, []);
 
-  const FILE_PAGE_SIZE = 20;
-
-  const loadAllFiles = useCallback(async (page: number) => {
-    const from = page * FILE_PAGE_SIZE;
-    const to = from + FILE_PAGE_SIZE - 1;
-    const { data, count } = await supabase
+  const loadRejectedFiles = useCallback(async () => {
+    const { data } = await supabase
       .from('files')
-      .select('id, subject_id, tab, title, storage_path, file_url, file_type, uploader_id, status, created_at, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)', { count: 'exact' })
+      .select('id, subject_id, tab, title, storage_path, file_url, file_type, uploader_id, status, created_at, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
+      .eq('status', 'rejected')
       .order('created_at', { ascending: false })
-      .range(from, to);
-    setAllFiles((data ?? []) as unknown as FileRow[]);
-    setFileTotal(count ?? 0);
+      .limit(50);
+    setRejectedFiles((data ?? []) as unknown as FileRow[]);
   }, []);
 
   const loadRejectedCount = useCallback(async () => {
@@ -78,11 +72,8 @@ export function AdminPage() {
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
-    Promise.all([loadPending(), loadAllFiles(0), loadRejectedCount(), loadSubjects(), loadUsers()]).finally(() => setLoading(false));
-  }, [isAdmin, loadPending, loadAllFiles, loadRejectedCount, loadSubjects, loadUsers]);
-
-  const [deleteFile, setDeleteFile] = useState<FileRow | null>(null);
-  const [deletingFile, setDeletingFile] = useState(false);
+    Promise.all([loadPending(), loadRejectedFiles(), loadRejectedCount(), loadSubjects(), loadUsers()]).finally(() => setLoading(false));
+  }, [isAdmin, loadPending, loadRejectedFiles, loadRejectedCount, loadSubjects, loadUsers]);
 
   async function setStatus(id: string, status: FileStatus, storagePath?: string) {
     setBusyId(id);
@@ -97,8 +88,8 @@ export function AdminPage() {
       await supabase.from('files').delete().eq('id', id);
     }
     setPending((prev) => prev.filter((f) => f.id !== id));
-    setAllFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status } : f)));
     await loadRejectedCount();
+    await loadRejectedFiles();
     setToast({
       message: status === 'approved' ? 'تمت الموافقة على الملف ونشره' : 'تم رفض الملف وحذفه نهائياً',
       type: 'success',
@@ -119,7 +110,7 @@ export function AdminPage() {
       setBusyId(null);
       return;
     }
-    setAllFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: 'approved' as FileStatus } : f)));
+    setRejectedFiles((prev) => prev.filter((f) => f.id !== id));
     await loadRejectedCount();
     setToast({ message: 'تمت استعادة الملف ونشره', type: 'success' });
     setBusyId(null);
@@ -133,33 +124,11 @@ export function AdminPage() {
     await loadUsers();
   }
 
-  async function deleteFilePermanent(file: FileRow) {
-    setDeletingFile(true);
-    if (file.storage_path) {
-      await supabase.storage.from('files').remove([file.storage_path]);
-    }
-    const { error } = await supabase.from('files').delete().eq('id', file.id);
-    setDeletingFile(false);
-    setDeleteFile(null);
-    if (error) { setToast({ message: 'فشل حذف الملف: ' + error.message, type: 'error' }); return; }
-    setPending((prev) => prev.filter((f) => f.id !== file.id));
-    setAllFiles((prev) => prev.filter((f) => f.id !== file.id));
-    await loadRejectedCount();
-    setToast({ message: `تم حذف الملف "${file.title}" نهائياً`, type: 'success' });
-  }
-
   async function openPreview(file: FileRow) {
     setPreview(file);
     setSignedPreviewUrl(null);
     const url = await getSignedFileUrl(file.storage_path);
     setSignedPreviewUrl(url);
-  }
-
-  async function changeFilePage(direction: 'next' | 'prev') {
-    const newPage = direction === 'next' ? filePage + 1 : filePage - 1;
-    if (newPage < 0 || newPage * FILE_PAGE_SIZE >= fileTotal) return;
-    setFilePage(newPage);
-    await loadAllFiles(newPage);
   }
 
   if (authLoading) {
@@ -175,9 +144,6 @@ export function AdminPage() {
       </div>
     );
   }
-
-  const rejectedFiles = allFiles.filter((f) => f.status === 'rejected');
-  const filePageCount = Math.ceil(fileTotal / FILE_PAGE_SIZE);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
@@ -212,9 +178,6 @@ export function AdminPage() {
         <button onClick={() => setTab('pending')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'pending' ? 'border-accent-500 text-accent-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="Clock" className="h-4 w-4" /> قيد المراجعة ({pending.length})
         </button>
-        <button onClick={() => setTab('files')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'files' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="FileText" className="h-4 w-4" /> كل الملفات ({fileTotal})
-        </button>
         <button onClick={() => setTab('subjects')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'subjects' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="BookOpen" className="h-4 w-4" /> المواد ({subjects.length})
         </button>
@@ -226,9 +189,7 @@ export function AdminPage() {
       {loading ? (
         <div className="py-16 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>
       ) : tab === 'pending' ? (
-        <PendingTab pending={pending} approve={approve} reject={reject} preview={preview} setPreview={setPreview} openPreview={openPreview} busyId={busyId} rejectedCount={rejectedCount} rejectedFiles={rejectedFiles} restore={restore} filePage={filePage} filePageCount={filePageCount} fileTotal={fileTotal} changeFilePage={changeFilePage} />
-      ) : tab === 'files' ? (
-        <FilesTab files={allFiles} openPreview={openPreview} onDelete={setDeleteFile} filePage={filePage} filePageCount={filePageCount} fileTotal={fileTotal} changeFilePage={changeFilePage} busyId={busyId} />
+        <PendingTab pending={pending} approve={approve} reject={reject} preview={preview} setPreview={setPreview} openPreview={openPreview} busyId={busyId} rejectedCount={rejectedCount} rejectedFiles={rejectedFiles} restore={restore} />
       ) : tab === 'subjects' ? (
         <SubjectsTab subjects={subjects} setToast={setToast} onUpdated={loadSubjects} />
       ) : (
@@ -273,27 +234,6 @@ export function AdminPage() {
         )}
       </Modal>
 
-      <Modal open={!!deleteFile} onClose={() => setDeleteFile(null)} title="تأكيد حذف الملف">
-        {deleteFile && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
-              <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-bold">سيتم حذف الملف نهائياً</p>
-                <p className="mt-1 text-sm">سيُحذف "{deleteFile.title}" من قاعدة البيانات والتخزين. لا يمكن التراجع عن هذا الإجراء.</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setDeleteFile(null)} className="btn-ghost" disabled={deletingFile}>إلغاء</button>
-              <button onClick={() => deleteFilePermanent(deleteFile)} className="btn-danger" disabled={deletingFile}>
-                {deletingFile ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-                حذف نهائي
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
@@ -302,7 +242,7 @@ export function AdminPage() {
 type ToastState = { message: string; type: 'success' | 'error' } | null;
 type SetToast = (t: ToastState) => void;
 
-function PendingTab({ pending, approve, reject, preview, setPreview, openPreview, busyId, rejectedCount, rejectedFiles, restore, filePage, filePageCount, fileTotal, changeFilePage }: {
+function PendingTab({ pending, approve, reject, preview, setPreview, openPreview, busyId, rejectedCount, rejectedFiles, restore }: {
   pending: FileRow[];
   approve: (id: string) => void;
   reject: (id: string, storagePath: string) => void;
@@ -313,10 +253,6 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
   rejectedCount: number;
   rejectedFiles: FileRow[];
   restore: (id: string) => void;
-  filePage: number;
-  filePageCount: number;
-  fileTotal: number;
-  changeFilePage: (direction: 'next' | 'prev') => void;
 }) {
   const [showRejected, setShowRejected] = useState(false);
 
@@ -365,17 +301,6 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
             </div>
           ))
         )}
-        {filePageCount > 1 && (
-          <div className="flex items-center justify-between pt-2">
-            <button onClick={() => changeFilePage('prev')} disabled={filePage === 0} className="btn-ghost disabled:opacity-40">
-              <Icon name="ChevronRight" className="h-4 w-4" /> السابق
-            </button>
-            <span className="text-sm text-slate-500">صفحة {filePage + 1} من {filePageCount} ({fileTotal} ملف)</span>
-            <button onClick={() => changeFilePage('next')} disabled={(filePage + 1) * 20 >= fileTotal} className="btn-ghost disabled:opacity-40">
-              التالي <Icon name="ChevronLeft" className="h-4 w-4" />
-            </button>
-          </div>
-        )}
       </div>
     );
   }
@@ -405,81 +330,6 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
           </div>
         </div>
       ))}
-    </div>
-  );
-}
-
-function FilesTab({ files, openPreview, onDelete, filePage, filePageCount, fileTotal, changeFilePage, busyId }: {
-  files: FileRow[];
-  openPreview: (f: FileRow) => void;
-  onDelete: (f: FileRow) => void;
-  filePage: number;
-  filePageCount: number;
-  fileTotal: number;
-  changeFilePage: (d: 'next' | 'prev') => void;
-  busyId: string | null;
-}) {
-  const statusBadge: Record<string, { label: string; cls: string }> = {
-    pending: { label: 'قيد المراجعة', cls: 'bg-accent-500/15 text-accent-400 border-accent-500/30' },
-    approved: { label: 'منشور', cls: 'bg-success-500/15 text-success-400 border-success-500/30' },
-    rejected: { label: 'مرفوض', cls: 'bg-danger-500/15 text-danger-400 border-danger-500/30' },
-  };
-
-  if (files.length === 0) {
-    return (
-      <div className="card p-12 text-center">
-        <Icon name="FileText" className="mx-auto mb-3 h-12 w-12 text-slate-600" />
-        <p className="text-slate-300 font-bold">لا توجد ملفات</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-3">
-      {files.map((f) => {
-        const badge = statusBadge[f.status] ?? statusBadge.pending!;
-        return (
-          <div key={f.id} className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className={`badge border ${badge.cls}`}>{badge.label}</span>
-                <span className="text-xs text-slate-500">{f.subject?.name}</span>
-              </div>
-              <h3 className="mt-1.5 truncate font-bold text-slate-100">{f.title}</h3>
-              <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                <span>{f.uploader?.full_name ?? 'مستخدم'}</span>
-                <span>·</span>
-                <span>{new Date(f.created_at).toLocaleDateString('ar')}</span>
-                {f.file_type && <><span>·</span><span className="uppercase">{f.file_type}</span></>}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => openPreview(f)} className="btn-ghost" title="معاينة">
-                <Icon name="Eye" className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => onDelete(f)}
-                className="rounded-lg p-2 text-danger-400 transition hover:bg-danger-500/10"
-                title="حذف الملف"
-                disabled={busyId === f.id}
-              >
-                {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-        );
-      })}
-      {filePageCount > 1 && (
-        <div className="flex items-center justify-between pt-2">
-          <button onClick={() => changeFilePage('prev')} disabled={filePage === 0} className="btn-ghost disabled:opacity-40">
-            <Icon name="ChevronRight" className="h-4 w-4" /> السابق
-          </button>
-          <span className="text-sm text-slate-500">صفحة {filePage + 1} من {filePageCount} ({fileTotal} ملف)</span>
-          <button onClick={() => changeFilePage('next')} disabled={(filePage + 1) * 20 >= fileTotal} className="btn-ghost disabled:opacity-40">
-            التالي <Icon name="ChevronLeft" className="h-4 w-4" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
