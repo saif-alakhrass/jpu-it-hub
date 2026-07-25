@@ -17,10 +17,15 @@ export function AuthPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const res = mode === 'signin' ? await signIn(email, password) : await signUp(email, password, fullName);
-    setLoading(false);
-    if (res.error) { setError(res.error); return; }
-    navigate('/');
+    try {
+      const res = mode === 'signin' ? await signIn(email, password) : await signUp(email, password, fullName);
+      if (res.error) { setError(res.error); return; }
+      navigate('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع، حاول مرة أخرى.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (

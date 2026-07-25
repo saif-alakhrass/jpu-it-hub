@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { mapAuthError } from '@/lib/authErrors';
 import type { Profile, Role } from '@/lib/types';
 
 interface AuthState {
@@ -74,22 +75,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء تسجيل الدخول') };
+      return { error: null };
+    } catch (err) {
+      return { error: mapAuthError(err, 'حدث خطأ أثناء تسجيل الدخول') };
+    }
   }
 
   async function signUp(email: string, password: string, fullName: string) {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
-    });
-    if (error) return { error: error.message };
-    if (data.user) {
-      setSession(data.session);
-      if (data.session?.user?.id) await loadProfile(data.session.user.id);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName } },
+      });
+      if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء إنشاء الحساب') };
+      if (data.user) {
+        setSession(data.session);
+        if (data.session?.user?.id) await loadProfile(data.session.user.id);
+      }
+      return { error: null };
+    } catch (err) {
+      return { error: mapAuthError(err, 'حدث خطأ أثناء إنشاء الحساب') };
     }
-    return { error: null };
   }
 
   async function signInWithGoogle() {
