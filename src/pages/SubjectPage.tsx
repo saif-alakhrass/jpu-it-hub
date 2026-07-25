@@ -11,9 +11,10 @@ import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
 import { TABS, type Bookmark, type FileRow, type FileTab, type Subject } from '@/lib/types';
 
-export function SubjectPage({ subjectId }: { subjectId: string }) {
+export function SubjectPage() {
   const { session, profile, canPublishDirectly } = useAuth();
-  const { navigate } = useRouter();
+  const { navigate, route } = useRouter();
+  const subjectId = route.params.id ?? '';
   const [subject, setSubject] = useState<Subject | null>(null);
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
   const [files, setFiles] = useState<FileRow[]>([]);
@@ -236,7 +237,7 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
                     <span>{f.uploader?.full_name ?? 'مستخدم'}</span>
                     <span>·</span>
                     <span>{new Date(f.created_at).toLocaleDateString('ar')}</span>
-                    {f.file_type && <><span>·</span><span className="uppercase">{f.file_type}</span></>}
+                    {f.file_type && <><span>·</span><span className="uppercase">{f.file_type}</span>}</>}
                   </div>
                 </div>
                 <div className="relative flex shrink-0 items-center gap-1">
