@@ -101,6 +101,7 @@ export function SubjectPage() {
   }, [session, files]);
 
   // Build display groups: batches first (with their files), then standalone files.
+  // Files whose batch is invisible (hidden by RLS) fall back to standalone cards.
   const groups: DisplayGroup[] = useMemo(() => {
     const tabFiles = files.filter((f) => f.tab === activeTab);
     const tabBatches = batches.filter((b) => b.tab === activeTab);
@@ -111,7 +112,8 @@ export function SubjectPage() {
         result.push({ key: `batch-${batch.id}`, batch, files: batchFiles });
       }
     }
-    const standalone = tabFiles.filter((f) => !f.batch_id);
+    const visibleBatchIds = new Set(tabBatches.map((b) => b.id));
+    const standalone = tabFiles.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
     for (const f of standalone) {
       result.push({ key: `file-${f.id}`, batch: null, files: [f] });
     }
