@@ -6,6 +6,7 @@ import {
   Filter, Sparkles, Users, FolderOpen, Lock,
   Telescope, Rocket, Gift, Target, Layers, Zap, Quote, Code,
   Github, Linkedin, Mail, User, Info,
+  ChevronDown, Settings, Save, BookMarked, Award, Hash,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -17,6 +18,7 @@ const map: Record<string, LucideIcon> = {
   Filter, Sparkles, Users, FolderOpen, Lock,
   Telescope, Rocket, Gift, Target, Layers, Zap, Quote, Code,
   Github, Linkedin, Mail, User, Info,
+  ChevronDown, Settings, Save, BookMarked, Award, Hash,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {
