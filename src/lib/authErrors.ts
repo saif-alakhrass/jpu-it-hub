@@ -21,16 +21,24 @@ function extractMessage(error: unknown): string {
   if (error == null) return '';
   if (typeof error === 'string') return error;
   if (typeof error === 'number' || typeof error === 'boolean') return String(error);
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error) {
+    const msg = error.message.trim();
+    // Supabase AuthRetryableFetchError serializes its message to "{}"
+    // when the underlying fetch fails without a clean cause. Treat that
+    // (and similar empty-object strings) as no message and fall through
+    // to the network-name check below.
+    if (msg && msg !== '{}' && msg !== '[object Object]') return msg;
+    if (/fetch|network|retryable/i.test(error.name)) return 'fetch failed';
+    return msg;
+  }
   if (typeof error === 'object') {
     const e = error as Record<string, unknown>;
-    if (typeof e.message === 'string' && e.message) return e.message;
-    if (typeof e.error_description === 'string' && e.error_description) return e.error_description;
-    if (typeof e.error === 'string' && e.error) return e.error;
-    if (typeof e.msg === 'string' && e.msg) return e.msg;
-    // Object with no usable string property — never return the raw object.
-    const str = String(e);
-    if (str !== '[object Object]' && str !== '{}') return str;
+    const msg = typeof e.message === 'string' ? e.message.trim() : '';
+    if (msg && msg !== '{}' && msg !== '[object Object]') return msg;
+    if (typeof e.error_description === 'string' && e.error_description.trim()) return e.error_description;
+    if (typeof e.error === 'string' && e.error.trim()) return e.error;
+    if (typeof e.msg === 'string' && e.msg.trim()) return e.msg;
+    if (typeof e.name === 'string' && /fetch|network|retryable/i.test(e.name)) return 'fetch failed';
   }
   return '';
 }
