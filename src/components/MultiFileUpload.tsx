@@ -12,6 +12,11 @@ import {
 } from '@/lib/storage';
 import type { FileTab } from '@/lib/types';
 
+function buildBatchTitle(tabLabel: string, count: number): string {
+  const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
+  return `${tabLabel} - مجموعة (${count} ملفات) - ${d}`;
+}
+
 interface QueuedFile {
   id: string;
   file: File;
@@ -47,6 +52,7 @@ export function MultiFileUpload({
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadTimes, setUploadTimes] = useState<number[]>([]);
+  const [batchTitle, setBatchTitle] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
@@ -87,6 +93,7 @@ export function MultiFileUpload({
   function resetAndClose() {
     setQueue([]);
     setUploading(false);
+    setBatchTitle('');
     onClose();
   }
 
@@ -108,6 +115,29 @@ export function MultiFileUpload({
     setUploading(true);
     let successCount = 0;
     let failCount = 0;
+
+    const isBatch = toUpload.length > 1;
+    let batchId: string | null = null;
+
+    if (isBatch) {
+      const title = batchTitle.trim() || buildBatchTitle(tabLabel, toUpload.length);
+      const { data: batch, error: batchErr } = await supabase
+        .from('file_batches')
+        .insert({
+          subject_id: subjectId,
+          tab: activeTab,
+          title,
+          file_count: toUpload.length,
+        })
+        .select('id')
+        .maybeSingle();
+      if (batchErr || !batch) {
+        setUploading(false);
+        onToast({ message: 'فشل إنشاء المجموعة: ' + (batchErr?.message ?? 'خطأ غير معروف'), type: 'error' });
+        return;
+      }
+      batchId = batch.id;
+    }
 
     for (const item of toUpload) {
       setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading' } : q)));
@@ -131,6 +161,7 @@ export function MultiFileUpload({
         file_url: pub.publicUrl,
         file_type: ext,
         file_size: item.file.size,
+        batch_id: batchId,
       });
 
       if (insErr) {
@@ -146,6 +177,12 @@ export function MultiFileUpload({
       setUploadTimes((prev) => [...prev, Date.now()]);
       setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'done' } : q)));
       successCount++;
+    }
+
+    if (isBatch && batchId && successCount === 0) {
+      await supabase.from('file_batches').delete().eq('id', batchId);
+    } else if (isBatch && batchId && successCount > 0 && successCount !== toUpload.length) {
+      await supabase.from('file_batches').update({ file_count: successCount }).eq('id', batchId);
     }
 
     setUploading(false);
@@ -165,6 +202,9 @@ export function MultiFileUpload({
       setTimeout(() => resetAndClose(), 800);
     }
   }
+
+  const validWaiting = validQueue.filter((q) => q.status === 'waiting').length;
+  const showBatchField = validWaiting > 1;
 
   const completedCount = queue.filter((q) => q.status === 'done').length;
   const errorCount = queue.filter((q) => q.status === 'error').length;
@@ -198,6 +238,20 @@ export function MultiFileUpload({
           </p>
           <input ref={fileInputRef} type="file" multiple onChange={handleFileInput} className="hidden" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" />
         </div>
+
+        {showBatchField && (
+          <div className="rounded-xl border border-white/10 bg-ink-900/40 p-3">
+            <label className="mb-1.5 block text-xs font-bold text-slate-400">عنوان المجموعة (اختياري)</label>
+            <input
+              value={batchTitle}
+              onChange={(e) => setBatchTitle(e.target.value)}
+              placeholder={buildBatchTitle(tabLabel, validWaiting)}
+              className="input-sm"
+              disabled={uploading}
+            />
+            <p className="mt-1.5 text-xs text-slate-500">سيتم تجميع {validWaiting} ملفات في مجموعة واحدة قابلة للفتح والتنزيل.</p>
+          </div>
+        )}
 
         {queue.length > 0 && (
           <div className="space-y-2">
@@ -249,7 +303,7 @@ export function MultiFileUpload({
         )}
 
         <div className="flex items-center justify-between gap-2 pt-2">
-          <div className="text-xs text-slate-500">{validQueue.filter((q) => q.status === 'waiting').length} ملف جاهز للرفع</div>
+          <div className="text-xs text-slate-500">{validWaiting} ملف جاهز للرفع{showBatchField ? ' · مجموعة' : ''}</div>
           <div className="flex gap-2">
             <button type="button" onClick={hasUploading ? () => {} : resetAndClose} disabled={hasUploading} className="btn-ghost disabled:opacity-40">
               {hasUploading ? 'جارٍ الرفع...' : 'إلغاء'}
