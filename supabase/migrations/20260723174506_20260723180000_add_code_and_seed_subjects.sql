@@ -27,10 +27,8 @@
    - The UNIQUE constraint on (name, major) prevents duplicate seeding.
 */
 
--- ---------- add code column ----------
 ALTER TABLE subjects ADD COLUMN IF NOT EXISTS code text;
 
--- ---------- make created_by nullable for system-seeded subjects ----------
 DO $$
 BEGIN
   IF EXISTS (
@@ -41,7 +39,6 @@ BEGIN
   END IF;
 END $$;
 
--- ---------- add unique constraint to prevent duplicate seeding ----------
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -51,7 +48,6 @@ BEGIN
   END IF;
 END $$;
 
--- ---------- seed Computer Science subjects (علم الحاسوب) ----------
 INSERT INTO subjects (name, major, code, created_by)
 VALUES
   ('مهارات لغة عربية', 'علم الحاسوب', '0102099', NULL),
@@ -94,7 +90,6 @@ VALUES
   ('تفاعل الانسان مع الحاسوب', 'علم الحاسوب', '1001393', NULL)
 ON CONFLICT (name, major) DO NOTHING;
 
--- ---------- seed Cybersecurity subjects (الأمن السيبراني) ----------
 INSERT INTO subjects (name, major, code, created_by)
 VALUES
   ('مهارات اتصال باللغة العربية (1)', 'الأمن السيبراني', '0000110', NULL),
