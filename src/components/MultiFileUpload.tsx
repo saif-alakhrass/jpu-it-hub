@@ -1,0 +1,265 @@
+import { useState, useRef, useCallback } from 'react';
+import { Icon } from './Icon';
+import { Modal } from './Modal';
+import { supabase } from '@/lib/supabase';
+import {
+  validateFile,
+  formatFileSize,
+  getFileIcon,
+  canUploadNow,
+  UPLOAD_MAX_PER_WINDOW,
+  MAX_FILE_SIZE_MB,
+} from '@/lib/storage';
+import type { FileTab } from '@/lib/types';
+
+interface QueuedFile {
+  id: string;
+  file: File;
+  title: string;
+  status: 'waiting' | 'uploading' | 'done' | 'error';
+  error?: string;
+}
+
+interface MultiFileUploadProps {
+  open: boolean;
+  onClose: () => void;
+  subjectId: string;
+  activeTab: FileTab;
+  userId: string;
+  canPublishDirectly: boolean;
+  tabLabel: string;
+  onUploaded: () => void;
+  onToast: (t: { message: string; type: 'success' | 'error' }) => void;
+}
+
+export function MultiFileUpload({
+  open,
+  onClose,
+  subjectId,
+  activeTab,
+  userId,
+  canPublishDirectly,
+  tabLabel,
+  onUploaded,
+  onToast,
+}: MultiFileUploadProps) {
+  const [queue, setQueue] = useState<QueuedFile[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadTimes, setUploadTimes] = useState<number[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const addFiles = useCallback((fileList: FileList | File[]) => {
+    const arr = Array.from(fileList);
+    const newItems: QueuedFile[] = [];
+    for (const f of arr) {
+      const v = validateFile(f);
+      newItems.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}-${f.name}`,
+        file: f,
+        title: f.name.replace(/\.[^.]+$/, ''),
+        status: v.ok ? 'waiting' : 'error',
+        error: v.ok ? undefined : v.message,
+      });
+    }
+    setQueue((prev) => [...prev, ...newItems]);
+  }, []);
+
+  function removeFile(id: string) {
+    setQueue((prev) => prev.filter((q) => q.id !== id));
+  }
+
+  function updateTitle(id: string, title: string) {
+    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, title } : q)));
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files.length > 0) addFiles(e.dataTransfer.files);
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files && e.target.files.length > 0) addFiles(e.target.files);
+    e.target.value = '';
+  }
+
+  function resetAndClose() {
+    setQueue([]);
+    setUploading(false);
+    onClose();
+  }
+
+  const validQueue = queue.filter((q) => q.status !== 'error');
+  const hasUploading = queue.some((q) => q.status === 'uploading');
+
+  async function handleBatchUpload() {
+    const toUpload = queue.filter((q) => q.status === 'waiting');
+    if (toUpload.length === 0) return;
+
+    if (!canUploadNow([...uploadTimes, ...Array(toUpload.length).fill(Date.now())])) {
+      onToast({
+        message: `لقد تجاوزت الحد المسموح: ${UPLOAD_MAX_PER_WINDOW} ملفات كل 10 دقائق. حاول لاحقًا.`,
+        type: 'error',
+      });
+      return;
+    }
+
+    setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const item of toUpload) {
+      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading' } : q)));
+
+      const ext = item.file.name.split('.').pop() ?? 'bin';
+      const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
+      if (upErr) {
+        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: 'فشل رفع الملف' } : q)));
+        failCount++;
+        continue;
+      }
+
+      const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
+      const { error: insErr } = await supabase.from('files').insert({
+        subject_id: subjectId,
+        tab: activeTab,
+        title: item.title.trim() || item.file.name,
+        storage_path: path,
+        file_url: pub.publicUrl,
+        file_type: ext,
+        file_size: item.file.size,
+      });
+
+      if (insErr) {
+        await supabase.storage.from('files').remove([path]);
+        let msg = 'فشل حفظ الملف';
+        if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
+        else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
+        failCount++;
+        continue;
+      }
+
+      setUploadTimes((prev) => [...prev, Date.now()]);
+      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'done' } : q)));
+      successCount++;
+    }
+
+    setUploading(false);
+
+    if (successCount > 0) {
+      onToast({
+        message: canPublishDirectly ? `تم نشر ${successCount} ملف بنجاح` : `تم رفع ${successCount} ملف وهم قيد المراجعة`,
+        type: 'success',
+      });
+      onUploaded();
+    }
+    if (failCount > 0 && successCount === 0) {
+      onToast({ message: `فشل رفع ${failCount} ملف`, type: 'error' });
+    }
+
+    if (successCount > 0 && failCount === 0) {
+      setTimeout(() => resetAndClose(), 800);
+    }
+  }
+
+  const completedCount = queue.filter((q) => q.status === 'done').length;
+  const errorCount = queue.filter((q) => q.status === 'error').length;
+  const progress = queue.length > 0 ? Math.round((completedCount / queue.length) * 100) : 0;
+
+  return (
+    <Modal open={open} onClose={hasUploading ? () => {} : resetAndClose} title={`رفع ملفات - ${tabLabel}`} maxWidth="max-w-2xl">
+      <div className="space-y-4">
+        {!canPublishDirectly && (
+          <div className="flex items-start gap-2 rounded-xl border border-accent-500/30 bg-accent-500/10 p-3 text-sm text-accent-400">
+            <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
+            <span>ستحتاج ملفاتك إلى موافقة المدير قبل نشرها للجميع.</span>
+          </div>
+        )}
+
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition ${
+            dragOver ? 'border-brand-500 bg-brand-500/10' : 'border-white/10 bg-ink-900/40 hover:border-brand-500/50 hover:bg-ink-900/60'
+          }`}
+        >
+          <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-brand-500/15 text-brand-400">
+            <Icon name="Upload" className="h-7 w-7" />
+          </div>
+          <p className="font-bold text-slate-200">اسحب الملفات هنا أو انقر للاختيار</p>
+          <p className="mt-1 text-xs text-slate-500">
+            الحد الأقصى {MAX_FILE_SIZE_MB} ميجابايت لكل ملف · PDF, DOC, PPT, PNG, JPG
+          </p>
+          <input ref={fileInputRef} type="file" multiple onChange={handleFileInput} className="hidden" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" />
+        </div>
+
+        {queue.length > 0 && (
+          <div className="space-y-2">
+            {uploading && (
+              <div className="mb-2">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                  <span>التقدم: {completedCount} / {queue.length - errorCount}</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-ink-700">
+                  <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+            )}
+
+            {queue.map((q) => (
+              <div key={q.id} className={`flex items-center gap-3 rounded-xl border p-3 transition ${
+                q.status === 'done' ? 'border-success-500/30 bg-success-500/5' :
+                q.status === 'error' ? 'border-danger-500/30 bg-danger-500/5' :
+                q.status === 'uploading' ? 'border-brand-500/40 bg-brand-500/5' :
+                'border-white/5 bg-ink-900/40'
+              }`}>
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
+                  <Icon name={getFileIcon(q.file.name.split('.').pop() ?? '')} className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  {q.status === 'waiting' ? (
+                    <input value={q.title} onChange={(e) => updateTitle(q.id, e.target.value)} placeholder="عنوان الملف..." className="input-sm" disabled={uploading} />
+                  ) : (
+                    <p className="truncate text-sm font-bold text-slate-200">{q.title || q.file.name}</p>
+                  )}
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                    <span>{formatFileSize(q.file.size)}</span>
+                    <span>·</span>
+                    <span className="uppercase">{q.file.name.split('.').pop()}</span>
+                    {q.status === 'uploading' && <span className="flex items-center gap-1 text-brand-400"><Icon name="Loader2" className="h-3 w-3 animate-spin" /> جارٍ الرفع...</span>}
+                    {q.status === 'done' && <span className="flex items-center gap-1 text-success-400"><Icon name="Check" className="h-3 w-3" /> تم</span>}
+                    {q.status === 'error' && <span className="flex items-center gap-1 text-danger-400"><Icon name="AlertCircle" className="h-3 w-3" /> {q.error}</span>}
+                  </div>
+                </div>
+                {(q.status === 'waiting' || q.status === 'error') && !uploading && (
+                  <button onClick={() => removeFile(q.id)} className="rounded-lg p-2 text-slate-500 transition hover:bg-danger-500/10 hover:text-danger-400" title="إزالة">
+                    <Icon name="X" className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 pt-2">
+          <div className="text-xs text-slate-500">{validQueue.filter((q) => q.status === 'waiting').length} ملف جاهز للرفع</div>
+          <div className="flex gap-2">
+            <button type="button" onClick={hasUploading ? () => {} : resetAndClose} disabled={hasUploading} className="btn-ghost disabled:opacity-40">
+              {hasUploading ? 'جارٍ الرفع...' : 'إلغاء'}
+            </button>
+            <button type="button" onClick={handleBatchUpload} disabled={uploading || validQueue.filter((q) => q.status === 'waiting').length === 0} className="btn-primary disabled:opacity-40">
+              {uploading ? <><Icon name="Loader2" className="h-4 w-4 animate-spin" /> جارٍ الرفع...</> : <><Icon name="Upload" className="h-4 w-4" /> رفع {validQueue.filter((q) => q.status === 'waiting').length} ملف</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}

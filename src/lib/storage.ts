@@ -35,6 +35,21 @@ export const ALLOWED_EXTENSIONS: readonly string[] = [
   'pdf', 'doc', 'docx', 'ppt', 'pptx', 'png', 'jpg', 'jpeg',
 ];
 
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function getFileIcon(ext: string): string {
+  const e = ext.toLowerCase();
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(e)) return 'Image';
+  if (e === 'pdf') return 'FileText';
+  if (['doc', 'docx'].includes(e)) return 'FileType';
+  if (['ppt', 'pptx'].includes(e)) return 'Presentation';
+  return 'File';
+}
+
 export function validateFile(file: File): { ok: true } | { ok: false; message: string } {
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return { ok: false, message: `حجم الملف يتجاوز الحد الأقصى (${MAX_FILE_SIZE_MB} ميجابايت)` };
