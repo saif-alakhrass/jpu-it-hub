@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { mapAuthError } from '@/lib/authErrors';
 import type { Profile, Role } from '@/lib/types';
 
@@ -77,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signIn(email: string, password: string) {
+    if (!isSupabaseConfigured) return { error: 'مفاتيح الاتصال بقاعدة البيانات غير متوفرة', notice: null };
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء تسجيل الدخول'), notice: null };
@@ -87,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signUp(email: string, password: string, fullName: string) {
+    if (!isSupabaseConfigured) return { error: 'مفاتيح الاتصال بقاعدة البيانات غير متوفرة', notice: null };
     try {
       const { data, error } = await supabase.auth.signUp({
         email,

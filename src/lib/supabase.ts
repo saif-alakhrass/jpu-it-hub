@@ -3,16 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-if (!url || !anon) {
-  throw new Error(
-    'متغيرات Supabase غير مُهيأة. تأكد من وجود VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY في ملف .env'
-  );
-}
+export const isSupabaseConfigured = Boolean(url && anon);
 
-export const supabase = createClient(url, anon, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
+export const supabase = createClient(
+  url || 'https://placeholder.supabase.co',
+  anon || 'placeholder-anon-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
   },
-});
+);

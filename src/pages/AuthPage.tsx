@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 export function AuthPage() {
   const { signIn, signUp, signInWithGoogle } = useAuth();
@@ -44,6 +45,12 @@ export function AuthPage() {
           <h1 className="text-2xl font-extrabold text-slate-100">{mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}</h1>
           <p className="mt-1 text-sm text-slate-400">{mode === 'signin' ? 'ادخل للوصول لرفع الموارد' : 'انضم لمجتمع JPU-IT'}</p>
         </div>
+        {!isSupabaseConfigured && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-accent-500/40 bg-accent-500/10 p-3 text-sm text-accent-400">
+            <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
+            <span>مفاتيح الاتصال بقاعدة البيانات غير متوفرة</span>
+          </div>
+        )}
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger-500/40 bg-danger-500/10 p-3 text-sm text-danger-400">
             <Icon name="AlertCircle" className="h-5 w-5 shrink-0" /><span>{error}</span>
