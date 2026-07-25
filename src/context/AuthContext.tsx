@@ -12,8 +12,8 @@ interface AuthState {
   isAdmin: boolean;
   isTrusted: boolean;
   canPublishDirectly: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: string | null; notice?: string | null }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null; notice?: string | null }>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -54,14 +54,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
-      setSession(sess);
-      const uid = sess?.user?.id;
-      if (uid) {
-        loadProfile(uid);
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
+      (async () => {
+        setSession(sess);
+        const uid = sess?.user?.id;
+        if (uid) {
+          await loadProfile(uid);
+        } else {
+          setProfile(null);
+        }
+        setLoading(false);
+      })();
     });
 
     return () => {
@@ -77,10 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signIn(email: string, password: string) {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء تسجيل الدخول') };
-      return { error: null };
+      if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء تسجيل الدخول'), notice: null };
+      return { error: null, notice: null };
     } catch (err) {
-      return { error: mapAuthError(err, 'حدث خطأ أثناء تسجيل الدخول') };
+      return { error: mapAuthError(err, 'حدث خطأ أثناء تسجيل الدخول'), notice: null };
     }
   }
 
@@ -92,11 +94,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         options: { data: { full_name: fullName } },
       });
       if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء إنشاء الحساب') };
-      if (data.user) {
+      if (data.user && data.session) {
         setSession(data.session);
-        if (data.session?.user?.id) await loadProfile(data.session.user.id);
+        if (data.session.user?.id) await loadProfile(data.session.user.id);
+        return { error: null, notice: null };
       }
-      return { error: null };
+      if (data.user && !data.session) {
+        return {
+          error: null,
+          notice: 'تم إنشاء الحساب بنجاح. يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول.',
+        };
+      }
+      return { error: null, notice: null };
     } catch (err) {
       return { error: mapAuthError(err, 'حدث خطأ أثناء إنشاء الحساب') };
     }

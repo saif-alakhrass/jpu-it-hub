@@ -19,9 +19,12 @@ const AUTH_ERROR_MAP: { match: RegExp; message: string }[] = [
 
 function extractMessage(error: unknown): string {
   if (typeof error === 'string') return error;
-  if (error && typeof error === 'object' && 'message' in error) {
-    const msg = (error as { message?: unknown }).message;
-    return typeof msg === 'string' ? msg : '';
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    if (typeof e.message === 'string' && e.message) return e.message;
+    if (typeof e.error_description === 'string' && e.error_description) return e.error_description;
+    if (typeof e.error === 'string' && e.error) return e.error;
+    if (typeof e.msg === 'string' && e.msg) return e.msg;
   }
   if (error instanceof Error) return error.message;
   return '';

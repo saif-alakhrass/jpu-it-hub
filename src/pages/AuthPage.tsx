@@ -11,15 +11,18 @@ export function AuthPage() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setLoading(true);
     try {
       const res = mode === 'signin' ? await signIn(email, password) : await signUp(email, password, fullName);
       if (res.error) { setError(res.error); return; }
+      if (res.notice) { setNotice(res.notice); return; }
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع، حاول مرة أخرى.');
@@ -44,6 +47,11 @@ export function AuthPage() {
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-danger-500/40 bg-danger-500/10 p-3 text-sm text-danger-400">
             <Icon name="AlertCircle" className="h-5 w-5 shrink-0" /><span>{error}</span>
+          </div>
+        )}
+        {notice && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-400">
+            <Icon name="CheckCircle" className="h-5 w-5 shrink-0" /><span>{notice}</span>
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -75,7 +83,7 @@ export function AuthPage() {
         </button>
         <p className="mt-6 text-center text-sm text-slate-400">
           {mode === 'signin' ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}
-          <button onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); }} className="ms-1 font-bold text-brand-400 hover:text-brand-300">
+          <button onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setNotice(null); }} className="ms-1 font-bold text-brand-400 hover:text-brand-300">
             {mode === 'signin' ? 'أنشئ حساباً' : 'سجّل الدخول'}
           </button>
         </p>
