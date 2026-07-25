@@ -10,6 +10,9 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
 import { TABS, type Bookmark, type FileRow, type FileTab, type Subject } from '@/lib/types';
+import { getSignedFileUrl, canUploadNow, UPLOAD_MAX_PER_WINDOW, validateFile } from '@/lib/storage';
+import { FileCardSkeletonList } from '@/components/Skeleton';
+import { EmptyState } from '@/components/EmptyState';
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly } = useAuth();
@@ -23,6 +26,9 @@ export function SubjectPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [bookmarkForEditor, setBookmarkForEditor] = useState<{ bookmark: Bookmark; folders: string[] } | null>(null);
+
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [uploadTimes, setUploadTimes] = useState<number[]>([]);
 
   async function loadSubject() {
     const { data } = await supabase
@@ -41,6 +47,19 @@ export function SubjectPage() {
       .order('created_at', { ascending: false });
     setFiles((data ?? []) as unknown as FileRow[]);
   }
+
+  useEffect(() => {
+    if (files.length === 0) return;
+    (async () => {
+      const entries = await Promise.all(
+        files.map(async (f) => {
+          const url = await getSignedFileUrl(f.storage_path);
+          return [f.id, url] as const;
+        }),
+      );
+      setSignedUrls(Object.fromEntries(entries.filter(([, u]) => u) as [string, string][]));
+    })();
+  }, [files]);
 
   useEffect(() => {
     (async () => {
@@ -75,6 +94,20 @@ export function SubjectPage() {
       return;
     }
 
+    const validation = validateFile(file);
+    if (!validation.ok) {
+      setToast({ message: validation.message, type: 'error' });
+      return;
+    }
+
+    if (!canUploadNow(uploadTimes)) {
+      setToast({
+        message: `لقد تجاوزت الحد المسموح: ${UPLOAD_MAX_PER_WINDOW} ملفات كل 10 دقائق. حاول لاحقًا.`,
+        type: 'error',
+      });
+      return;
+    }
+
     const ext = file.name.split('.').pop() ?? 'bin';
     const path = `${profile!.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
     const { error: upErr } = await supabase.storage.from('files').upload(path, file, { upsert: false });
@@ -90,11 +123,20 @@ export function SubjectPage() {
       storage_path: path,
       file_url: pub.publicUrl,
       file_type: ext,
+      file_size: file.size,
     });
     if (insErr) {
-      setToast({ message: 'فشل حفظ الملف: ' + insErr.message, type: 'error' });
+      if (insErr.message.includes('Rate limit')) {
+        setToast({ message: 'تم تجاوز حد الرفع المسموح. حاول لاحقًا.', type: 'error' });
+      } else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) {
+        setToast({ message: 'تم رفض الملف: صيغة غير مدعومة أو حجم كبير.', type: 'error' });
+      } else {
+        setToast({ message: 'فشل حفظ الملف: ' + insErr.message, type: 'error' });
+      }
+      await supabase.storage.from('files').remove([path]);
       return;
     }
+    setUploadTimes((prev) => [...prev, Date.now()]);
     setToast({
       message: canPublishDirectly ? 'تم نشر الملف مباشرة' : 'تم رفع الملف وهو قيد المراجعة',
       type: 'success',
@@ -132,8 +174,10 @@ export function SubjectPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-20 text-center">
-        <Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" />
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <div className="card mb-6 h-32 animate-pulse" />
+        <div className="mb-6 h-12 w-full animate-pulse rounded-lg bg-ink-700/40" />
+        <FileCardSkeletonList count={4} />
       </div>
     );
   }
@@ -204,15 +248,13 @@ export function SubjectPage() {
       </div>
 
       {tabFiles.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Icon name="FolderOpen" className="mx-auto mb-3 h-12 w-12 text-slate-600" />
-          <p className="text-slate-400">لا توجد ملفات في هذا القسم بعد.</p>
-          {session && (
-            <button onClick={() => setUploadOpen(true)} className="btn-ghost mt-4">
-              <Icon name="Upload" className="h-4 w-4" /> ارفع أول ملف
-            </button>
-          )}
-        </div>
+        <EmptyState
+          icon="FolderOpen"
+          title="لا توجد ملفات بعد"
+          message={session ? "كن أول من يرفع ملفًا في هذا القسم!" : "سجل الدخول لتبدأ برفع الملفات."}
+          ctaLabel={session ? "كن أول من يرفع!" : "تسجيل الدخول"}
+          onCta={session ? () => setUploadOpen(true) : () => navigate('/auth')}
+        />
       ) : (
         <div className="grid gap-3">
           {tabFiles.map((f) => {
@@ -261,10 +303,16 @@ export function SubjectPage() {
                     />
                   )}
                   {!pending || isOwn ? (
-                    <a href={f.file_url} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
-                      <Icon name="Eye" className="h-4 w-4" />
-                      <span className="hidden sm:inline">عرض</span>
-                    </a>
+                    signedUrls[f.id] ? (
+                      <a href={signedUrls[f.id] ?? ''} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
+                        <Icon name="Eye" className="h-4 w-4" />
+                        <span className="hidden sm:inline">عرض</span>
+                      </a>
+                    ) : (
+                      <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
+                        <Icon name="Loader2" className="h-3 w-3 animate-spin" />
+                      </span>
+                    )
                   ) : (
                     <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
                       <Icon name="Lock" className="h-3 w-3" /> مخفي
