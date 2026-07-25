@@ -65,7 +65,7 @@ describe('list helpers after approval', () => {
     const pending = [makeFile({ id: 'a', status: 'pending' }), makeFile({ id: 'b', status: 'pending' })];
     const next = removeFromPending(pending, 'a');
     expect(next).toHaveLength(1);
-    expect(next[0].id).toBe('b');
+    expect(next[0]?.id).toBe('b');
   });
 
   it('updates the file status in the full file list', () => {
