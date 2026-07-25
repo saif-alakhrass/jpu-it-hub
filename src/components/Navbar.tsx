@@ -6,8 +6,8 @@ import { useRouter } from '@/lib/router';
 function initials(name: string | null | undefined): string {
   if (!name) return '؟';
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2);
-  return (parts[0][0] ?? '') + (parts[1][0] ?? '');
+  if (parts.length === 1) return (parts[0] ?? '').slice(0, 2);
+  return ((parts[0] ?? '')[0] ?? '') + ((parts[1] ?? '')[0] ?? '');
 }
 
 const ROLE_BADGE: Record<string, { label: string; cls: string; icon: string }> = {
@@ -35,7 +35,7 @@ export function Navbar() {
 
   const roleBadge = (() => {
     if (!profile) return null;
-    const info = ROLE_BADGE[profile.role] ?? ROLE_BADGE.student;
+    const info = ROLE_BADGE[profile.role] ?? ROLE_BADGE.student!;
     return (
       <span className={`badge border ${info.cls}`}>
         <Icon name={info.icon} className="h-3 w-3" />
