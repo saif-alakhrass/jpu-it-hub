@@ -3,6 +3,7 @@ import { Icon } from '@/components/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { mapAuthError } from '@/lib/authErrors';
 
 export function AuthPage() {
   const { signIn, signUp, signInWithGoogle } = useAuth();
@@ -26,7 +27,7 @@ export function AuthPage() {
       if (res.notice) { setNotice(res.notice); return; }
       navigate('/');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع، حاول مرة أخرى.');
+      setError(mapAuthError(err, 'حدث خطأ غير متوقع، حاول مرة أخرى.'));
     } finally {
       setLoading(false);
     }

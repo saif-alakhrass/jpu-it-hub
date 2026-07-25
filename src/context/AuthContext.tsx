@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         options: { data: { full_name: fullName } },
       });
-      if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء إنشاء الحساب') };
+      if (error) return { error: mapAuthError(error, 'حدث خطأ أثناء إنشاء الحساب'), notice: null };
       if (data.user && data.session) {
         setSession(data.session);
         if (data.session.user?.id) await loadProfile(data.session.user.id);
@@ -109,11 +109,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return { error: null, notice: null };
     } catch (err) {
-      return { error: mapAuthError(err, 'حدث خطأ أثناء إنشاء الحساب') };
+      return { error: mapAuthError(err, 'حدث خطأ أثناء إنشاء الحساب'), notice: null };
     }
   }
 
   async function signInWithGoogle() {
+    if (!isSupabaseConfigured) return;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },

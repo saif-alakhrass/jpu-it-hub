@@ -18,15 +18,20 @@ const AUTH_ERROR_MAP: { match: RegExp; message: string }[] = [
 ];
 
 function extractMessage(error: unknown): string {
+  if (error == null) return '';
   if (typeof error === 'string') return error;
-  if (error && typeof error === 'object') {
+  if (typeof error === 'number' || typeof error === 'boolean') return String(error);
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object') {
     const e = error as Record<string, unknown>;
     if (typeof e.message === 'string' && e.message) return e.message;
     if (typeof e.error_description === 'string' && e.error_description) return e.error_description;
     if (typeof e.error === 'string' && e.error) return e.error;
     if (typeof e.msg === 'string' && e.msg) return e.msg;
+    // Object with no usable string property — never return the raw object.
+    const str = String(e);
+    if (str !== '[object Object]' && str !== '{}') return str;
   }
-  if (error instanceof Error) return error.message;
   return '';
 }
 
