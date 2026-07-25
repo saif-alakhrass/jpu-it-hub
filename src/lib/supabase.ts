@@ -1,13 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://kkkibrrxfeziyqoutred.supabase.co';
-const supabaseAnonKey = 'sb_publishable_-eHn9ppB1fds92hZkYp5zw_lHmUMcrD';
+// Supabase credentials are read from environment variables, never hardcoded.
+const url =
+  (import.meta.env.VITE_SUPABASE_URL as string) ||
+  (import.meta.env.SUPABASE_URL as string) ||
+  '';
+const anon =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
+  (import.meta.env.SUPABASE_ANON_KEY as string) ||
+  '';
 
-export const isSupabaseConfigured = true;
+export const isSupabaseConfigured = Boolean(url && anon);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
+export const supabase = createClient(
+  url || 'https://placeholder.supabase.co',
+  anon || 'placeholder-anon-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
   },
-});
+);
