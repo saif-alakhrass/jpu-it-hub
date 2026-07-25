@@ -128,6 +128,7 @@ export function MultiFileUpload({
           tab: activeTab,
           title,
           file_count: toUpload.length,
+          status: canPublishDirectly ? 'approved' : 'pending',
         })
         .select('id')
         .maybeSingle();
@@ -162,6 +163,7 @@ export function MultiFileUpload({
         file_type: ext,
         file_size: item.file.size,
         batch_id: batchId,
+        status: canPublishDirectly ? 'approved' : 'pending',
       });
 
       if (insErr) {
