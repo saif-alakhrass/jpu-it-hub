@@ -16,7 +16,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
 
 export function SubjectPage() {
-  const { session, profile, canPublishDirectly } = useAuth();
+  const { session, profile, canPublishDirectly, isAdmin } = useAuth();
   const { navigate, route } = useRouter();
   const subjectId = route.params.id ?? '';
   const [subject, setSubject] = useState<Subject | null>(null);
@@ -29,6 +29,8 @@ export function SubjectPage() {
   const [bookmarkForEditor, setBookmarkForEditor] = useState<{ bookmark: Bookmark; folders: string[] } | null>(null);
 
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [deleteTarget, setDeleteTarget] = useState<FileRow | null>(null);
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
 
   async function loadSubject() {
     const { data } = await supabase
@@ -78,6 +80,24 @@ export function SubjectPage() {
   }, [session, files]);
 
   const tabFiles = files.filter((f) => f.tab === activeTab);
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const file = deleteTarget;
+    setDeletingFileId(file.id);
+    if (file.storage_path) {
+      await supabase.storage.from('files').remove([file.storage_path]);
+    }
+    const { error } = await supabase.from('files').delete().eq('id', file.id);
+    setDeletingFileId(null);
+    setDeleteTarget(null);
+    if (error) {
+      setToast({ message: 'فشل حذف الملف: ' + error.message, type: 'error' });
+      return;
+    }
+    setFiles((prev) => prev.filter((f) => f.id !== file.id));
+    setToast({ message: `تم حذف الملف "${file.title}"`, type: 'success' });
+  }
 
   async function handleToggleBookmark(file: FileRow) {
     if (!session) {
@@ -238,8 +258,8 @@ export function SubjectPage() {
                   {!pending || isOwn ? (
                     signedUrls[f.id] ? (
                       <a href={signedUrls[f.id] ?? ''} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
-                        <Icon name="Eye" className="h-4 w-4" />
-                        <span className="hidden sm:inline">عرض</span>
+                        <Icon name="Download" className="h-4 w-4" />
+                        <span className="hidden sm:inline">تنزيل</span>
                       </a>
                     ) : (
                       <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
@@ -250,6 +270,20 @@ export function SubjectPage() {
                     <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
                       <Icon name="Lock" className="h-3 w-3" /> مخفي
                     </span>
+                  )}
+                  {isAdmin && (
+                    <button
+                      onClick={() => setDeleteTarget(f)}
+                      className="rounded-lg p-2 text-danger-400 transition hover:bg-danger-500/10"
+                      title="حذف الملف"
+                      disabled={deletingFileId === f.id}
+                    >
+                      {deletingFileId === f.id ? (
+                        <Icon name="Loader2" className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Icon name="Trash2" className="h-4 w-4" />
+                      )}
+                    </button>
                   )}
                 </div>
               </div>
@@ -271,6 +305,27 @@ export function SubjectPage() {
           onToast={setToast}
         />
       )}
+
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="تأكيد الحذف">
+        {deleteTarget && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
+              <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-bold">هل أنت متأكد من حذف هذا الملف؟</p>
+                <p className="mt-1 text-sm">سيُحذف "{deleteTarget.title}" نهائياً ولا يمكن التراجع عن هذا الإجراء.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setDeleteTarget(null)} className="btn-ghost" disabled={!!deletingFileId}>إلغاء</button>
+              <button onClick={handleConfirmDelete} className="btn-danger" disabled={!!deletingFileId}>
+                {deletingFileId ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
+                حذف
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
