@@ -152,9 +152,7 @@ export function MultiFileUpload({
 
     if (successCount > 0) {
       onToast({
-        message: canPublishDirectly
-          ? `تم نشر ${successCount} ملف بنجاح`
-          : `تم رفع ${successCount} ملف وهم قيد المراجعة`,
+        message: canPublishDirectly ? `تم نشر ${successCount} ملف بنجاح` : `تم رفع ${successCount} ملف وهم قيد المراجعة`,
         type: 'success',
       });
       onUploaded();
@@ -163,11 +161,9 @@ export function MultiFileUpload({
       onToast({ message: `فشل رفع ${failCount} ملف`, type: 'error' });
     }
 
-    const allDone = queue.every((q) => q.status === 'done' || q.id === '');
     if (successCount > 0 && failCount === 0) {
       setTimeout(() => resetAndClose(), 800);
     }
-    void allDone;
   }
 
   const completedCount = queue.filter((q) => q.status === 'done').length;
@@ -184,16 +180,13 @@ export function MultiFileUpload({
           </div>
         )}
 
-        {/* Drop zone */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition ${
-            dragOver
-              ? 'border-brand-500 bg-brand-500/10'
-              : 'border-white/10 bg-ink-900/40 hover:border-brand-500/50 hover:bg-ink-900/60'
+            dragOver ? 'border-brand-500 bg-brand-500/10' : 'border-white/10 bg-ink-900/40 hover:border-brand-500/50 hover:bg-ink-900/60'
           }`}
         >
           <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-brand-500/15 text-brand-400">
@@ -203,17 +196,9 @@ export function MultiFileUpload({
           <p className="mt-1 text-xs text-slate-500">
             الحد الأقصى {MAX_FILE_SIZE_MB} ميجابايت لكل ملف · PDF, DOC, PPT, PNG, JPG
           </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={handleFileInput}
-            className="hidden"
-            accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg"
-          />
+          <input ref={fileInputRef} type="file" multiple onChange={handleFileInput} className="hidden" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" />
         </div>
 
-        {/* Queue list */}
         {queue.length > 0 && (
           <div className="space-y-2">
             {uploading && (
@@ -223,39 +208,24 @@ export function MultiFileUpload({
                   <span>{progress}%</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-ink-700">
-                  <div
-                    className="h-full rounded-full bg-brand-500 transition-all duration-300"
-                    style={{ width: `${progress}%` }}
-                  />
+                  <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${progress}%` }} />
                 </div>
               </div>
             )}
 
             {queue.map((q) => (
-              <div
-                key={q.id}
-                className={`flex items-center gap-3 rounded-xl border p-3 transition ${
-                  q.status === 'done'
-                    ? 'border-success-500/30 bg-success-500/5'
-                    : q.status === 'error'
-                    ? 'border-danger-500/30 bg-danger-500/5'
-                    : q.status === 'uploading'
-                    ? 'border-brand-500/40 bg-brand-500/5'
-                    : 'border-white/5 bg-ink-900/40'
-                }`}
-              >
+              <div key={q.id} className={`flex items-center gap-3 rounded-xl border p-3 transition ${
+                q.status === 'done' ? 'border-success-500/30 bg-success-500/5' :
+                q.status === 'error' ? 'border-danger-500/30 bg-danger-500/5' :
+                q.status === 'uploading' ? 'border-brand-500/40 bg-brand-500/5' :
+                'border-white/5 bg-ink-900/40'
+              }`}>
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
                   <Icon name={getFileIcon(q.file.name.split('.').pop() ?? '')} className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
                   {q.status === 'waiting' ? (
-                    <input
-                      value={q.title}
-                      onChange={(e) => updateTitle(q.id, e.target.value)}
-                      placeholder="عنوان الملف..."
-                      className="input-sm"
-                      disabled={uploading}
-                    />
+                    <input value={q.title} onChange={(e) => updateTitle(q.id, e.target.value)} placeholder="عنوان الملف..." className="input-sm" disabled={uploading} />
                   ) : (
                     <p className="truncate text-sm font-bold text-slate-200">{q.title || q.file.name}</p>
                   )}
@@ -263,38 +233,13 @@ export function MultiFileUpload({
                     <span>{formatFileSize(q.file.size)}</span>
                     <span>·</span>
                     <span className="uppercase">{q.file.name.split('.').pop()}</span>
-                    {q.status === 'uploading' && (
-                      <span className="flex items-center gap-1 text-brand-400">
-                        <Icon name="Loader2" className="h-3 w-3 animate-spin" /> جارٍ الرفع...
-                      </span>
-                    )}
-                    {q.status === 'done' && (
-                      <span className="flex items-center gap-1 text-success-400">
-                        <Icon name="Check" className="h-3 w-3" /> تم
-                      </span>
-                    )}
-                    {q.status === 'error' && (
-                      <span className="flex items-center gap-1 text-danger-400">
-                        <Icon name="AlertCircle" className="h-3 w-3" /> {q.error}
-                      </span>
-                    )}
+                    {q.status === 'uploading' && <span className="flex items-center gap-1 text-brand-400"><Icon name="Loader2" className="h-3 w-3 animate-spin" /> جارٍ الرفع...</span>}
+                    {q.status === 'done' && <span className="flex items-center gap-1 text-success-400"><Icon name="Check" className="h-3 w-3" /> تم</span>}
+                    {q.status === 'error' && <span className="flex items-center gap-1 text-danger-400"><Icon name="AlertCircle" className="h-3 w-3" /> {q.error}</span>}
                   </div>
                 </div>
-                {q.status === 'waiting' && !uploading && (
-                  <button
-                    onClick={() => removeFile(q.id)}
-                    className="rounded-lg p-2 text-slate-500 transition hover:bg-danger-500/10 hover:text-danger-400"
-                    title="إزالة"
-                  >
-                    <Icon name="X" className="h-4 w-4" />
-                  </button>
-                )}
-                {q.status === 'error' && !uploading && (
-                  <button
-                    onClick={() => removeFile(q.id)}
-                    className="rounded-lg p-2 text-slate-500 transition hover:bg-danger-500/10 hover:text-danger-400"
-                    title="إزالة"
-                  >
+                {(q.status === 'waiting' || q.status === 'error') && !uploading && (
+                  <button onClick={() => removeFile(q.id)} className="rounded-lg p-2 text-slate-500 transition hover:bg-danger-500/10 hover:text-danger-400" title="إزالة">
                     <Icon name="X" className="h-4 w-4" />
                   </button>
                 )}
@@ -303,31 +248,14 @@ export function MultiFileUpload({
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex items-center justify-between gap-2 pt-2">
-          <div className="text-xs text-slate-500">
-            {validQueue.filter((q) => q.status === 'waiting').length} ملف جاهز للرفع
-          </div>
+          <div className="text-xs text-slate-500">{validQueue.filter((q) => q.status === 'waiting').length} ملف جاهز للرفع</div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={hasUploading ? () => {} : resetAndClose}
-              disabled={hasUploading}
-              className="btn-ghost disabled:opacity-40"
-            >
+            <button type="button" onClick={hasUploading ? () => {} : resetAndClose} disabled={hasUploading} className="btn-ghost disabled:opacity-40">
               {hasUploading ? 'جارٍ الرفع...' : 'إلغاء'}
             </button>
-            <button
-              type="button"
-              onClick={handleBatchUpload}
-              disabled={uploading || validQueue.filter((q) => q.status === 'waiting').length === 0}
-              className="btn-primary disabled:opacity-40"
-            >
-              {uploading ? (
-                <><Icon name="Loader2" className="h-4 w-4 animate-spin" /> جارٍ الرفع...</>
-              ) : (
-                <><Icon name="Upload" className="h-4 w-4" /> رفع {validQueue.filter((q) => q.status === 'waiting').length} ملف</>
-              )}
+            <button type="button" onClick={handleBatchUpload} disabled={uploading || validQueue.filter((q) => q.status === 'waiting').length === 0} className="btn-primary disabled:opacity-40">
+              {uploading ? <><Icon name="Loader2" className="h-4 w-4 animate-spin" /> جارٍ الرفع...</> : <><Icon name="Upload" className="h-4 w-4" /> رفع {validQueue.filter((q) => q.status === 'waiting').length} ملف</>}
             </button>
           </div>
         </div>
