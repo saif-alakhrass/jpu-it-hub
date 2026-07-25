@@ -90,7 +90,7 @@ export function ProfilePage() {
               <h1 className="text-xl font-extrabold text-slate-100">{profile.full_name ?? 'مستخدم'}</h1>
               <p className="mt-0.5 text-sm text-slate-400" dir="ltr">{session.user.email}</p>
             </div>
-            <span className={`badge border self-start ${roleInfo.cls}"><Icon name={roleInfo.icon} className="h-3.5 w-3.5" />{roleInfo.label}</span>
+            <span className={`badge border self-start ${roleInfo.cls}`}><Icon name={roleInfo.icon} className="h-3.5 w-3.5" />{roleInfo.label}</span>
           </div>
         </div>
       </div>
