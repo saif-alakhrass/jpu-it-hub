@@ -16,14 +16,62 @@ import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
 
 type DeleteTarget =
-  | { kind: 'file'; file: FileRow; batchId?: string | null }
-  | { kind: 'batch'; batch: FileBatch }
+  | { kind: 'file'; file: FileRow }
+  | { kind: 'group'; files: FileRow[]; groupKey: string }
   | null;
 
 interface DisplayGroup {
   key: string;
   batch: FileBatch | null;
   files: FileRow[];
+}
+
+const GROUP_WINDOW_MS = 2 * 60 * 1000;
+
+function buildGroupTitle(files: FileRow[]): string {
+  const first = files[0];
+  if (!first) return 'مجموعة ملفات';
+  const tabLabel = TABS.find((t) => t.key === first.tab)?.label ?? '';
+  const d = new Date(first.created_at).toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
+  return `${tabLabel} - مجموعة (${files.length} ملفات) - ${d}`;
+}
+
+function deriveBatchFromFiles(groupFiles: FileRow[], groupKey: string): FileBatch {
+  const first = groupFiles[0]!;
+  return {
+    id: groupKey,
+    subject_id: first.subject_id,
+    tab: first.tab,
+    title: buildGroupTitle(groupFiles),
+    uploader_id: first.uploader_id,
+    status: first.status,
+    file_count: groupFiles.length,
+    created_at: first.created_at,
+    uploader: first.uploader,
+  };
+}
+
+function groupFilesByUploadTime(tabFiles: FileRow[]): DisplayGroup[] {
+  const used = new Set<string>();
+  const result: DisplayGroup[] = [];
+  for (const file of tabFiles) {
+    if (used.has(file.id)) continue;
+    const fileTime = new Date(file.created_at).getTime();
+    const groupFiles = tabFiles.filter(
+      (f) =>
+        !used.has(f.id) &&
+        f.uploader_id === file.uploader_id &&
+        Math.abs(new Date(f.created_at).getTime() - fileTime) < GROUP_WINDOW_MS,
+    );
+    groupFiles.forEach((f) => used.add(f.id));
+    if (groupFiles.length > 1) {
+      const groupKey = `grp-${file.uploader_id}-${file.created_at}`;
+      result.push({ key: groupKey, batch: deriveBatchFromFiles(groupFiles, groupKey), files: groupFiles });
+    } else {
+      result.push({ key: `file-${file.id}`, batch: null, files: [file] });
+    }
+  }
+  return result;
 }
 
 export function SubjectPage() {
@@ -33,7 +81,6 @@ export function SubjectPage() {
   const [subject, setSubject] = useState<Subject | null>(null);
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
   const [files, setFiles] = useState<FileRow[]>([]);
-  const [batches, setBatches] = useState<FileBatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
@@ -55,20 +102,12 @@ export function SubjectPage() {
   }
 
   async function loadFiles() {
-    const [fileRes, batchRes] = await Promise.all([
-      supabase
-        .from('files')
-        .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role)')
-        .eq('subject_id', subjectId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('file_batches')
-        .select('id, subject_id, tab, title, uploader_id, status, file_count, created_at, uploader:profiles!file_batches_uploader_id_fkey(id, full_name, role)')
-        .eq('subject_id', subjectId)
-        .order('created_at', { ascending: false }),
-    ]);
-    setFiles((fileRes.data ?? []) as unknown as FileRow[]);
-    setBatches((batchRes.data ?? []) as unknown as FileBatch[]);
+    const { data } = await supabase
+      .from('files')
+      .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role)')
+      .eq('subject_id', subjectId)
+      .order('created_at', { ascending: false });
+    setFiles((data ?? []) as unknown as FileRow[]);
   }
 
   useEffect(() => {
@@ -100,24 +139,18 @@ export function SubjectPage() {
     })();
   }, [session, files]);
 
-  // Build display groups: batches first (with their files), then standalone files.
+  // Group files uploaded together (same uploader, within 2 minutes) into folder cards.
+  // Fallback: if grouping fails, every file renders as a standalone card — nothing is hidden.
   const groups: DisplayGroup[] = useMemo(() => {
-    const tabFiles = files.filter((f) => f.tab === activeTab);
-    const tabBatches = batches.filter((b) => b.tab === activeTab);
-    const result: DisplayGroup[] = [];
-    for (const batch of tabBatches) {
-      const batchFiles = tabFiles.filter((f) => f.batch_id === batch.id);
-      if (batchFiles.length > 0) {
-        result.push({ key: `batch-${batch.id}`, batch, files: batchFiles });
-      }
+    try {
+      const tabFiles = files.filter((f) => f.tab === activeTab);
+      return groupFilesByUploadTime(tabFiles);
+    } catch {
+      return files
+        .filter((f) => f.tab === activeTab)
+        .map((f) => ({ key: `file-${f.id}`, batch: null, files: [f] }));
     }
-    const visibleBatchIds = new Set(tabBatches.map((b) => b.id));
-    const standalone = tabFiles.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
-    for (const f of standalone) {
-      result.push({ key: `file-${f.id}`, batch: null, files: [f] });
-    }
-    return result;
-  }, [files, batches, activeTab]);
+  }, [files, activeTab]);
 
   const hasContent = groups.length > 0;
 
@@ -137,35 +170,27 @@ export function SubjectPage() {
         return;
       }
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
-      if (deleteTarget.batchId) {
-        setBatches((prev) =>
-          prev
-            .map((b) => (b.id === deleteTarget.batchId ? { ...b, file_count: Math.max(0, b.file_count - 1) } : b))
-            .filter((b) => b.file_count > 0),
-        );
-      }
       setToast({ message: `تم حذف الملف "${file.title}"`, type: 'success' });
       return;
     }
-    // batch delete
-    const batch = deleteTarget.batch;
-    setBusyId(batch.id);
-    const batchFiles = files.filter((f) => f.batch_id === batch.id);
-    const paths = batchFiles.map((f) => f.storage_path).filter(Boolean);
+    // group delete
+    const groupFiles = deleteTarget.files;
+    const groupKey = deleteTarget.groupKey;
+    setBusyId(groupKey);
+    const paths = groupFiles.map((f) => f.storage_path).filter(Boolean);
     if (paths.length > 0) {
       await supabase.storage.from('files').remove(paths);
     }
-    await supabase.from('files').delete().eq('batch_id', batch.id);
-    const { error } = await supabase.from('file_batches').delete().eq('id', batch.id);
+    const ids = groupFiles.map((f) => f.id);
+    const { error } = await supabase.from('files').delete().in('id', ids);
     setBusyId(null);
     setDeleteTarget(null);
     if (error) {
       setToast({ message: 'فشل حذف المجموعة: ' + error.message, type: 'error' });
       return;
     }
-    setFiles((prev) => prev.filter((f) => f.batch_id !== batch.id));
-    setBatches((prev) => prev.filter((b) => b.id !== batch.id));
-    setToast({ message: `تم حذف المجموعة "${batch.title}" وكل ملفاتها`, type: 'success' });
+    setFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
+    setToast({ message: `تم حذف المجموعة وكل ملفاتها (${groupFiles.length} ملف)`, type: 'success' });
   }
 
   async function handleToggleBookmark(file: FileRow) {
@@ -304,8 +329,8 @@ export function SubjectPage() {
                 signedUrls={signedUrls}
                 busyId={busyId}
                 onToggleBookmark={handleToggleBookmark}
-                onDeleteFile={(file) => setDeleteTarget({ kind: 'file', file, batchId: batch.id })}
-                onDeleteBatch={() => setDeleteTarget({ kind: 'batch', batch })}
+                onDeleteFile={(file) => setDeleteTarget({ kind: 'file', file })}
+                onDeleteBatch={() => setDeleteTarget({ kind: 'group', files: group.files, groupKey: group.key })}
                 bookmarkForEditor={bookmarkForEditor}
                 setBookmarkForEditor={setBookmarkForEditor}
                 setToast={setToast}
@@ -320,7 +345,7 @@ export function SubjectPage() {
                 signedUrls={signedUrls}
                 busyId={busyId}
                 onToggleBookmark={handleToggleBookmark}
-                onDelete={() => setDeleteTarget({ kind: 'file', file: standalone, batchId: null })}
+                onDelete={() => setDeleteTarget({ kind: 'file', file: standalone })}
                 bookmarkForEditor={bookmarkForEditor}
                 setBookmarkForEditor={setBookmarkForEditor}
                 setToast={setToast}
@@ -350,10 +375,10 @@ export function SubjectPage() {
             <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
               <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
               <div>
-                {deleteTarget.kind === 'batch' ? (
+                {deleteTarget.kind === 'group' ? (
                   <>
                     <p className="font-bold">هل أنت متأكد من حذف هذه المجموعة؟</p>
-                    <p className="mt-1 text-sm">سيُحذف "{deleteTarget.batch.title}" وكل ملفاتها ({deleteTarget.batch.file_count} ملف) نهائياً ولا يمكن التراجع.</p>
+                    <p className="mt-1 text-sm">سيتم حذف {deleteTarget.files.length} ملف نهائياً ولا يمكن التراجع.</p>
                   </>
                 ) : (
                   <>

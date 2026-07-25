@@ -75,7 +75,7 @@ export function AdminPage() {
     Promise.all([loadPending(), loadRejectedFiles(), loadRejectedCount(), loadSubjects(), loadUsers()]).finally(() => setLoading(false));
   }, [isAdmin, loadPending, loadRejectedFiles, loadRejectedCount, loadSubjects, loadUsers]);
 
-  async function setStatus(id: string, status: FileStatus, storagePath?: string, batchId?: string | null) {
+  async function setStatus(id: string, status: FileStatus, storagePath?: string) {
     setBusyId(id);
     const { error } = await supabase.from('files').update({ status }).eq('id', id);
     if (error) {
@@ -86,9 +86,6 @@ export function AdminPage() {
     if (status === 'rejected' && storagePath) {
       await supabase.storage.from('files').remove([storagePath]);
       await supabase.from('files').delete().eq('id', id);
-    }
-    if (batchId && (status === 'approved' || status === 'rejected')) {
-      await supabase.from('file_batches').update({ status }).eq('id', batchId);
     }
     setPending((prev) => prev.filter((f) => f.id !== id));
     await loadRejectedCount();
@@ -102,19 +99,16 @@ export function AdminPage() {
     setBusyId(null);
   }
 
-  const approve = (id: string, batchId?: string | null) => setStatus(id, 'approved', undefined, batchId);
-  const reject = (id: string, storagePath: string, batchId?: string | null) => setStatus(id, 'rejected', storagePath, batchId);
+  const approve = (id: string) => setStatus(id, 'approved');
+  const reject = (id: string, storagePath: string) => setStatus(id, 'rejected', storagePath);
 
-  async function restore(id: string, batchId?: string | null) {
+  async function restore(id: string) {
     setBusyId(id);
     const { error } = await supabase.from('files').update({ status: 'approved' }).eq('id', id);
     if (error) {
       setToast({ message: 'فشل: ' + error.message, type: 'error' });
       setBusyId(null);
       return;
-    }
-    if (batchId) {
-      await supabase.from('file_batches').update({ status: 'approved' }).eq('id', batchId);
     }
     setRejectedFiles((prev) => prev.filter((f) => f.id !== id));
     await loadRejectedCount();
@@ -229,10 +223,10 @@ export function AdminPage() {
               <p className="text-sm text-slate-400">{preview.uploader?.full_name} · {preview.subject?.name} {preview.subject?.code && <span className="font-mono text-slate-500">({preview.subject.code})</span>}</p>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => reject(preview.id, preview.storage_path, preview.batch_id)} className="btn-danger" disabled={busyId === preview.id}>
+              <button onClick={() => reject(preview.id, preview.storage_path)} className="btn-danger" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} رفض وحذف
               </button>
-              <button onClick={() => approve(preview.id, preview.batch_id)} className="btn-primary" disabled={busyId === preview.id}>
+              <button onClick={() => approve(preview.id)} className="btn-primary" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة ونشر
               </button>
             </div>
@@ -250,15 +244,15 @@ type SetToast = (t: ToastState) => void;
 
 function PendingTab({ pending, approve, reject, preview, setPreview, openPreview, busyId, rejectedCount, rejectedFiles, restore }: {
   pending: FileRow[];
-  approve: (id: string, batchId?: string | null) => void;
-  reject: (id: string, storagePath: string, batchId?: string | null) => void;
+  approve: (id: string) => void;
+  reject: (id: string, storagePath: string) => void;
   preview: FileRow | null;
   setPreview: (f: FileRow | null) => void;
   openPreview: (f: FileRow) => void;
   busyId: string | null;
   rejectedCount: number;
   rejectedFiles: FileRow[];
-  restore: (id: string, batchId?: string | null) => void;
+  restore: (id: string) => void;
 }) {
   const [showRejected, setShowRejected] = useState(false);
 
@@ -301,7 +295,7 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
                 <h3 className="mt-1.5 truncate font-bold text-slate-200">{f.title}</h3>
                 <div className="mt-0.5 text-xs text-slate-500">{f.uploader?.full_name ?? 'مستخدم'}</div>
               </div>
-              <button onClick={() => restore(f.id, f.batch_id)} className="btn-primary" disabled={busyId === f.id}>
+              <button onClick={() => restore(f.id)} className="btn-primary" disabled={busyId === f.id}>
                 {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="RotateCcw" className="h-4 w-4" />} استعادة ونشر
               </button>
             </div>
@@ -327,10 +321,10 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => openPreview(f)} className="btn-ghost" title="معاينة"><Icon name="Eye" className="h-4 w-4" /></button>
-            <button onClick={() => approve(f.id, f.batch_id)} className="btn-primary" disabled={busyId === f.id}>
+            <button onClick={() => approve(f.id)} className="btn-primary" disabled={busyId === f.id}>
               {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة
             </button>
-            <button onClick={() => reject(f.id, f.storage_path, f.batch_id)} className="btn-danger" disabled={busyId === f.id}>
+            <button onClick={() => reject(f.id, f.storage_path)} className="btn-danger" disabled={busyId === f.id}>
               <Icon name="Trash2" className="h-4 w-4" /> رفض
             </button>
           </div>
