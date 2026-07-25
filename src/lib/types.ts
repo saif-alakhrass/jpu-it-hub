@@ -32,11 +32,26 @@ export interface FileRow {
   storage_path: string;
   file_url: string;
   file_type: string | null;
+  file_size: number | null;
   uploader_id: string;
   status: FileStatus;
   created_at: string;
+  batch_id: string | null;
   uploader?: Profile | null;
   subject?: Subject | null;
+}
+
+export interface FileBatch {
+  id: string;
+  subject_id: string;
+  tab: FileTab;
+  title: string;
+  uploader_id: string;
+  status: FileStatus;
+  file_count: number;
+  created_at: string;
+  files?: FileRow[];
+  uploader?: Profile | null;
 }
 
 export const TABS: { key: FileTab; label: string; icon: string }[] = [
