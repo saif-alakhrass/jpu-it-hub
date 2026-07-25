@@ -27,7 +27,7 @@ export function AdminPage() {
   const loadPending = useCallback(async () => {
     const { data } = await supabase
       .from('files')
-      .select('id, subject_id, tab, title, storage_path, file_url, file_type, uploader_id, status, created_at, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
+      .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
     setPending((data ?? []) as unknown as FileRow[]);
@@ -36,7 +36,7 @@ export function AdminPage() {
   const loadRejectedFiles = useCallback(async () => {
     const { data } = await supabase
       .from('files')
-      .select('id, subject_id, tab, title, storage_path, file_url, file_type, uploader_id, status, created_at, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
+      .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
       .eq('status', 'rejected')
       .order('created_at', { ascending: false })
       .limit(50);
