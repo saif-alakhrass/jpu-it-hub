@@ -18,8 +18,8 @@ type Tab = 'profile' | 'saved';
 function initials(name: string | null | undefined): string {
   if (!name) return '؟';
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2);
-  return (parts[0][0] ?? '') + (parts[1][0] ?? '');
+  if (parts.length === 1) return (parts[0] ?? '').slice(0, 2);
+  return ((parts[0] ?? '')[0] ?? '') + ((parts[1] ?? '')[0] ?? '');
 }
 
 function fileTabLabel(tab: string): string {
@@ -205,7 +205,7 @@ function SavedItemsTab({ onToast }: { onToast: (t: { message: string; type: 'suc
       setLoading(true);
       const data = await getUserBookmarks();
       setBookmarks(data);
-      if (data.length > 0) setExpandedFolder(Object.keys(groupByFolder(data))[0]);
+      if (data.length > 0) setExpandedFolder(Object.keys(groupByFolder(data))[0] ?? null);
       setLoading(false);
     })();
   }, []);
