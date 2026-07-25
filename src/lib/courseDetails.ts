@@ -5,13 +5,7 @@ export interface CourseMeta {
   difficulty: Difficulty;
 }
 
-/**
- * Static metadata for the university-seeded subjects, keyed by subject name.
- * Descriptions are concise Arabic summaries reflecting each course's topic;
- * difficulty is assigned according to the academic nature of the course.
- */
 export const COURSE_DETAILS: Record<string, CourseMeta> = {
-  // ---------- Computer Science (علم الحاسوب) ----------
   'أساسيات البرمجة': { description: 'أساسيات البرمجة بلغة C++ تشمل المتغيرات والجمل الشرطية والحلقات والدوال.', difficulty: 'سهلة' },
   'البرمجة الكينونية': { description: 'مبادئ البرمجة كائنية التوجه: الأصناف والكائنات والوراثة وتعدد الأشكال بلغة Java أو C++.', difficulty: 'متوسطة' },
   'لغة برمجة مختارة': { description: 'دراسة متعمقة لإحدى لغات البرمجة الحديثة وتطبيقها في مشاربرج عملية.', difficulty: 'متوسطة' },
@@ -46,8 +40,6 @@ export const COURSE_DETAILS: Record<string, CourseMeta> = {
   'تحليل وتصميم النظم': { description: 'دورة حياة تطوير البرمجيات وتحليل المتطلبات وتصميم النظم باستخدام UML.', difficulty: 'متوسطة' },
   'هندسة البرمجيات': { description: 'مبادئ هندسة البرمجيات والعمليات والاختبار وإدارة مشاريع التطوير.', difficulty: 'متوسطة' },
   'تفاعل الانسان مع الحاسوب': { description: 'مبادئ تصميم واجهات المستخدم وتجربة الاستخدام وتقييم قابلية الاستخدام.', difficulty: 'سهلة' },
-
-  // ---------- Cybersecurity (الأمن السيبراني) ----------
   'مبادئ الأمن السيبراني': { description: 'مقدمة في مفاهيم الأمن السيبراني وطبقات الحماية وإدارة المخاطر الرقمية.', difficulty: 'سهلة' },
   'أمن البرمجيات': { description: 'تأمين دورة حياة تطوير البرمجيات واكتشاف الثغرات ومعالجتها.', difficulty: 'صعبة' },
   'أمن البنية التحتية باستخدام لينكس': { description: 'تأمين أنظمة لينكس والخوادم وتكوين الأذونات والمراقبة الأمنية.', difficulty: 'متوسطة' },
@@ -70,11 +62,6 @@ export const COURSE_DETAILS: Record<string, CourseMeta> = {
 const EASY_HINTS = ['مقدمة', 'تفاعل', 'مهارات حاسوب'];
 const HARD_HINTS = ['متقدمة', 'الخوارزميات', 'تراكيب البيانات', 'نظم التشغيل', 'معمارية', 'نظرية', 'احتساب', 'الذكاء الاصطناعي', 'أمن', 'الأدلة الجنائية', 'مشروع التخرج', 'برمجة متخصصة', 'بروتوكولات'];
 
-/**
- * Returns course metadata for a subject name. Falls back to an inferred
- * description and difficulty when the name is not in the static map
- * (e.g. user-created subjects).
- */
 export function getCourseMeta(name: string, fallbackDescription?: string | null): CourseMeta {
   const exact = COURSE_DETAILS[name];
   if (exact) return exact;
