@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Bookmark, BookmarkWithFile } from './types';
+import type { Bookmark, BookmarkWithFile, FileRow } from './types';
 
 export async function isBookmarked(resourceId: string): Promise<boolean> {
   const { data } = await supabase
@@ -78,10 +78,11 @@ export async function getUserBookmarks(): Promise<BookmarkWithFile[]> {
     .order('created_at', { ascending: false });
 
   if (error || !data) return [];
-  return data.map((b) => ({
-    ...b,
-    file: b.file as BookmarkWithFile['file'],
-  })) as BookmarkWithFile[];
+  return data.map((b) => {
+    const fileArr = b.file as unknown as FileRow[] | FileRow | null | undefined;
+    const file = Array.isArray(fileArr) ? (fileArr[0] ?? null) : (fileArr ?? null);
+    return { ...b, file } as BookmarkWithFile;
+  });
 }
 
 export async function getUserFolders(): Promise<string[]> {
