@@ -34,10 +34,18 @@ A full-stack academic resource-sharing platform for Jerash University's IT Facul
 3. `npm install`
 4. `npm run dev`
 
-The database migration is in `supabase/migrations/`. The first user to sign up automatically becomes `admin`.
+The database migration is in `supabase/migrations/`. New users get the `student` role automatically; admins are **never** assigned automatically. To grant admin access, run this SQL once in the Supabase dashboard (SQL Editor):
+
+```sql
+UPDATE profiles SET role = 'admin' WHERE id = '<user-uuid>';
+```
+
+Or grant it from the Supabase dashboard's Table Editor.
 
 ## Security
 
 - Row-Level Security enabled on all tables
 - Database triggers enforce the moderation rule (file status set by uploader role) — cannot be bypassed from the client
-- Storage bucket scoped per-user
+- The `role` column on `profiles` is protected by a database trigger: only admins can change user roles (students/trusted users cannot self-promote)
+- File storage bucket is **private** — files are served via time-limited signed URLs, not public URLs, so unapproved uploads cannot be guessed or accessed
+- Upload rate limit: maximum 5 files per user per 10-minute window (enforced at the database level)
