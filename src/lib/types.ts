@@ -7,6 +7,10 @@ export interface Profile {
   full_name: string | null;
   role: Role;
   created_at: string;
+  academic_year: string | null;
+  department: string | null;
+  credit_hours: number | null;
+  bio: string | null;
 }
 
 export interface Subject {
@@ -15,6 +19,7 @@ export interface Subject {
   code: string | null;
   description: string | null;
   major: string;
+  departments: string[];
   created_by: string | null;
   created_at: string;
 }
@@ -44,6 +49,14 @@ export const TABS: { key: FileTab; label: string; icon: string }[] = [
 export const MAJORS = [
   'علم الحاسوب',
   'الأمن السيبراني',
+];
+
+export const ACADEMIC_YEARS = [
+  'السنة الأولى',
+  'السنة الثانية',
+  'السنة الثالثة',
+  'السنة الرابعة',
+  'السنة الخامسة',
 ];
 
 export interface TeamMember {

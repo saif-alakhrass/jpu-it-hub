@@ -1,9 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-/**
- * Scroll-triggered reveal wrapper using IntersectionObserver.
- * Fades + slides children into view once, no external deps.
- */
 export function Reveal({
   children,
   className = '',
@@ -54,9 +50,6 @@ export function Reveal({
   );
 }
 
-/**
- * Animated count-up that starts when the element scrolls into view.
- */
 export function useCountUp(target: number, duration = 1600) {
   const ref = useRef<HTMLSpanElement | null>(null);
   const [value, setValue] = useState(0);

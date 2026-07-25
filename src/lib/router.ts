@@ -1,9 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
 
-/**
- * Minimal hash-based router (no dependency needed).
- * Routes: #/, #/subject/:id, #/admin, #/auth, #/about
- */
 export interface Route {
   path: string;
   params: Record<string, string>;
@@ -19,6 +15,7 @@ function parse(): Route {
   if (parts[0] === 'admin') return { path: '/admin', params: {} };
   if (parts[0] === 'auth') return { path: '/auth', params: {} };
   if (parts[0] === 'about') return { path: '/about', params: {} };
+  if (parts[0] === 'profile') return { path: '/profile', params: {} };
   return { path: '/', params: {} };
 }
 

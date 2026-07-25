@@ -28,11 +28,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadProfile(uid: string) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, role, created_at')
+      .select('id, full_name, role, created_at, academic_year, department, credit_hours, bio')
       .eq('id', uid)
       .maybeSingle();
     if (error) {
-      // eslint-disable-next-line no-console
       console.error('profile load error', error.message);
       setProfile(null);
       return;
@@ -99,7 +98,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: { redirectTo: window.location.origin },
     });
     if (error) {
-      // eslint-disable-next-line no-console
       console.error('google sign in error', error.message);
     }
   }

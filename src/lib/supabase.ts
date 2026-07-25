@@ -4,7 +4,6 @@ const url = import.meta.env.VITE_SUPABASE_URL as string;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 if (!url || !anon) {
-  // eslint-disable-next-line no-console
   console.error('Supabase env vars missing. Check .env');
 }
 
