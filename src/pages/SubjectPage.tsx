@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
+import { BookmarkEditor } from '@/components/BookmarkEditor';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
-import { TABS, type FileRow, type FileTab, type Subject } from '@/lib/types';
+import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
+import { TABS, type Bookmark, type FileRow, type FileTab, type Subject } from '@/lib/types';
 
 export function SubjectPage({ subjectId }: { subjectId: string }) {
   const { session, profile, canPublishDirectly } = useAuth();
@@ -17,7 +19,9 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
   const [files, setFiles] = useState<FileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+  const [bookmarkForEditor, setBookmarkForEditor] = useState<{ bookmark: Bookmark; folders: string[] } | null>(null);
 
   async function loadSubject() {
     const { data } = await supabase
@@ -44,6 +48,14 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
       setLoading(false);
     })();
   }, [subjectId]);
+
+  useEffect(() => {
+    if (!session || files.length === 0) return;
+    (async () => {
+      const ids = await getBookmarkedIds(files.map((f) => f.id));
+      setBookmarkedIds(ids);
+    })();
+  }, [session, files]);
 
   const tabFiles = files.filter((f) => f.tab === activeTab);
 
@@ -89,6 +101,32 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
     setUploadOpen(false);
     form.reset();
     await loadFiles();
+  }
+
+  async function handleToggleBookmark(file: FileRow) {
+    if (!session) {
+      navigate('/auth');
+      return;
+    }
+    if (bookmarkedIds.has(file.id)) {
+      const ok = await removeBookmark(file.id);
+      if (ok) setBookmarkedIds((prev) => { const n = new Set(prev); n.delete(file.id); return n; });
+      return;
+    }
+    const folderName = subject?.name ?? 'عام';
+    const created = await addBookmark(file.id, folderName);
+    if (created) {
+      setBookmarkedIds((prev) => new Set(prev).add(file.id));
+      const folders = await getUserFolders();
+      setToast({
+        message: `تم الحفظ في مجلد ${folderName}`,
+        type: 'success',
+        actionLabel: 'تغيير المجلد / أضف ملاحظة',
+        onAction: () => setBookmarkForEditor({ bookmark: created, folders }),
+      });
+    } else {
+      setToast({ message: 'فشل حفظ العنصر', type: 'error' });
+    }
   }
 
   if (loading) {
@@ -201,16 +239,37 @@ export function SubjectPage({ subjectId }: { subjectId: string }) {
                     {f.file_type && <><span>·</span><span className="uppercase">{f.file_type}</span></>}
                   </div>
                 </div>
-                {!pending || isOwn ? (
-                  <a href={f.file_url} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
-                    <Icon name="Eye" className="h-4 w-4" />
-                    <span className="hidden sm:inline">عرض</span>
-                  </a>
-                ) : (
-                  <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
-                    <Icon name="Lock" className="h-3 w-3" /> مخفي
-                  </span>
-                )}
+                <div className="relative flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => handleToggleBookmark(f)}
+                    className={`rounded-lg p-2 transition ${
+                      bookmarkedIds.has(f.id)
+                        ? 'text-brand-400 hover:bg-brand-500/10'
+                        : 'text-slate-500 hover:text-brand-300 hover:bg-white/5'
+                    }`}
+                    title={bookmarkedIds.has(f.id) ? 'إزالة من المحفوظات' : 'حفظ في المحفوظات'}
+                  >
+                    <Icon name={bookmarkedIds.has(f.id) ? 'BookmarkCheck' : 'Bookmark'} className="h-4 w-4" />
+                  </button>
+                  {bookmarkForEditor?.bookmark.resource_id === f.id && (
+                    <BookmarkEditor
+                      bookmark={bookmarkForEditor.bookmark}
+                      existingFolders={bookmarkForEditor.folders}
+                      onClose={() => setBookmarkForEditor(null)}
+                      onSaved={() => setToast({ message: 'تم تحديث المحفوظ', type: 'success' })}
+                    />
+                  )}
+                  {!pending || isOwn ? (
+                    <a href={f.file_url} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
+                      <Icon name="Eye" className="h-4 w-4" />
+                      <span className="hidden sm:inline">عرض</span>
+                    </a>
+                  ) : (
+                    <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
+                      <Icon name="Lock" className="h-3 w-3" /> مخفي
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}

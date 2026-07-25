@@ -68,3 +68,16 @@ export interface TeamMember {
   sort_order: number;
   created_at: string;
 }
+
+export interface Bookmark {
+  id: string;
+  user_id: string;
+  resource_id: string;
+  folder_name: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface BookmarkWithFile extends Bookmark {
+  file: FileRow | null;
+}
