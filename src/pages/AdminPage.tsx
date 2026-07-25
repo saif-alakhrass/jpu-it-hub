@@ -8,7 +8,7 @@ import { TABS, type FileRow, type Profile, type Subject, type FileStatus } from 
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
 
-type AdminTab = 'pending' | 'subjects' | 'users';
+type AdminTab = 'pending' | 'files' | 'subjects' | 'users';
 
 export function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth();
@@ -81,6 +81,9 @@ export function AdminPage() {
     Promise.all([loadPending(), loadAllFiles(0), loadRejectedCount(), loadSubjects(), loadUsers()]).finally(() => setLoading(false));
   }, [isAdmin, loadPending, loadAllFiles, loadRejectedCount, loadSubjects, loadUsers]);
 
+  const [deleteFile, setDeleteFile] = useState<FileRow | null>(null);
+  const [deletingFile, setDeletingFile] = useState(false);
+
   async function setStatus(id: string, status: FileStatus, storagePath?: string) {
     setBusyId(id);
     const { error } = await supabase.from('files').update({ status }).eq('id', id);
@@ -122,11 +125,27 @@ export function AdminPage() {
     setBusyId(null);
   }
 
-  async function promote(id: string, toRole: 'trusted' | 'student') {
+  async function promote(id: string, toRole: 'admin' | 'trusted' | 'student') {
     const { error } = await supabase.from('profiles').update({ role: toRole }).eq('id', id);
     if (error) { setToast({ message: 'فشل: ' + error.message, type: 'error' }); return; }
-    setToast({ message: toRole === 'trusted' ? 'تم ترقية المستخدم إلى موثوق' : 'تم تخفيض المستخدم إلى طالب', type: 'success' });
+    const labels: Record<string, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
+    setToast({ message: `تم تحديث الدور إلى: ${labels[toRole]}`, type: 'success' });
     await loadUsers();
+  }
+
+  async function deleteFilePermanent(file: FileRow) {
+    setDeletingFile(true);
+    if (file.storage_path) {
+      await supabase.storage.from('files').remove([file.storage_path]);
+    }
+    const { error } = await supabase.from('files').delete().eq('id', file.id);
+    setDeletingFile(false);
+    setDeleteFile(null);
+    if (error) { setToast({ message: 'فشل حذف الملف: ' + error.message, type: 'error' }); return; }
+    setPending((prev) => prev.filter((f) => f.id !== file.id));
+    setAllFiles((prev) => prev.filter((f) => f.id !== file.id));
+    await loadRejectedCount();
+    setToast({ message: `تم حذف الملف "${file.title}" نهائياً`, type: 'success' });
   }
 
   async function openPreview(file: FileRow) {
@@ -193,6 +212,9 @@ export function AdminPage() {
         <button onClick={() => setTab('pending')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'pending' ? 'border-accent-500 text-accent-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="Clock" className="h-4 w-4" /> قيد المراجعة ({pending.length})
         </button>
+        <button onClick={() => setTab('files')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'files' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+          <Icon name="FileText" className="h-4 w-4" /> كل الملفات ({fileTotal})
+        </button>
         <button onClick={() => setTab('subjects')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'subjects' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="BookOpen" className="h-4 w-4" /> المواد ({subjects.length})
         </button>
@@ -205,6 +227,8 @@ export function AdminPage() {
         <div className="py-16 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>
       ) : tab === 'pending' ? (
         <PendingTab pending={pending} approve={approve} reject={reject} preview={preview} setPreview={setPreview} openPreview={openPreview} busyId={busyId} rejectedCount={rejectedCount} rejectedFiles={rejectedFiles} restore={restore} filePage={filePage} filePageCount={filePageCount} fileTotal={fileTotal} changeFilePage={changeFilePage} />
+      ) : tab === 'files' ? (
+        <FilesTab files={allFiles} openPreview={openPreview} onDelete={setDeleteFile} filePage={filePage} filePageCount={filePageCount} fileTotal={fileTotal} changeFilePage={changeFilePage} busyId={busyId} />
       ) : tab === 'subjects' ? (
         <SubjectsTab subjects={subjects} setToast={setToast} onUpdated={loadSubjects} />
       ) : (
@@ -243,6 +267,27 @@ export function AdminPage() {
               </button>
               <button onClick={() => approve(preview.id)} className="btn-primary" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة ونشر
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!deleteFile} onClose={() => setDeleteFile(null)} title="تأكيد حذف الملف">
+        {deleteFile && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
+              <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-bold">سيتم حذف الملف نهائياً</p>
+                <p className="mt-1 text-sm">سيُحذف "{deleteFile.title}" من قاعدة البيانات والتخزين. لا يمكن التراجع عن هذا الإجراء.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setDeleteFile(null)} className="btn-ghost" disabled={deletingFile}>إلغاء</button>
+              <button onClick={() => deleteFilePermanent(deleteFile)} className="btn-danger" disabled={deletingFile}>
+                {deletingFile ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
+                حذف نهائي
               </button>
             </div>
           </div>
@@ -360,6 +405,81 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function FilesTab({ files, openPreview, onDelete, filePage, filePageCount, fileTotal, changeFilePage, busyId }: {
+  files: FileRow[];
+  openPreview: (f: FileRow) => void;
+  onDelete: (f: FileRow) => void;
+  filePage: number;
+  filePageCount: number;
+  fileTotal: number;
+  changeFilePage: (d: 'next' | 'prev') => void;
+  busyId: string | null;
+}) {
+  const statusBadge: Record<string, { label: string; cls: string }> = {
+    pending: { label: 'قيد المراجعة', cls: 'bg-accent-500/15 text-accent-400 border-accent-500/30' },
+    approved: { label: 'منشور', cls: 'bg-success-500/15 text-success-400 border-success-500/30' },
+    rejected: { label: 'مرفوض', cls: 'bg-danger-500/15 text-danger-400 border-danger-500/30' },
+  };
+
+  if (files.length === 0) {
+    return (
+      <div className="card p-12 text-center">
+        <Icon name="FileText" className="mx-auto mb-3 h-12 w-12 text-slate-600" />
+        <p className="text-slate-300 font-bold">لا توجد ملفات</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      {files.map((f) => {
+        const badge = statusBadge[f.status] ?? statusBadge.pending!;
+        return (
+          <div key={f.id} className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className={`badge border ${badge.cls}`}>{badge.label}</span>
+                <span className="text-xs text-slate-500">{f.subject?.name}</span>
+              </div>
+              <h3 className="mt-1.5 truncate font-bold text-slate-100">{f.title}</h3>
+              <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                <span>{f.uploader?.full_name ?? 'مستخدم'}</span>
+                <span>·</span>
+                <span>{new Date(f.created_at).toLocaleDateString('ar')}</span>
+                {f.file_type && <><span>·</span><span className="uppercase">{f.file_type}</span></>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => openPreview(f)} className="btn-ghost" title="معاينة">
+                <Icon name="Eye" className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => onDelete(f)}
+                className="rounded-lg p-2 text-danger-400 transition hover:bg-danger-500/10"
+                title="حذف الملف"
+                disabled={busyId === f.id}
+              >
+                {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {filePageCount > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <button onClick={() => changeFilePage('prev')} disabled={filePage === 0} className="btn-ghost disabled:opacity-40">
+            <Icon name="ChevronRight" className="h-4 w-4" /> السابق
+          </button>
+          <span className="text-sm text-slate-500">صفحة {filePage + 1} من {filePageCount} ({fileTotal} ملف)</span>
+          <button onClick={() => changeFilePage('next')} disabled={(filePage + 1) * 20 >= fileTotal} className="btn-ghost disabled:opacity-40">
+            التالي <Icon name="ChevronLeft" className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -547,7 +667,7 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
 
 function UsersTab({ students, promote }: {
   students: Profile[];
-  promote: (id: string, toRole: 'trusted' | 'student') => void;
+  promote: (id: string, toRole: 'admin' | 'trusted' | 'student') => void;
 }) {
   if (students.length === 0) {
     return <div className="card p-12 text-center"><p className="text-slate-400">لا يوجد مستخدمون.</p></div>;
@@ -567,10 +687,16 @@ function UsersTab({ students, promote }: {
           {u.role !== 'admin' && (
             <div className="flex items-center gap-2">
               {u.role === 'student' ? (
-                <button onClick={() => promote(u.id, 'trusted')} className="btn-primary" title="ترقية إلى موثوق"><Icon name="Shield" className="h-4 w-4" /> ترقية لموثوق</button>
-              ) : (
-                <button onClick={() => promote(u.id, 'student')} className="btn-ghost" title="إلغاء الثقة"><Icon name="GraduationCap" className="h-4 w-4" /> تخفيض لطالب</button>
-              )}
+                <>
+                  <button onClick={() => promote(u.id, 'trusted')} className="btn-primary" title="ترقية إلى موثوق"><Icon name="Shield" className="h-4 w-4" /> موثوق</button>
+                  <button onClick={() => promote(u.id, 'admin')} className="btn-ghost border border-accent-500/30 text-accent-400 hover:bg-accent-500/10" title="ترقية إلى مدير"><Icon name="ShieldCheck" className="h-4 w-4" /> مدير</button>
+                </>
+              ) : u.role === 'trusted' ? (
+                <>
+                  <button onClick={() => promote(u.id, 'admin')} className="btn-ghost border border-accent-500/30 text-accent-400 hover:bg-accent-500/10" title="ترقية إلى مدير"><Icon name="ShieldCheck" className="h-4 w-4" /> مدير</button>
+                  <button onClick={() => promote(u.id, 'student')} className="btn-ghost" title="تخفيض إلى طالب"><Icon name="GraduationCap" className="h-4 w-4" /> طالب</button>
+                </>
+              ) : null}
             </div>
           )}
         </div>

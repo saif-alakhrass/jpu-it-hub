@@ -10,9 +10,10 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
 import { TABS, type Bookmark, type FileRow, type FileTab, type Subject } from '@/lib/types';
-import { getSignedFileUrl, canUploadNow, UPLOAD_MAX_PER_WINDOW, validateFile } from '@/lib/storage';
+import { getSignedFileUrl } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
+import { MultiFileUpload } from '@/components/MultiFileUpload';
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly } = useAuth();
@@ -28,7 +29,6 @@ export function SubjectPage() {
   const [bookmarkForEditor, setBookmarkForEditor] = useState<{ bookmark: Bookmark; folders: string[] } | null>(null);
 
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
-  const [uploadTimes, setUploadTimes] = useState<number[]>([]);
 
   async function loadSubject() {
     const { data } = await supabase
@@ -78,73 +78,6 @@ export function SubjectPage() {
   }, [session, files]);
 
   const tabFiles = files.filter((f) => f.tab === activeTab);
-
-  async function handleUpload(e: React.FormEvent) {
-    e.preventDefault();
-    if (!session) {
-      navigate('/auth');
-      return;
-    }
-    const form = e.target as HTMLFormElement;
-    const fd = new FormData(form);
-    const title = (fd.get('title') as string).trim();
-    const file = fd.get('file') as File | null;
-    if (!title || !file) {
-      setToast({ message: 'يرجى إدخال العنوان واختيار الملف', type: 'error' });
-      return;
-    }
-
-    const validation = validateFile(file);
-    if (!validation.ok) {
-      setToast({ message: validation.message, type: 'error' });
-      return;
-    }
-
-    if (!canUploadNow(uploadTimes)) {
-      setToast({
-        message: `لقد تجاوزت الحد المسموح: ${UPLOAD_MAX_PER_WINDOW} ملفات كل 10 دقائق. حاول لاحقًا.`,
-        type: 'error',
-      });
-      return;
-    }
-
-    const ext = file.name.split('.').pop() ?? 'bin';
-    const path = `${profile!.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error: upErr } = await supabase.storage.from('files').upload(path, file, { upsert: false });
-    if (upErr) {
-      setToast({ message: 'فشل رفع الملف: ' + upErr.message, type: 'error' });
-      return;
-    }
-    const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
-    const { error: insErr } = await supabase.from('files').insert({
-      subject_id: subjectId,
-      tab: activeTab,
-      title,
-      storage_path: path,
-      file_url: pub.publicUrl,
-      file_type: ext,
-      file_size: file.size,
-    });
-    if (insErr) {
-      if (insErr.message.includes('Rate limit')) {
-        setToast({ message: 'تم تجاوز حد الرفع المسموح. حاول لاحقًا.', type: 'error' });
-      } else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) {
-        setToast({ message: 'تم رفض الملف: صيغة غير مدعومة أو حجم كبير.', type: 'error' });
-      } else {
-        setToast({ message: 'فشل حفظ الملف: ' + insErr.message, type: 'error' });
-      }
-      await supabase.storage.from('files').remove([path]);
-      return;
-    }
-    setUploadTimes((prev) => [...prev, Date.now()]);
-    setToast({
-      message: canPublishDirectly ? 'تم نشر الملف مباشرة' : 'تم رفع الملف وهو قيد المراجعة',
-      type: 'success',
-    });
-    setUploadOpen(false);
-    form.reset();
-    await loadFiles();
-  }
 
   async function handleToggleBookmark(file: FileRow) {
     if (!session) {
@@ -325,35 +258,19 @@ export function SubjectPage() {
         </div>
       )}
 
-      <Modal open={uploadOpen} onClose={() => setUploadOpen(false)} title={`رفع ملف - ${TABS.find((t) => t.key === activeTab)?.label}`}>
-        <form onSubmit={handleUpload} className="space-y-4">
-          {!canPublishDirectly && (
-            <div className="flex items-start gap-2 rounded-xl border border-accent-500/30 bg-accent-500/10 p-3 text-sm text-accent-400">
-              <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
-              <span>ستحتاج ملفاتك إلى موافقة المدير قبل نشرها للجميع.</span>
-            </div>
-          )}
-          <div>
-            <label className="mb-1.5 block text-sm font-bold text-slate-300">عنوان الملف</label>
-            <input name="title" required placeholder="مثال: ملخص الفصل الأول" className="input" />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-bold text-slate-300">الملف</label>
-            <input
-              name="file"
-              type="file"
-              required
-              className="block w-full text-sm text-slate-300 file:ms-0 file:me-3 file:rounded-lg file:border-0 file:bg-brand-500 file:px-4 file:py-2 file:text-ink-950 file:font-bold hover:file:bg-brand-400"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={() => setUploadOpen(false)} className="btn-ghost">إلغاء</button>
-            <button type="submit" className="btn-primary">
-              <Icon name="Upload" className="h-4 w-4" /> رفع
-            </button>
-          </div>
-        </form>
-      </Modal>
+      {session && profile && (
+        <MultiFileUpload
+          open={uploadOpen}
+          onClose={() => setUploadOpen(false)}
+          subjectId={subjectId}
+          activeTab={activeTab}
+          userId={profile.id}
+          canPublishDirectly={canPublishDirectly}
+          tabLabel={TABS.find((t) => t.key === activeTab)?.label ?? ''}
+          onUploaded={loadFiles}
+          onToast={setToast}
+        />
+      )}
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
