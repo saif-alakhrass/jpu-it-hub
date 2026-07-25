@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: d8bc67c2858cb0873662f0f1f4503dc8130869ff)
 import { useEffect, useState, useCallback } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
@@ -250,15 +251,15 @@ type SetToast = (t: ToastState) => void;
 
 function PendingTab({ pending, approve, reject, preview, setPreview, openPreview, busyId, rejectedCount, rejectedFiles, restore }: {
   pending: FileRow[];
-  approve: (id: string, batchId?: string | null) => void;
-  reject: (id: string, storagePath: string, batchId?: string | null) => void;
+  approve: (id: string) => void;
+  reject: (id: string, storagePath: string) => void;
   preview: FileRow | null;
   setPreview: (f: FileRow | null) => void;
   openPreview: (f: FileRow) => void;
   busyId: string | null;
   rejectedCount: number;
   rejectedFiles: FileRow[];
-  restore: (id: string, batchId?: string | null) => void;
+  restore: (id: string) => void;
 }) {
   const [showRejected, setShowRejected] = useState(false);
 

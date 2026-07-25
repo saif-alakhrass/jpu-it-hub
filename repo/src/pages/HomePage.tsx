@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabase';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { MAJORS, type Subject } from '@/lib/types';
+import { SubjectCardSkeletonGrid } from '@/components/Skeleton';
+import { EmptyState } from '@/components/EmptyState';
 
 export function HomePage() {
   const { session } = useAuth();
@@ -15,7 +17,7 @@ export function HomePage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [major, setMajor] = useState<string>(MAJORS[0]);
+  const [major, setMajor] = useState<string>(MAJORS[0] ?? '');
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -127,16 +129,15 @@ export function HomePage() {
       </div>
 
       {loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="card h-40 animate-pulse" />
-          ))}
-        </div>
+        <SubjectCardSkeletonGrid count={6} />
       ) : filtered.length === 0 ? (
-        <div className="card p-12 text-center">
-          <Icon name="FolderOpen" className="mx-auto mb-3 h-12 w-12 text-slate-600" />
-          <p className="text-slate-400">لا توجد مواد مطابقة. كن أول من يضيف مادة!</p>
-        </div>
+        <EmptyState
+          icon="FolderOpen"
+          title="لا توجد مواد مطابقة"
+          message="لم نجد مواد تطابق بحثك. كن أول من يضيف مادة في هذا التخصص!"
+          ctaLabel={session ? "إضافة مادة جديدة" : undefined}
+          onCta={session ? () => setCreateOpen(true) : undefined}
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((s) => {

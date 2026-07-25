@@ -16,9 +16,11 @@ function makeFile(overrides: Partial<FileRow> = {}): FileRow {
     storage_path: 'u1/file.pdf',
     file_url: 'https://example.com/file.pdf',
     file_type: 'pdf',
+    file_size: 1024,
     uploader_id: 'u1',
     status: 'pending',
     created_at: '2025-01-01T00:00:00Z',
+    batch_id: null,
     ...overrides,
   };
 }
@@ -65,7 +67,7 @@ describe('list helpers after approval', () => {
     const pending = [makeFile({ id: 'a', status: 'pending' }), makeFile({ id: 'b', status: 'pending' })];
     const next = removeFromPending(pending, 'a');
     expect(next).toHaveLength(1);
-    expect(next[0].id).toBe('b');
+    expect(next[0]?.id).toBe('b');
   });
 
   it('updates the file status in the full file list', () => {
