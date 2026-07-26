@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { supabase } from '@/lib/supabase';
@@ -10,7 +10,12 @@ import {
   UPLOAD_MAX_PER_WINDOW,
   MAX_FILE_SIZE_MB,
 } from '@/lib/storage';
-import type { FileBatch, FileRow, FileTab } from '@/lib/types';
+import type { FileTab } from '@/lib/types';
+
+function buildBatchTitle(tabLabel: string, count: number): string {
+  const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
+  return `${tabLabel} - مجموعة (${count} ملفات) - ${d}`;
+}
 
 interface QueuedFile {
   id: string;
@@ -26,10 +31,9 @@ interface MultiFileUploadProps {
   subjectId: string;
   activeTab: FileTab;
   userId: string;
-  uploaderName?: string;
   canPublishDirectly: boolean;
   tabLabel: string;
-  onUploaded: (newFiles: FileRow[], batch?: FileBatch) => void;
+  onUploaded: () => void;
   onToast: (t: { message: string; type: 'success' | 'error' }) => void;
 }
 
@@ -48,7 +52,7 @@ export function MultiFileUpload({
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadTimes, setUploadTimes] = useState<number[]>([]);
-  const [boxName, setBoxName] = useState('');
+  const [batchTitle, setBatchTitle] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
@@ -66,13 +70,6 @@ export function MultiFileUpload({
     }
     setQueue((prev) => [...prev, ...newItems]);
   }, []);
-
-  // Single vs. multi mode is derived from the queue, not a separate toggle.
-  const validCount = useMemo(
-    () => queue.filter((q) => q.status !== 'error').length,
-    [queue],
-  );
-  const isMultiMode = validCount >= 2;
 
   function removeFile(id: string) {
     setQueue((prev) => prev.filter((q) => q.id !== id));
@@ -95,8 +92,8 @@ export function MultiFileUpload({
 
   function resetAndClose() {
     setQueue([]);
-    setBoxName('');
     setUploading(false);
+    setBatchTitle('');
     onClose();
   }
 
@@ -115,124 +112,101 @@ export function MultiFileUpload({
       return;
     }
 
-    // For multi-file uploads, require a box name.
-    if (isMultiMode && !boxName.trim()) {
-      onToast({ message: 'الرجاء إدخال اسم المجلد للمجموعة.', type: 'error' });
-      return;
-    }
-
     setUploading(true);
     let successCount = 0;
     let failCount = 0;
-    const total = toUpload.length;
-    const uploadedRows: FileRow[] = [];
-    let batch: FileBatch | undefined;
 
-    try {
-      // 0) Create the batch row first (multi-file only) so all files share one batch_id.
-      if (isMultiMode) {
-        const batchRes = await supabase
-          .from('file_batches')
-          .insert({
-            subject_id: subjectId,
-            tab: activeTab,
-            title: boxName.trim(),
-            file_count: total,
-          })
-          .select('id, subject_id, tab, title, uploader_id, status, file_count, created_at')
-          .maybeSingle();
+    const isBatch = toUpload.length > 1;
+    let batchId: string | null = null;
 
-        if (batchRes.error || !batchRes.data) {
-          console.error('[upload] batch insert error:', batchRes.error);
-          onToast({
-            message: `فشل إنشاء المجلد: ${batchRes.error?.message ?? 'خطأ غير معروف'}`,
-            type: 'error',
-          });
-          setUploading(false);
-          return;
-        }
-        batch = batchRes.data as FileBatch;
-        console.log('[upload] batch created:', batch);
-      }
-
-      for (const item of toUpload) {
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading' } : q)));
-
-        const ext = item.file.name.split('.').pop() ?? 'bin';
-        const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-        // 1) Upload to Storage
-        const uploadRes = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
-        if (uploadRes.error) {
-          console.error('[upload] storage error:', uploadRes.error);
-          const msg = uploadRes.error.message || 'فشل رفع الملف إلى التخزين';
-          setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
-          onToast({ message: `فشل رفع "${item.file.name}": ${msg}`, type: 'error' });
-          failCount++;
-          continue;
-        }
-        console.log('[upload] storage ok:', { path, data: uploadRes.data });
-
-        // 2) Insert row in files table
-        const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
-        const insertRes = await supabase.from('files').insert({
+    if (isBatch) {
+      const title = batchTitle.trim() || buildBatchTitle(tabLabel, toUpload.length);
+      const { data: batch, error: batchErr } = await supabase
+        .from('file_batches')
+        .insert({
           subject_id: subjectId,
           tab: activeTab,
-          title: item.title.trim() || item.file.name,
-          storage_path: path,
-          file_url: pub.publicUrl,
-          file_type: ext,
-          file_size: item.file.size,
-          batch_id: batch?.id ?? null,
-        }).select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, batch:file_batches!files_batch_id_fkey(id, title, status, file_count, created_at), uploader:profiles!files_uploader_id_fkey(id, full_name, role)')
-          .maybeSingle();
-
-        if (insertRes.error) {
-          console.error('[upload] db insert error:', insertRes.error);
-          // Clean up the orphaned storage object
-          await supabase.storage.from('files').remove([path]);
-          const msg = insertRes.error.message || 'فشل حفظ بيانات الملف';
-          setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
-          onToast({ message: `فشل حفظ "${item.file.name}": ${msg}`, type: 'error' });
-          failCount++;
-          continue;
-        }
-
-        console.log('[upload] db insert ok:', insertRes.data);
-        const inserted = insertRes.data as unknown as FileRow;
-        if (inserted) uploadedRows.push(inserted);
-
-        setUploadTimes((prev) => [...prev, Date.now()]);
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'done' } : q)));
-        successCount++;
+          title,
+          file_count: toUpload.length,
+          status: canPublishDirectly ? 'approved' : 'pending',
+        })
+        .select('id')
+        .maybeSingle();
+      if (batchErr || !batch) {
+        setUploading(false);
+        onToast({ message: 'فشل إنشاء المجموعة: ' + (batchErr?.message ?? 'خطأ غير معروف'), type: 'error' });
+        return;
       }
-    } catch (err) {
-      console.error('[upload] unexpected error:', err);
-      onToast({ message: 'حدث خطأ غير متوقع أثناء الرفع. تحقق من الكونسول.', type: 'error' });
+      batchId = batch.id;
+    }
+
+    for (const item of toUpload) {
+      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading' } : q)));
+
+      const ext = item.file.name.split('.').pop() ?? 'bin';
+      const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
+      if (upErr) {
+        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: 'فشل رفع الملف' } : q)));
+        failCount++;
+        continue;
+      }
+
+      const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
+      const { error: insErr } = await supabase.from('files').insert({
+        subject_id: subjectId,
+        tab: activeTab,
+        title: item.title.trim() || item.file.name,
+        storage_path: path,
+        file_url: pub.publicUrl,
+        file_type: ext,
+        file_size: item.file.size,
+        batch_id: batchId,
+        status: canPublishDirectly ? 'approved' : 'pending',
+      });
+
+      if (insErr) {
+        await supabase.storage.from('files').remove([path]);
+        let msg = 'فشل حفظ الملف';
+        if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
+        else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
+        failCount++;
+        continue;
+      }
+
+      setUploadTimes((prev) => [...prev, Date.now()]);
+      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'done' } : q)));
+      successCount++;
+    }
+
+    if (isBatch && batchId && successCount === 0) {
+      await supabase.from('file_batches').delete().eq('id', batchId);
+    } else if (isBatch && batchId && successCount > 0 && successCount !== toUpload.length) {
+      await supabase.from('file_batches').update({ file_count: successCount }).eq('id', batchId);
     }
 
     setUploading(false);
 
-    if (uploadedRows.length > 0) {
-      onUploaded(uploadedRows, batch);
+    if (successCount > 0) {
+      onToast({
+        message: canPublishDirectly ? `تم نشر ${successCount} ملف بنجاح` : `تم رفع ${successCount} ملف وهم قيد المراجعة`,
+        type: 'success',
+      });
+      onUploaded();
+    }
+    if (failCount > 0 && successCount === 0) {
+      onToast({ message: `فشل رفع ${failCount} ملف`, type: 'error' });
     }
 
     if (successCount > 0 && failCount === 0) {
-      onToast({
-        message: canPublishDirectly
-          ? `تم نشر ${successCount}/${total} ملف بنجاح`
-          : `تم رفع ${successCount}/${total} ملف وهم قيد المراجعة`,
-        type: 'success',
-      });
       setTimeout(() => resetAndClose(), 800);
-    } else if (successCount > 0) {
-      onToast({ message: `تم رفع ${successCount}/${total} ملف، فشل ${failCount}`, type: 'error' });
-    } else {
-      onToast({ message: `فشل رفع ${failCount}/${total} ملف. انظر الكونسول للتفاصيل.`, type: 'error' });
     }
   }
 
   const validWaiting = validQueue.filter((q) => q.status === 'waiting').length;
+  const showBatchField = validWaiting > 1;
 
   const completedCount = queue.filter((q) => q.status === 'done').length;
   const errorCount = queue.filter((q) => q.status === 'error').length;
@@ -244,7 +218,7 @@ export function MultiFileUpload({
         {!canPublishDirectly && (
           <div className="flex items-start gap-2 rounded-xl border border-accent-500/30 bg-accent-500/10 p-3 text-sm text-accent-400">
             <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
-            <span>ستحتاج ملفاتك إلى موافقة المدير قبل نشرها للجميع. ملفاتك تظهر لك بعلامة "قيد المراجعة".</span>
+            <span>ستحتاج ملفاتك إلى موافقة المدير قبل نشرها للجميع.</span>
           </div>
         )}
 
@@ -267,89 +241,71 @@ export function MultiFileUpload({
           <input ref={fileInputRef} type="file" multiple onChange={handleFileInput} className="hidden" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" />
         </div>
 
+        {showBatchField && (
+          <div className="rounded-xl border border-white/10 bg-ink-900/40 p-3">
+            <label className="mb-1.5 block text-xs font-bold text-slate-400">عنوان المجموعة (اختياري)</label>
+            <input
+              value={batchTitle}
+              onChange={(e) => setBatchTitle(e.target.value)}
+              placeholder={buildBatchTitle(tabLabel, validWaiting)}
+              className="input-sm"
+              disabled={uploading}
+            />
+            <p className="mt-1.5 text-xs text-slate-500">سيتم تجميع {validWaiting} ملفات في مجموعة واحدة قابلة للفتح والتنزيل.</p>
+          </div>
+        )}
+
         {queue.length > 0 && (
-          <>
-            {/* Dynamic naming field: single = file name, multi = box/folder name */}
-            {validCount > 0 && (
-              <div className="rounded-xl border border-white/5 bg-ink-900/40 p-3">
-                <label className="mb-1 block text-xs font-bold text-slate-400">
-                  {isMultiMode ? 'اسم المجلد / المجموعة' : 'اسم الملف'}
-                </label>
-                {isMultiMode ? (
-                  <input
-                    value={boxName}
-                    onChange={(e) => setBoxName(e.target.value)}
-                    placeholder="مثال: تجميعة ملخصات الشابتر الأول"
-                    className="input-sm"
-                    disabled={uploading}
-                  />
-                ) : (
-                  <input
-                    value={queue.find((q) => q.status === 'waiting')?.title ?? ''}
-                    onChange={(e) => {
-                      const target = queue.find((q) => q.status === 'waiting');
-                      if (target) updateTitle(target.id, e.target.value);
-                    }}
-                    placeholder="اسم الملف..."
-                    className="input-sm"
-                    disabled={uploading}
-                  />
-                )}
-                {isMultiMode && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    سيتم تجميع {validCount} ملفات تحت هذا الاسم في مجلد واحد قابل للفتح والإغلاق.
-                  </p>
-                )}
+          <div className="space-y-2">
+            {uploading && (
+              <div className="mb-2">
+                <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                  <span>التقدم: {completedCount} / {queue.length - errorCount}</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-ink-700">
+                  <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${progress}%` }} />
+                </div>
               </div>
             )}
 
-            <div className="space-y-2">
-              {uploading && (
-                <div className="mb-2">
-                  <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                    <span>التقدم: {completedCount} / {queue.length - errorCount}</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-ink-700">
-                    <div className="h-full rounded-full bg-brand-500 transition-all duration-300" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-              )}
-
-              {queue.map((q) => (
-                <div key={q.id} className={`flex items-center gap-3 rounded-xl border p-3 transition ${
-                  q.status === 'done' ? 'border-success-500/30 bg-success-500/5' :
-                  q.status === 'error' ? 'border-danger-500/30 bg-danger-500/5' :
-                  q.status === 'uploading' ? 'border-brand-500/40 bg-brand-500/5' :
-                  'border-white/5 bg-ink-900/40'
-                }`}>
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
-                    <Icon name={getFileIcon(q.file.name.split('.').pop() ?? '')} className="h-5 w-5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
+            {queue.map((q) => (
+              <div key={q.id} className={`flex items-center gap-3 rounded-xl border p-3 transition ${
+                q.status === 'done' ? 'border-success-500/30 bg-success-500/5' :
+                q.status === 'error' ? 'border-danger-500/30 bg-danger-500/5' :
+                q.status === 'uploading' ? 'border-brand-500/40 bg-brand-500/5' :
+                'border-white/5 bg-ink-900/40'
+              }`}>
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
+                  <Icon name={getFileIcon(q.file.name.split('.').pop() ?? '')} className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  {q.status === 'waiting' ? (
+                    <input value={q.title} onChange={(e) => updateTitle(q.id, e.target.value)} placeholder="عنوان الملف..." className="input-sm" disabled={uploading} />
+                  ) : (
                     <p className="truncate text-sm font-bold text-slate-200">{q.title || q.file.name}</p>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                      <span>{formatFileSize(q.file.size)}</span>
-                      <span>·</span>
-                      <span className="uppercase">{q.file.name.split('.').pop()}</span>
-                      {q.status === 'uploading' && <span className="flex items-center gap-1 text-brand-400"><Icon name="Loader2" className="h-3 w-3 animate-spin" /> جارٍ الرفع...</span>}
-                      {q.status === 'done' && <span className="flex items-center gap-1 text-success-400"><Icon name="Check" className="h-3 w-3" /> تم</span>}
-                      {q.status === 'error' && <span className="flex items-center gap-1 text-danger-400"><Icon name="AlertCircle" className="h-3 w-3" /> {q.error}</span>}
-                    </div>
-                  </div>
-                  {(q.status === 'waiting' || q.status === 'error') && !uploading && (
-                    <button onClick={() => removeFile(q.id)} className="rounded-lg p-2 text-slate-500 transition hover:bg-danger-500/10 hover:text-danger-400" title="إزالة">
-                      <Icon name="X" className="h-4 w-4" />
-                    </button>
                   )}
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                    <span>{formatFileSize(q.file.size)}</span>
+                    <span>·</span>
+                    <span className="uppercase">{q.file.name.split('.').pop()}</span>
+                    {q.status === 'uploading' && <span className="flex items-center gap-1 text-brand-400"><Icon name="Loader2" className="h-3 w-3 animate-spin" /> جارٍ الرفع...</span>}
+                    {q.status === 'done' && <span className="flex items-center gap-1 text-success-400"><Icon name="Check" className="h-3 w-3" /> تم</span>}
+                    {q.status === 'error' && <span className="flex items-center gap-1 text-danger-400"><Icon name="AlertCircle" className="h-3 w-3" /> {q.error}</span>}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </>
+                {(q.status === 'waiting' || q.status === 'error') && !uploading && (
+                  <button onClick={() => removeFile(q.id)} className="rounded-lg p-2 text-slate-500 transition hover:bg-danger-500/10 hover:text-danger-400" title="إزالة">
+                    <Icon name="X" className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         )}
 
         <div className="flex items-center justify-between gap-2 pt-2">
-          <div className="text-xs text-slate-500">{validWaiting} ملف جاهز للرفع</div>
+          <div className="text-xs text-slate-500">{validWaiting} ملف جاهز للرفع{showBatchField ? ' · مجموعة' : ''}</div>
           <div className="flex gap-2">
             <button type="button" onClick={hasUploading ? () => {} : resetAndClose} disabled={hasUploading} className="btn-ghost disabled:opacity-40">
               {hasUploading ? 'جارٍ الرفع...' : 'إلغاء'}

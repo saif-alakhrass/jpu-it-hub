@@ -39,7 +39,6 @@ export interface FileRow {
   batch_id: string | null;
   uploader?: Profile | null;
   subject?: Subject | null;
-  batch?: Pick<FileBatch, 'id' | 'title' | 'status' | 'file_count' | 'created_at'> | null;
 }
 
 export interface FileBatch {
