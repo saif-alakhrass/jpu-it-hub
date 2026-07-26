@@ -10,7 +10,7 @@ import {
   UPLOAD_MAX_PER_WINDOW,
   MAX_FILE_SIZE_MB,
 } from '@/lib/storage';
-import type { FileTab } from '@/lib/types';
+import type { FileRow, FileTab } from '@/lib/types';
 
 interface QueuedFile {
   id: string;
@@ -26,9 +26,10 @@ interface MultiFileUploadProps {
   subjectId: string;
   activeTab: FileTab;
   userId: string;
+  uploaderName?: string;
   canPublishDirectly: boolean;
   tabLabel: string;
-  onUploaded: () => void;
+  onUploaded: (newFiles: FileRow[]) => void;
   onToast: (t: { message: string; type: 'success' | 'error' }) => void;
 }
 
@@ -38,6 +39,7 @@ export function MultiFileUpload({
   subjectId,
   activeTab,
   userId,
+  uploaderName,
   canPublishDirectly,
   tabLabel,
   onUploaded,
@@ -109,6 +111,7 @@ export function MultiFileUpload({
     let successCount = 0;
     let failCount = 0;
     const total = toUpload.length;
+    const uploadedRows: FileRow[] = [];
 
     try {
       for (const item of toUpload) {
@@ -117,15 +120,21 @@ export function MultiFileUpload({
         const ext = item.file.name.split('.').pop() ?? 'bin';
         const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-        const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
-        if (upErr) {
-          setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: 'فشل رفع الملف' } : q)));
+        // 1) Upload to Storage
+        const uploadRes = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
+        if (uploadRes.error) {
+          console.error('[upload] storage error:', uploadRes.error);
+          const msg = uploadRes.error.message || 'فشل رفع الملف إلى التخزين';
+          setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
+          onToast({ message: `فشل رفع "${item.file.name}": ${msg}`, type: 'error' });
           failCount++;
           continue;
         }
+        console.log('[upload] storage ok:', { path, data: uploadRes.data });
 
+        // 2) Insert row in files table
         const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
-        const { error: insErr } = await supabase.from('files').insert({
+        const insertRes = await supabase.from('files').insert({
           subject_id: subjectId,
           tab: activeTab,
           title: item.title.trim() || item.file.name,
@@ -133,40 +142,51 @@ export function MultiFileUpload({
           file_url: pub.publicUrl,
           file_type: ext,
           file_size: item.file.size,
-        });
+        }).select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role)')
+          .maybeSingle();
 
-        if (insErr) {
+        if (insertRes.error) {
+          console.error('[upload] db insert error:', insertRes.error);
+          // Clean up the orphaned storage object
           await supabase.storage.from('files').remove([path]);
-          let msg = 'فشل حفظ الملف';
-          if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
-          else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+          const msg = insertRes.error.message || 'فشل حفظ بيانات الملف';
           setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
+          onToast({ message: `فشل حفظ "${item.file.name}": ${msg}`, type: 'error' });
           failCount++;
           continue;
         }
+
+        console.log('[upload] db insert ok:', insertRes.data);
+        const inserted = insertRes.data as unknown as FileRow;
+        if (inserted) uploadedRows.push(inserted);
 
         setUploadTimes((prev) => [...prev, Date.now()]);
         setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'done' } : q)));
         successCount++;
       }
-    } catch {
-      // Unexpected error — continue to toast reporting
+    } catch (err) {
+      console.error('[upload] unexpected error:', err);
+      onToast({ message: 'حدث خطأ غير متوقع أثناء الرفع. تحقق من الكونسول.', type: 'error' });
     }
 
     setUploading(false);
+
+    // Optimistic update: hand the freshly inserted rows to the parent so they
+    // appear immediately without a re-fetch.
+    if (uploadedRows.length > 0) {
+      onUploaded(uploadedRows);
+    }
 
     if (successCount > 0 && failCount === 0) {
       onToast({
         message: canPublishDirectly ? `تم نشر ${successCount}/${total} ملف بنجاح` : `تم رفع ${successCount}/${total} ملف وهم قيد المراجعة`,
         type: 'success',
       });
-      onUploaded();
       setTimeout(() => resetAndClose(), 800);
     } else if (successCount > 0) {
       onToast({ message: `تم رفع ${successCount}/${total} ملف، فشل ${failCount}`, type: 'error' });
-      onUploaded();
     } else {
-      onToast({ message: `فشل رفع ${failCount}/${total} ملف`, type: 'error' });
+      onToast({ message: `فشل رفع ${failCount}/${total} ملف. انظر الكونسول للتفاصيل.`, type: 'error' });
     }
   }
 
@@ -182,7 +202,7 @@ export function MultiFileUpload({
         {!canPublishDirectly && (
           <div className="flex items-start gap-2 rounded-xl border border-accent-500/30 bg-accent-500/10 p-3 text-sm text-accent-400">
             <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
-            <span>ستحتاج ملفاتك إلى موافقة المدير قبل نشرها للجميع.</span>
+            <span>ستحتاج ملفاتك إلى موافقة المدير قبل نشرها للجميع. ملفاتك تظهر لك بعلامة "قيد المراجعة".</span>
           </div>
         )}
 

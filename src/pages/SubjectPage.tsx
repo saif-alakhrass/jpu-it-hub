@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -9,70 +9,13 @@ import { supabase } from '@/lib/supabase';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
-import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject } from '@/lib/types';
+import { TABS, type Bookmark, type FileRow, type FileTab, type Subject } from '@/lib/types';
 import { formatFileSize, getSignedFileUrl } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
 
-type DeleteTarget =
-  | { kind: 'file'; file: FileRow }
-  | { kind: 'group'; files: FileRow[]; groupKey: string }
-  | null;
-
-interface DisplayGroup {
-  key: string;
-  batch: FileBatch | null;
-  files: FileRow[];
-}
-
-const GROUP_WINDOW_MS = 2 * 60 * 1000;
-
-function buildGroupTitle(files: FileRow[]): string {
-  const first = files[0];
-  if (!first) return 'مجموعة ملفات';
-  const tabLabel = TABS.find((t) => t.key === first.tab)?.label ?? '';
-  const d = new Date(first.created_at).toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
-  return `${tabLabel} - مجموعة (${files.length} ملفات) - ${d}`;
-}
-
-function deriveBatchFromFiles(groupFiles: FileRow[], groupKey: string): FileBatch {
-  const first = groupFiles[0]!;
-  return {
-    id: groupKey,
-    subject_id: first.subject_id,
-    tab: first.tab,
-    title: buildGroupTitle(groupFiles),
-    uploader_id: first.uploader_id,
-    status: first.status,
-    file_count: groupFiles.length,
-    created_at: first.created_at,
-    uploader: first.uploader,
-  };
-}
-
-function groupFilesByUploadTime(tabFiles: FileRow[]): DisplayGroup[] {
-  const used = new Set<string>();
-  const result: DisplayGroup[] = [];
-  for (const file of tabFiles) {
-    if (used.has(file.id)) continue;
-    const fileTime = new Date(file.created_at).getTime();
-    const groupFiles = tabFiles.filter(
-      (f) =>
-        !used.has(f.id) &&
-        f.uploader_id === file.uploader_id &&
-        Math.abs(new Date(f.created_at).getTime() - fileTime) < GROUP_WINDOW_MS,
-    );
-    groupFiles.forEach((f) => used.add(f.id));
-    if (groupFiles.length > 1) {
-      const groupKey = `grp-${file.uploader_id}-${file.created_at}`;
-      result.push({ key: groupKey, batch: deriveBatchFromFiles(groupFiles, groupKey), files: groupFiles });
-    } else {
-      result.push({ key: `file-${file.id}`, batch: null, files: [file] });
-    }
-  }
-  return result;
-}
+type DeleteTarget = { kind: 'file'; file: FileRow } | null;
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
@@ -90,24 +33,41 @@ export function SubjectPage() {
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
 
   async function loadSubject() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('subjects')
       .select('id, name, code, description, major, departments, created_by, created_at')
       .eq('id', subjectId)
       .maybeSingle();
+    if (error) console.error('[loadSubject] error:', error);
     setSubject(data as Subject | null);
   }
 
   async function loadFiles() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('files')
       .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role)')
       .eq('subject_id', subjectId)
       .order('created_at', { ascending: false });
+    if (error) {
+      console.error('[loadFiles] error:', error);
+      setToast({ message: 'فشل تحميل الملفات: ' + error.message, type: 'error' });
+    }
     setFiles((data ?? []) as unknown as FileRow[]);
+  }
+
+  // Optimistic: prepend newly uploaded files immediately so the user sees them
+  // without waiting for a re-fetch. Falls back to a full reload on error.
+  function handleFilesUploaded(newFiles: FileRow[]) {
+    if (newFiles.length > 0) {
+      setFiles((prev) => {
+        const existing = new Set(prev.map((f) => f.id));
+        const fresh = newFiles.filter((f) => !existing.has(f.id));
+        return [...fresh, ...prev];
+      });
+    }
+    loadFiles();
   }
 
   useEffect(() => {
@@ -139,58 +99,28 @@ export function SubjectPage() {
     })();
   }, [session, files]);
 
-  // Group files uploaded together (same uploader, within 2 minutes) into folder cards.
-  // Fallback: if grouping fails, every file renders as a standalone card — nothing is hidden.
-  const groups: DisplayGroup[] = useMemo(() => {
-    try {
-      const tabFiles = files.filter((f) => f.tab === activeTab);
-      return groupFilesByUploadTime(tabFiles);
-    } catch {
-      return files
-        .filter((f) => f.tab === activeTab)
-        .map((f) => ({ key: `file-${f.id}`, batch: null, files: [f] }));
-    }
-  }, [files, activeTab]);
-
-  const hasContent = groups.length > 0;
+  // Render: simple filter by active tab only — no grouping, no batching.
+  const tabFiles = files.filter((f) => f.tab === activeTab);
+  const hasContent = tabFiles.length > 0;
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return;
-    if (deleteTarget.kind === 'file') {
-      const file = deleteTarget.file;
-      setBusyId(file.id);
-      if (file.storage_path) {
-        await supabase.storage.from('files').remove([file.storage_path]);
-      }
-      const { error } = await supabase.from('files').delete().eq('id', file.id);
-      setBusyId(null);
-      setDeleteTarget(null);
-      if (error) {
-        setToast({ message: 'فشل حذف الملف: ' + error.message, type: 'error' });
-        return;
-      }
-      setFiles((prev) => prev.filter((f) => f.id !== file.id));
-      setToast({ message: `تم حذف الملف "${file.title}"`, type: 'success' });
-      return;
+    const file = deleteTarget.file;
+    setBusyId(file.id);
+    if (file.storage_path) {
+      const { error: rmErr } = await supabase.storage.from('files').remove([file.storage_path]);
+      if (rmErr) console.error('[delete] storage remove error:', rmErr);
     }
-    // group delete
-    const groupFiles = deleteTarget.files;
-    const groupKey = deleteTarget.groupKey;
-    setBusyId(groupKey);
-    const paths = groupFiles.map((f) => f.storage_path).filter(Boolean);
-    if (paths.length > 0) {
-      await supabase.storage.from('files').remove(paths);
-    }
-    const ids = groupFiles.map((f) => f.id);
-    const { error } = await supabase.from('files').delete().in('id', ids);
+    const { error } = await supabase.from('files').delete().eq('id', file.id);
     setBusyId(null);
     setDeleteTarget(null);
     if (error) {
-      setToast({ message: 'فشل حذف المجموعة: ' + error.message, type: 'error' });
+      console.error('[delete] db error:', error);
+      setToast({ message: 'فشل حذف الملف: ' + error.message, type: 'error' });
       return;
     }
-    setFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
-    setToast({ message: `تم حذف المجموعة وكل ملفاتها (${groupFiles.length} ملف)`, type: 'success' });
+    setFiles((prev) => prev.filter((f) => f.id !== file.id));
+    setToast({ message: `تم حذف الملف "${file.title}"`, type: 'success' });
   }
 
   async function handleToggleBookmark(file: FileRow) {
@@ -217,15 +147,6 @@ export function SubjectPage() {
     } else {
       setToast({ message: 'فشل حفظ العنصر', type: 'error' });
     }
-  }
-
-  function toggleBatch(id: string) {
-    setExpandedBatches((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
   }
 
   if (loading) {
@@ -313,45 +234,22 @@ export function SubjectPage() {
         />
       ) : (
         <div className="grid gap-3">
-          {groups.map((group) => {
-            const batch = group.batch;
-            const standalone = group.files[0] ?? null;
-            return batch ? (
-              <BatchFolderCard
-                key={group.key}
-                batch={batch}
-                files={group.files}
-                expanded={expandedBatches.has(batch.id)}
-                onToggle={() => toggleBatch(batch.id)}
-                profile={profile}
-                isAdmin={isAdmin}
-                bookmarkedIds={bookmarkedIds}
-                signedUrls={signedUrls}
-                busyId={busyId}
-                onToggleBookmark={handleToggleBookmark}
-                onDeleteFile={(file) => setDeleteTarget({ kind: 'file', file })}
-                onDeleteBatch={() => setDeleteTarget({ kind: 'group', files: group.files, groupKey: group.key })}
-                bookmarkForEditor={bookmarkForEditor}
-                setBookmarkForEditor={setBookmarkForEditor}
-                setToast={setToast}
-              />
-            ) : standalone ? (
-              <FileRowCard
-                key={group.key}
-                file={standalone}
-                profile={profile}
-                isAdmin={isAdmin}
-                bookmarkedIds={bookmarkedIds}
-                signedUrls={signedUrls}
-                busyId={busyId}
-                onToggleBookmark={handleToggleBookmark}
-                onDelete={() => setDeleteTarget({ kind: 'file', file: standalone })}
-                bookmarkForEditor={bookmarkForEditor}
-                setBookmarkForEditor={setBookmarkForEditor}
-                setToast={setToast}
-              />
-            ) : null;
-          })}
+          {tabFiles.map((file) => (
+            <FileRowCard
+              key={file.id}
+              file={file}
+              profile={profile}
+              isAdmin={isAdmin}
+              bookmarkedIds={bookmarkedIds}
+              signedUrls={signedUrls}
+              busyId={busyId}
+              onToggleBookmark={handleToggleBookmark}
+              onDelete={() => setDeleteTarget({ kind: 'file', file })}
+              bookmarkForEditor={bookmarkForEditor}
+              setBookmarkForEditor={setBookmarkForEditor}
+              setToast={setToast}
+            />
+          ))}
         </div>
       )}
 
@@ -362,9 +260,10 @@ export function SubjectPage() {
           subjectId={subjectId}
           activeTab={activeTab}
           userId={profile.id}
+          uploaderName={profile.full_name ?? undefined}
           canPublishDirectly={canPublishDirectly}
           tabLabel={TABS.find((t) => t.key === activeTab)?.label ?? ''}
-          onUploaded={loadFiles}
+          onUploaded={handleFilesUploaded}
           onToast={setToast}
         />
       )}
@@ -375,17 +274,8 @@ export function SubjectPage() {
             <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
               <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
               <div>
-                {deleteTarget.kind === 'group' ? (
-                  <>
-                    <p className="font-bold">هل أنت متأكد من حذف هذه المجموعة؟</p>
-                    <p className="mt-1 text-sm">سيتم حذف {deleteTarget.files.length} ملف نهائياً ولا يمكن التراجع.</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-bold">هل أنت متأكد من حذف هذا الملف؟</p>
-                    <p className="mt-1 text-sm">سيُحذف "{deleteTarget.file.title}" نهائياً ولا يمكن التراجع عن هذا الإجراء.</p>
-                  </>
-                )}
+                <p className="font-bold">هل أنت متأكد من حذف هذا الملف؟</p>
+                <p className="mt-1 text-sm">سيُحذف "{deleteTarget.file.title}" نهائياً ولا يمكن التراجع عن هذا الإجراء.</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -461,107 +351,6 @@ function FileRowCard({
         setBookmarkForEditor={setBookmarkForEditor}
         setToast={setToast}
       />
-    </div>
-  );
-}
-
-function BatchFolderCard({
-  batch, files, expanded, onToggle, profile, isAdmin, bookmarkedIds, signedUrls, busyId, onToggleBookmark, onDeleteFile, onDeleteBatch, bookmarkForEditor, setBookmarkForEditor, setToast,
-}: ProfileCardProps & {
-  batch: FileBatch;
-  files: FileRow[];
-  expanded: boolean;
-  onToggle: () => void;
-  onDeleteFile: (f: FileRow) => void;
-  onDeleteBatch: () => void;
-}) {
-  const isOwn = profile?.id === batch.uploader_id;
-  const pending = batch.status === 'pending';
-  const totalSize = files.reduce((sum, f) => sum + (f.file_size ?? 0), 0);
-  return (
-    <div className={`card overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
-      <div className="flex items-center gap-4 p-4">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-400">
-          <Icon name="FolderOpen" className="h-5 w-5" />
-        </span>
-        <button onClick={onToggle} className="min-w-0 flex-1 text-right">
-          <div className="flex items-center gap-2">
-            <h3 className="truncate font-bold text-slate-100">{batch.title}</h3>
-            {pending && (
-              <span className="badge bg-accent-500/15 text-accent-400 border border-accent-500/30">
-                <Icon name="Clock" className="h-3 w-3" />
-                قيد المراجعة
-              </span>
-            )}
-          </div>
-          <div className="mt-0.5 flex items-center gap-3 text-xs text-slate-500">
-            <span>{batch.uploader?.full_name ?? 'مستخدم'}</span>
-            <span>·</span>
-            <span>{files.length} ملف</span>
-            <span>·</span>
-            <span>{formatFileSize(totalSize)}</span>
-            <span>·</span>
-            <span>{new Date(batch.created_at).toLocaleDateString('ar')}</span>
-          </div>
-        </button>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            onClick={onToggle}
-            className="rounded-lg p-2 text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
-            title={expanded ? 'طي' : 'فتح'}
-          >
-            <Icon name={expanded ? 'ChevronDown' : 'ChevronLeft'} className="h-4 w-4" />
-          </button>
-          {isAdmin && (
-            <button
-              onClick={onDeleteBatch}
-              className="rounded-lg p-2 text-danger-400 transition hover:bg-danger-500/10"
-              title="حذف المجموعة"
-              disabled={busyId === batch.id}
-            >
-              {busyId === batch.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-            </button>
-          )}
-        </div>
-      </div>
-      {expanded && (
-        <div className="border-t border-white/5 bg-ink-900/30 p-3">
-          <div className="grid gap-2">
-            {files.map((f) => {
-              const fOwn = profile?.id === f.uploader_id;
-              const fPending = f.status === 'pending';
-              return (
-                <div key={f.id} className="flex items-center gap-3 rounded-lg bg-ink-800/40 p-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
-                    <Icon name="File" className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h4 className="truncate text-sm font-bold text-slate-100">{f.title}</h4>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                      {f.file_type && <span className="uppercase">{f.file_type}</span>}
-                      {f.file_size != null && <span>· {formatFileSize(f.file_size)}</span>}
-                    </div>
-                  </div>
-                  <FileActions
-                    file={f}
-                    isOwn={fOwn}
-                    pending={fPending}
-                    isAdmin={isAdmin}
-                    bookmarkedIds={bookmarkedIds}
-                    signedUrls={signedUrls}
-                    busyId={busyId}
-                    onToggleBookmark={onToggleBookmark}
-                    onDelete={() => onDeleteFile(f)}
-                    bookmarkForEditor={bookmarkForEditor}
-                    setBookmarkForEditor={setBookmarkForEditor}
-                    setToast={setToast}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
