@@ -1,6 +1,7 @@
 export type Role = 'admin' | 'trusted' | 'student';
 export type FileTab = 'summaries' | 'exams' | 'images' | 'slides';
 export type FileStatus = 'pending' | 'approved' | 'rejected';
+export type Difficulty = 'سهلة' | 'متوسطة' | 'صعبة';
 
 export interface Profile {
   id: string;
@@ -22,6 +23,8 @@ export interface Subject {
   departments: string[];
   created_by: string | null;
   created_at: string;
+  difficulty: Difficulty | null;
+  course_description: string | null;
 }
 
 export interface FileRow {

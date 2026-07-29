@@ -5,15 +5,26 @@ import { Toast } from '@/components/Toast';
 import { BookmarkEditor } from '@/components/BookmarkEditor';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
-import { supabase } from '@/lib/supabase';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
-import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
-import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject } from '@/lib/types';
+import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmarks';
+import { getBookmarkedIds } from '@/services/bookmarks';
+import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject, type Difficulty } from '@/lib/types';
 import { formatFileSize, getSignedFileUrl, openFilePreview, downloadFile } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
+import { fetchSubject } from '@/services/subjects';
+import {
+  fetchFilesForSubject,
+  fetchBatchesForSubject,
+  deleteFile,
+  deleteBatch,
+  removeStorageObjects,
+  setBatchStatus,
+  updateBatchFileCount,
+} from '@/services/files';
+import { supabase } from '@/lib/supabase';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -46,29 +57,17 @@ export function SubjectPage() {
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
 
   async function loadSubject() {
-    const { data } = await supabase
-      .from('subjects')
-      .select('id, name, code, description, major, departments, created_by, created_at')
-      .eq('id', subjectId)
-      .maybeSingle();
-    setSubject(data as Subject | null);
+    const data = await fetchSubject(subjectId);
+    setSubject(data);
   }
 
   async function loadFiles() {
-    const [fileRes, batchRes] = await Promise.all([
-      supabase
-        .from('files')
-        .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role)')
-        .eq('subject_id', subjectId)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('file_batches')
-        .select('id, subject_id, tab, title, uploader_id, status, file_count, created_at')
-        .eq('subject_id', subjectId)
-        .order('created_at', { ascending: false }),
+    const [f, b] = await Promise.all([
+      fetchFilesForSubject(subjectId),
+      fetchBatchesForSubject(subjectId),
     ]);
-    setFiles((fileRes.data ?? []) as unknown as FileRow[]);
-    setBatches((batchRes.data ?? []) as unknown as FileBatch[]);
+    setFiles(f);
+    setBatches(b);
   }
 
   useEffect(() => {
@@ -128,22 +127,23 @@ export function SubjectPage() {
       const file = deleteTarget.file;
       setBusyId(file.id);
       if (file.storage_path) {
-        await supabase.storage.from('files').remove([file.storage_path]);
+        await removeStorageObjects([file.storage_path]);
       }
-      const { error } = await supabase.from('files').delete().eq('id', file.id);
+      const ok = await deleteFile(file.id);
       setBusyId(null);
       setDeleteTarget(null);
-      if (error) {
-        setToast({ message: 'فشل حذف الملف: ' + error.message, type: 'error' });
+      if (!ok) {
+        setToast({ message: 'فشل حذف الملف', type: 'error' });
         return;
       }
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
       if (deleteTarget.batchId) {
         const remaining = files.filter((f) => f.batch_id === deleteTarget.batchId && f.id !== file.id);
         if (remaining.length === 0) {
-          await supabase.from('file_batches').delete().eq('id', deleteTarget.batchId);
+          await deleteBatch(deleteTarget.batchId);
           setBatches((prev) => prev.filter((b) => b.id !== deleteTarget.batchId));
         } else {
+          await updateBatchFileCount(deleteTarget.batchId, remaining.length);
           setBatches((prev) =>
             prev
               .map((b) => (b.id === deleteTarget.batchId ? { ...b, file_count: Math.max(0, b.file_count - 1) } : b))
@@ -160,11 +160,11 @@ export function SubjectPage() {
     const batchFiles = files.filter((f) => f.batch_id === batch.id);
     const paths = batchFiles.map((f) => f.storage_path).filter(Boolean);
     if (paths.length > 0) {
-      const { error: storageErr } = await supabase.storage.from('files').remove(paths);
-      if (storageErr) {
+      const storageOk = await removeStorageObjects(paths);
+      if (!storageOk) {
         setBusyId(null);
         setDeleteTarget(null);
-        setToast({ message: 'فشل حذف ملفات التخزين: ' + storageErr.message, type: 'error' });
+        setToast({ message: 'فشل حذف ملفات التخزين', type: 'error' });
         return;
       }
     }
@@ -175,11 +175,11 @@ export function SubjectPage() {
       setToast({ message: 'فشل حذف سجلات الملفات: ' + filesErr.message, type: 'error' });
       return;
     }
-    const { error: batchErr } = await supabase.from('file_batches').delete().eq('id', batch.id);
+    const batchOk = await deleteBatch(batch.id);
     setBusyId(null);
     setDeleteTarget(null);
-    if (batchErr) {
-      setToast({ message: 'فشل حذف المجموعة: ' + batchErr.message, type: 'error' });
+    if (!batchOk) {
+      setToast({ message: 'فشل حذف المجموعة', type: 'error' });
       return;
     }
     setFiles((prev) => prev.filter((f) => f.batch_id !== batch.id));
@@ -267,10 +267,10 @@ export function SubjectPage() {
             </div>
             <h1 className="text-2xl font-extrabold text-slate-100 md:text-3xl">{subject.name}</h1>
             {subject.code && <span className="mt-1 inline-block font-mono text-sm text-brand-400">{subject.code}</span>}
-            <p className="mt-1 text-slate-400">{getCourseMeta(subject.name, subject.description).description}</p>
+            <p className="mt-1 text-slate-400">{subject.course_description ?? subject.description ?? getCourseMeta(subject.name, subject.description).description}</p>
             <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
               <span>مستوى الصعوبة:</span>
-              <DifficultyBadge difficulty={getCourseMeta(subject.name, subject.description).difficulty} />
+              <DifficultyBadge difficulty={(subject.difficulty ?? getCourseMeta(subject.name, subject.description).difficulty) as Difficulty} />
             </div>
           </div>
           <button onClick={() => session ? setUploadOpen(true) : navigate('/auth')} className="btn-primary shrink-0">

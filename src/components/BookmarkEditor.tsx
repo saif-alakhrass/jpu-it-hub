@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
-import { supabase } from '@/lib/supabase';
+import { updateBookmark } from '@/services/bookmarks';
 import type { Bookmark } from '@/lib/types';
 
 interface BookmarkEditorProps {
@@ -34,12 +34,9 @@ export function BookmarkEditor({ bookmark, existingFolders, onClose, onSaved }: 
   async function handleSave() {
     setSaving(true);
     const folder = showFolderInput && newFolder.trim() ? newFolder.trim() : folderName;
-    const { error } = await supabase
-      .from('bookmarks')
-      .update({ folder_name: folder, note: note.trim() || null })
-      .eq('id', bookmark.id);
+    const ok = await updateBookmark(bookmark.id, { folder_name: folder, note: note.trim() || null });
     setSaving(false);
-    if (error) return;
+    if (!ok) return;
     onSaved();
     onClose();
   }

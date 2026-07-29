@@ -3,9 +3,9 @@ import { Icon } from '@/components/Icon';
 import { Toast } from '@/components/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from '@/lib/router';
-import { supabase } from '@/lib/supabase';
 import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
-import { getUserBookmarks, removeBookmarkById } from '@/lib/bookmarks';
+import { updateProfile } from '@/services/auth';
+import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
 
 const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
   admin: { label: 'مدير', cls: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
@@ -66,18 +66,15 @@ export function ProfilePage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        full_name: fullName.trim() || null,
-        academic_year: academicYear || null,
-        department: department || null,
-        credit_hours: creditHours ? parseInt(creditHours, 10) : null,
-        bio: bio.trim() || null,
-      })
-      .eq('id', profile!.id);
+    const ok = await updateProfile(profile!.id, {
+      full_name: fullName.trim() || null,
+      academic_year: academicYear || null,
+      department: department || null,
+      credit_hours: creditHours ? parseInt(creditHours, 10) : null,
+      bio: bio.trim() || null,
+    });
     setSaving(false);
-    if (error) { setToast({ message: 'فشل حفظ التغييرات', type: 'error' }); return; }
+    if (!ok) { setToast({ message: 'فشل حفظ التغييرات', type: 'error' }); return; }
     await refreshProfile();
     setEditing(false);
     setToast({ message: 'تم حفظ الملف الشخصي بنجاح', type: 'success' });

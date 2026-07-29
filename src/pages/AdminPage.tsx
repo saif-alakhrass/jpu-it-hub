@@ -2,132 +2,130 @@ import { useEffect, useState, useCallback } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
+import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { TABS, type FileRow, type Profile, type Subject, type FileStatus } from '@/lib/types';
+import { TABS, type FileRow, type Profile, type Subject, type FileStatus, type Role, type Difficulty } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
+import {
+  fetchPendingFilesPaged,
+  fetchRejectedFilesPaged,
+  fetchAdminStats,
+  setFileStatus,
+  deleteFile,
+  removeStorageObjects,
+  setBatchStatus,
+  updateBatchFileCount,
+  type AdminStats,
+} from '@/services/files';
+import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
+import { fetchProfiles, updateUserRole } from '@/services/auth';
+import { useCountUp } from '@/components/Reveal';
+import { Reveal } from '@/components/Reveal';
 
-type AdminTab = 'pending' | 'subjects' | 'users';
+type AdminTab = 'overview' | 'pending' | 'subjects' | 'users';
 
 export function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth();
   const [pending, setPending] = useState<FileRow[]>([]);
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const [pendingPage, setPendingPage] = useState(0);
   const [rejectedFiles, setRejectedFiles] = useState<FileRow[]>([]);
-  const [rejectedCount, setRejectedCount] = useState(0);
+  const [rejectedTotal, setRejectedTotal] = useState(0);
+  const [rejectedPage, setRejectedPage] = useState(0);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Profile[]>([]);
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<AdminTab>('pending');
+  const [tab, setTab] = useState<AdminTab>('overview');
   const [preview, setPreview] = useState<FileRow | null>(null);
   const [signedPreviewUrl, setSignedPreviewUrl] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
+  const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
 
   const loadPending = useCallback(async () => {
-    const { data } = await supabase
-      .from('files')
-      .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-    setPending((data ?? []) as unknown as FileRow[]);
-  }, []);
+    const result = await fetchPendingFilesPaged(pendingPage);
+    setPending(result.items);
+    setPendingTotal(result.total);
+  }, [pendingPage]);
 
-  const loadRejectedFiles = useCallback(async () => {
-    const { data } = await supabase
-      .from('files')
-      .select('id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)')
-      .eq('status', 'rejected')
-      .order('created_at', { ascending: false })
-      .limit(50);
-    setRejectedFiles((data ?? []) as unknown as FileRow[]);
-  }, []);
-
-  const loadRejectedCount = useCallback(async () => {
-    const { count } = await supabase
-      .from('files')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'rejected');
-    setRejectedCount(count ?? 0);
-  }, []);
+  const loadRejected = useCallback(async () => {
+    const result = await fetchRejectedFilesPaged(rejectedPage);
+    setRejectedFiles(result.items);
+    setRejectedTotal(result.total);
+  }, [rejectedPage]);
 
   const loadSubjects = useCallback(async () => {
-    const { data } = await supabase
-      .from('subjects')
-      .select('id, name, code, description, major, departments, created_by, created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    setSubjects((data ?? []) as Subject[]);
+    setSubjects(await fetchAllSubjects());
   }, []);
 
   const loadUsers = useCallback(async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, full_name, role, created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    setStudents((data ?? []) as Profile[]);
+    setStudents(await fetchProfiles());
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    setStats(await fetchAdminStats());
   }, []);
 
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
-    Promise.all([loadPending(), loadRejectedFiles(), loadRejectedCount(), loadSubjects(), loadUsers()]).finally(() => setLoading(false));
-  }, [isAdmin, loadPending, loadRejectedFiles, loadRejectedCount, loadSubjects, loadUsers]);
+    Promise.all([loadPending(), loadRejected(), loadSubjects(), loadUsers(), loadStats()]).finally(() => setLoading(false));
+  }, [isAdmin, loadPending, loadRejected, loadSubjects, loadUsers, loadStats]);
 
-  async function setStatus(id: string, status: FileStatus, storagePath?: string, batchId?: string | null) {
+  async function handleApprove(id: string, batchId?: string | null) {
     setBusyId(id);
-    const { error } = await supabase.from('files').update({ status }).eq('id', id);
-    if (error) {
-      setToast({ message: 'فشل: ' + error.message, type: 'error' });
-      setBusyId(null);
-      return;
-    }
-    if (status === 'rejected' && storagePath) {
-      await supabase.storage.from('files').remove([storagePath]);
-      await supabase.from('files').delete().eq('id', id);
-    }
-    if (batchId && (status === 'approved' || status === 'rejected')) {
-      await supabase.from('file_batches').update({ status }).eq('id', batchId);
-    }
+    const ok = await setFileStatus(id, 'approved');
+    if (!ok) { setToast({ message: 'فشل الموافقة على الملف', type: 'error' }); setBusyId(null); return; }
+    if (batchId) await setBatchStatus(batchId, 'approved');
     setPending((prev) => prev.filter((f) => f.id !== id));
-    await loadRejectedCount();
-    await loadRejectedFiles();
-    setToast({
-      message: status === 'approved' ? 'تمت الموافقة على الملف ونشره' : 'تم رفض الملف وحذفه نهائياً',
-      type: 'success',
-    });
+    await loadStats();
+    setToast({ message: 'تمت الموافقة على الملف ونشره', type: 'success' });
     setPreview(null);
     setSignedPreviewUrl(null);
     setBusyId(null);
   }
 
-  const approve = (id: string, batchId?: string | null) => setStatus(id, 'approved', undefined, batchId);
-  const reject = (id: string, storagePath: string, batchId?: string | null) => setStatus(id, 'rejected', storagePath, batchId);
+  async function performReject(file: FileRow) {
+    setBusyId(file.id);
+    const ok = await setFileStatus(file.id, 'rejected');
+    if (!ok) { setToast({ message: 'فشل رفض الملف', type: 'error' }); setBusyId(null); return; }
+    if (file.storage_path) await removeStorageObjects([file.storage_path]);
+    await deleteFile(file.id);
+    if (file.batch_id) await setBatchStatus(file.batch_id, 'rejected');
+    setPending((prev) => prev.filter((f) => f.id !== file.id));
+    await loadStats();
+    await loadRejected();
+    setToast({ message: 'تم رفض الملف وحذفه نهائياً', type: 'success' });
+    setPreview(null);
+    setSignedPreviewUrl(null);
+    setConfirmReject(null);
+    setBusyId(null);
+  }
 
-  async function restore(id: string, batchId?: string | null) {
+  async function handleRestore(id: string, batchId?: string | null) {
     setBusyId(id);
-    const { error } = await supabase.from('files').update({ status: 'approved' }).eq('id', id);
-    if (error) {
-      setToast({ message: 'فشل: ' + error.message, type: 'error' });
-      setBusyId(null);
-      return;
-    }
-    if (batchId) {
-      await supabase.from('file_batches').update({ status: 'approved' }).eq('id', batchId);
-    }
+    const ok = await setFileStatus(id, 'approved');
+    if (!ok) { setToast({ message: 'فشل استعادة الملف', type: 'error' }); setBusyId(null); return; }
+    if (batchId) await setBatchStatus(batchId, 'approved');
     setRejectedFiles((prev) => prev.filter((f) => f.id !== id));
-    await loadRejectedCount();
+    await loadStats();
     setToast({ message: 'تمت استعادة الملف ونشره', type: 'success' });
     setBusyId(null);
   }
 
-  async function promote(id: string, toRole: 'admin' | 'trusted' | 'student') {
-    const { error } = await supabase.from('profiles').update({ role: toRole }).eq('id', id);
-    if (error) { setToast({ message: 'فشل: ' + error.message, type: 'error' }); return; }
-    const labels: Record<string, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
-    setToast({ message: `تم تحديث الدور إلى: ${labels[toRole]}`, type: 'success' });
+  async function performRoleChange(user: Profile, toRole: Role) {
+    setBusyId(user.id);
+    const ok = await updateUserRole(user.id, toRole);
+    setBusyId(null);
+    setConfirmRole(null);
+    if (!ok) { setToast({ message: 'فشل تحديث الدور', type: 'error' }); return; }
+    const labels: Record<Role, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
+    setToast({ message: `تم تحديث دور ${user.full_name ?? 'المستخدم'} إلى: ${labels[toRole]}`, type: 'success' });
     await loadUsers();
+    await loadStats();
   }
 
   async function openPreview(file: FileRow) {
@@ -161,28 +159,12 @@ export function AdminPage() {
         <p className="mt-1 text-slate-400">مراجعة الملفات، إدارة المواد، والصلاحيات.</p>
       </header>
 
-      <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="card p-4">
-          <div className="text-xs text-slate-400">قيد المراجعة</div>
-          <div className="mt-1 text-2xl font-extrabold text-accent-400">{pending.length}</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs text-slate-400">المواد</div>
-          <div className="mt-1 text-2xl font-extrabold text-slate-100">{subjects.length}</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs text-slate-400">المستخدمون</div>
-          <div className="mt-1 text-2xl font-extrabold text-slate-100">{students.length}</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs text-slate-400">موثوقون</div>
-          <div className="mt-1 text-2xl font-extrabold text-brand-400">{students.filter((s) => s.role === 'trusted').length}</div>
-        </div>
-      </div>
-
       <div className="mb-5 flex gap-2 overflow-x-auto border-b border-white/5">
+        <button onClick={() => setTab('overview')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'overview' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+          <Icon name="BarChart3" className="h-4 w-4" /> نظرة عامة
+        </button>
         <button onClick={() => setTab('pending')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'pending' ? 'border-accent-500 text-accent-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="Clock" className="h-4 w-4" /> قيد المراجعة ({pending.length})
+          <Icon name="Clock" className="h-4 w-4" /> قيد المراجعة ({pendingTotal})
         </button>
         <button onClick={() => setTab('subjects')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'subjects' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="BookOpen" className="h-4 w-4" /> المواد ({subjects.length})
@@ -194,12 +176,30 @@ export function AdminPage() {
 
       {loading ? (
         <div className="py-16 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>
+      ) : tab === 'overview' ? (
+        <OverviewTab stats={stats} pendingCount={pendingTotal} />
       ) : tab === 'pending' ? (
-        <PendingTab pending={pending} approve={approve} reject={reject} preview={preview} setPreview={setPreview} openPreview={openPreview} busyId={busyId} rejectedCount={rejectedCount} rejectedFiles={rejectedFiles} restore={restore} />
+        <PendingTab
+          pending={pending}
+          pendingTotal={pendingTotal}
+          pendingPage={pendingPage}
+          setPendingPage={setPendingPage}
+          approve={handleApprove}
+          requestReject={(f) => setConfirmReject(f)}
+          preview={preview}
+          setPreview={setPreview}
+          openPreview={openPreview}
+          busyId={busyId}
+          rejectedTotal={rejectedTotal}
+          rejectedFiles={rejectedFiles}
+          rejectedPage={rejectedPage}
+          setRejectedPage={setRejectedPage}
+          restore={handleRestore}
+        />
       ) : tab === 'subjects' ? (
         <SubjectsTab subjects={subjects} setToast={setToast} onUpdated={loadSubjects} />
       ) : (
-        <UsersTab students={students} promote={promote} />
+        <UsersTab students={students} requestRoleChange={(user, toRole) => setConfirmRole({ user, toRole })} busyId={busyId} />
       )}
 
       <Modal open={!!preview} onClose={() => { setPreview(null); setSignedPreviewUrl(null); }} title="معاينة الملف" maxWidth="max-w-3xl">
@@ -229,11 +229,53 @@ export function AdminPage() {
               <p className="text-sm text-slate-400">{preview.uploader?.full_name} · {preview.subject?.name} {preview.subject?.code && <span className="font-mono text-slate-500">({preview.subject.code})</span>}</p>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => reject(preview.id, preview.storage_path, preview.batch_id)} className="btn-danger" disabled={busyId === preview.id}>
+              <button onClick={() => setConfirmReject(preview)} className="btn-danger" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} رفض وحذف
               </button>
-              <button onClick={() => approve(preview.id, preview.batch_id)} className="btn-primary" disabled={busyId === preview.id}>
+              <button onClick={() => handleApprove(preview.id, preview.batch_id)} className="btn-primary" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة ونشر
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!confirmReject} onClose={() => setConfirmReject(null)} title="تأكيد رفض الملف">
+        {confirmReject && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
+              <Icon name="FileWarning" className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-bold">سيتم رفض الملف وحذفه نهائياً</p>
+                <p className="mt-1 text-sm">سيُحذف "{confirmReject.title}" من قاعدة البيانات ومن التخزين. لا يمكن التراجع عن هذا الإجراء.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setConfirmReject(null)} className="btn-ghost" disabled={busyId === confirmReject.id}>إلغاء</button>
+              <button onClick={() => performReject(confirmReject)} className="btn-danger" disabled={busyId === confirmReject.id}>
+                {busyId === confirmReject.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
+                رفض وحذف نهائي
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!confirmRole} onClose={() => setConfirmRole(null)} title="تأكيد تغيير الدور">
+        {confirmRole && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-accent-500/30 bg-accent-500/10 p-4 text-accent-400">
+              <Icon name="ShieldCheck" className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-bold">تأكيد تغيير الدور</p>
+                <p className="mt-1 text-sm">سيتم تغيير دور "{confirmRole.user.full_name ?? 'المستخدم'}" إلى "{ROLE_LABELS_AR[confirmRole.toRole]}".</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setConfirmRole(null)} className="btn-ghost" disabled={busyId === confirmRole.user.id}>إلغاء</button>
+              <button onClick={() => performRoleChange(confirmRole.user, confirmRole.toRole)} className="btn-primary" disabled={busyId === confirmRole.user.id}>
+                {busyId === confirmRole.user.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="ShieldCheck" className="h-4 w-4" />}
+                تأكيد
               </button>
             </div>
           </div>
@@ -245,19 +287,102 @@ export function AdminPage() {
   );
 }
 
+const ROLE_LABELS_AR: Record<Role, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
+
 type ToastState = { message: string; type: 'success' | 'error' } | null;
 type SetToast = (t: ToastState) => void;
 
-function PendingTab({ pending, approve, reject, preview, setPreview, openPreview, busyId, rejectedCount, rejectedFiles, restore }: {
+function StatTile({ icon, value, label, color, delay }: { icon: string; value: number; label: string; color: string; delay: number }) {
+  const { ref, value: v } = useCountUp(value);
+  return (
+    <Reveal delay={delay} className="card group relative overflow-hidden p-6">
+      <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/5 blur-2xl transition group-hover:bg-white/10" />
+      <div className="relative flex items-center gap-4">
+        <span className={`grid h-12 w-12 place-items-center rounded-2xl ${color}`}>
+          <Icon name={icon} className="h-6 w-6" />
+        </span>
+        <div>
+          <div className="text-2xl font-extrabold text-slate-100">
+            <span ref={ref}>{v.toLocaleString('en-US')}</span>
+          </div>
+          <div className="text-sm text-slate-400">{label}</div>
+        </div>
+      </div>
+    </Reveal>
+  );
+}
+
+function OverviewTab({ stats, pendingCount }: { stats: AdminStats | null; pendingCount: number }) {
+  if (!stats) {
+    return <div className="card p-12 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>;
+  }
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatTile icon="FileText" value={stats.totalFiles} label="إجمالي الملفات" color="bg-brand-500/15 text-brand-400" delay={0} />
+        <StatTile icon="Clock" value={pendingCount} label="قيد المراجعة" color="bg-accent-500/15 text-accent-400" delay={80} />
+        <StatTile icon="Users" value={stats.totalUsers} label="المستخدمون" color="bg-ink-700 text-slate-300" delay={160} />
+        <StatTile icon="BookOpen" value={stats.totalSubjects} label="المواد" color="bg-brand-500/15 text-brand-400" delay={240} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatTile icon="Check" value={stats.approvedFiles} label="ملفات منشورة" color="bg-success-500/15 text-success-400" delay={0} />
+        <StatTile icon="FileWarning" value={stats.rejectedFiles} label="ملفات مرفوضة" color="bg-danger-500/15 text-danger-400" delay={80} />
+        <StatTile icon="Shield" value={stats.trustedUsers} label="مستخدمون موثوقون" color="bg-brand-500/15 text-brand-400" delay={160} />
+        <StatTile icon="ShieldCheck" value={stats.admins} label="المديرون" color="bg-accent-500/15 text-accent-400" delay={240} />
+      </div>
+
+      <Reveal delay={200}>
+        <div className="card p-6">
+          <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-100">
+            <Icon name="BarChart3" className="h-5 w-5 text-brand-400" />
+            توزيع الملفات حسب الحالة
+          </h3>
+          <div className="space-y-3">
+            <ProgressBar label="منشورة" value={stats.approvedFiles} total={stats.totalFiles} color="bg-success-500" />
+            <ProgressBar label="قيد المراجعة" value={stats.pendingFiles} total={stats.totalFiles} color="bg-accent-500" />
+            <ProgressBar label="مرفوضة" value={stats.rejectedFiles} total={stats.totalFiles} color="bg-danger-500" />
+          </div>
+        </div>
+      </Reveal>
+    </div>
+  );
+}
+
+function ProgressBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-sm">
+        <span className="text-slate-300">{label}</span>
+        <span className="text-slate-400">{value} ({pct}%)</span>
+      </div>
+      <div className="h-2.5 overflow-hidden rounded-full bg-ink-700">
+        <div className={`h-full rounded-full ${color} transition-all duration-700`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PendingTab({
+  pending, pendingTotal, pendingPage, setPendingPage,
+  approve, requestReject, preview, setPreview, openPreview, busyId,
+  rejectedTotal, rejectedFiles, rejectedPage, setRejectedPage, restore,
+}: {
   pending: FileRow[];
+  pendingTotal: number;
+  pendingPage: number;
+  setPendingPage: (p: number) => void;
   approve: (id: string, batchId?: string | null) => void;
-  reject: (id: string, storagePath: string, batchId?: string | null) => void;
+  requestReject: (f: FileRow) => void;
   preview: FileRow | null;
   setPreview: (f: FileRow | null) => void;
   openPreview: (f: FileRow) => void;
   busyId: string | null;
-  rejectedCount: number;
+  rejectedTotal: number;
   rejectedFiles: FileRow[];
+  rejectedPage: number;
+  setRejectedPage: (p: number) => void;
   restore: (id: string, batchId?: string | null) => void;
 }) {
   const [showRejected, setShowRejected] = useState(false);
@@ -268,9 +393,9 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
         <Icon name="Check" className="mx-auto mb-3 h-12 w-12 text-brand-500" />
         <p className="text-slate-300 font-bold">لا توجد ملفات بانتظار المراجعة</p>
         <p className="text-slate-500 text-sm mt-1">كل شيء تحت السيطرة!</p>
-        {rejectedCount > 0 && (
+        {rejectedTotal > 0 && (
           <button onClick={() => setShowRejected(true)} className="btn-ghost mt-4">
-            <Icon name="BookX" className="h-4 w-4" /> عرض الملفات المرفوضة ({rejectedCount})
+            <Icon name="BookX" className="h-4 w-4" /> عرض الملفات المرفوضة ({rejectedTotal})
           </button>
         )}
       </div>
@@ -282,7 +407,7 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
       <div className="grid gap-3">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
-            <Icon name="BookX" className="h-5 w-5 text-danger-400" /> الملفات المرفوضة ({rejectedFiles.length})
+            <Icon name="BookX" className="h-5 w-5 text-danger-400" /> الملفات المرفوضة ({rejectedTotal})
           </h2>
           <button onClick={() => setShowRejected(false)} className="btn-ghost">
             <Icon name="ArrowRight" className="h-4 w-4" /> عودة للمراجعة
@@ -291,21 +416,24 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
         {rejectedFiles.length === 0 ? (
           <div className="card p-8 text-center text-slate-400">لا توجد ملفات مرفوضة في هذه الصفحة.</div>
         ) : (
-          rejectedFiles.map((f) => (
-            <div key={f.id} className="card flex flex-col gap-3 p-4 opacity-70 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="badge bg-danger-500/15 text-danger-400 border border-danger-500/30">مرفوض</span>
-                  <span className="text-xs text-slate-500">{f.subject?.name}</span>
+          <>
+            {rejectedFiles.map((f) => (
+              <div key={f.id} className="card flex flex-col gap-3 p-4 opacity-70 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="badge bg-danger-500/15 text-danger-400 border border-danger-500/30">مرفوض</span>
+                    <span className="text-xs text-slate-500">{f.subject?.name}</span>
+                  </div>
+                  <h3 className="mt-1.5 truncate font-bold text-slate-200">{f.title}</h3>
+                  <div className="mt-0.5 text-xs text-slate-500">{f.uploader?.full_name ?? 'مستخدم'}</div>
                 </div>
-                <h3 className="mt-1.5 truncate font-bold text-slate-200">{f.title}</h3>
-                <div className="mt-0.5 text-xs text-slate-500">{f.uploader?.full_name ?? 'مستخدم'}</div>
+                <button onClick={() => restore(f.id, f.batch_id)} className="btn-primary" disabled={busyId === f.id}>
+                  {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="RotateCcw" className="h-4 w-4" />} استعادة ونشر
+                </button>
               </div>
-              <button onClick={() => restore(f.id, f.batch_id)} className="btn-primary" disabled={busyId === f.id}>
-                {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="RotateCcw" className="h-4 w-4" />} استعادة ونشر
-              </button>
-            </div>
-          ))
+            ))}
+            <Pagination page={rejectedPage} totalPages={Math.max(1, Math.ceil(rejectedTotal / 20))} onPageChange={setRejectedPage} />
+          </>
         )}
       </div>
     );
@@ -330,12 +458,13 @@ function PendingTab({ pending, approve, reject, preview, setPreview, openPreview
             <button onClick={() => approve(f.id, f.batch_id)} className="btn-primary" disabled={busyId === f.id}>
               {busyId === f.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة
             </button>
-            <button onClick={() => reject(f.id, f.storage_path, f.batch_id)} className="btn-danger" disabled={busyId === f.id}>
+            <button onClick={() => requestReject(f)} className="btn-danger" disabled={busyId === f.id}>
               <Icon name="Trash2" className="h-4 w-4" /> رفض
             </button>
           </div>
         </div>
       ))}
+      <Pagination page={pendingPage} totalPages={Math.max(1, Math.ceil(pendingTotal / 20))} onPageChange={setPendingPage} />
     </div>
   );
 }
@@ -351,15 +480,10 @@ function SubjectsTab({ subjects, setToast, onUpdated }: {
 
   async function handleDelete(subject: Subject) {
     setDeleting(true);
-    const { data: files } = await supabase.from('files').select('storage_path').eq('subject_id', subject.id);
-    if (files && files.length > 0) {
-      const paths = files.map((f) => f.storage_path).filter(Boolean);
-      if (paths.length > 0) await supabase.storage.from('files').remove(paths);
-    }
-    const { error } = await supabase.from('subjects').delete().eq('id', subject.id);
+    const ok = await deleteSubjectSvc(subject.id);
     setDeleting(false);
     setDeleteSubject(null);
-    if (error) { setToast({ message: 'فشل حذف المادة: ' + error.message, type: 'error' }); return; }
+    if (!ok) { setToast({ message: 'فشل حذف المادة', type: 'error' }); return; }
     setToast({ message: `تم حذف المادة "${subject.name}" وكل ملفاتها`, type: 'success' });
     await onUpdated();
   }
@@ -446,8 +570,10 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
   const [name, setName] = useState(subject.name);
   const [code, setCode] = useState(subject.code ?? '');
   const [description, setDescription] = useState(subject.description ?? '');
+  const [courseDescription, setCourseDescription] = useState(subject.course_description ?? '');
   const [major, setMajor] = useState(subject.major);
   const [departments, setDepartments] = useState<string[]>(subject.departments?.length ? subject.departments : [subject.major]);
+  const [difficulty, setDifficulty] = useState<Difficulty | ''>(subject.difficulty ?? '');
   const [saving, setSaving] = useState(false);
 
   function toggleDept(d: string) {
@@ -458,12 +584,17 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
     e.preventDefault();
     setSaving(true);
     const finalDepts = departments.length > 0 ? departments : [major];
-    const { error } = await supabase
-      .from('subjects')
-      .update({ name: name.trim(), code: code.trim() || null, description: description.trim() || null, major, departments: finalDepts })
-      .eq('id', subject.id);
+    const ok = await updateSubject(subject.id, {
+      name: name.trim(),
+      code: code.trim() || null,
+      description: description.trim() || null,
+      course_description: courseDescription.trim() || null,
+      major,
+      departments: finalDepts,
+      difficulty: (difficulty || null) as Difficulty | null,
+    });
     setSaving(false);
-    if (error) { setToast({ message: 'فشل حفظ التعديلات: ' + error.message, type: 'error' }); return; }
+    if (!ok) { setToast({ message: 'فشل حفظ التعديلات', type: 'error' }); return; }
     setToast({ message: 'تم تحديث المادة بنجاح', type: 'success' });
     onSaved();
   }
@@ -507,8 +638,31 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
           </div>
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-bold text-slate-300">الوصف</label>
+          <label className="mb-1.5 block text-sm font-bold text-slate-300">مستوى الصعوبة</label>
+          <div className="flex flex-wrap gap-2">
+            {(['سهلة', 'متوسطة', 'صعبة'] as Difficulty[]).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDifficulty(difficulty === d ? '' : d)}
+                className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
+                  difficulty === d
+                    ? 'bg-brand-500 text-ink-950'
+                    : 'bg-ink-800 text-slate-300 border border-white/5 hover:bg-ink-700'
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-bold text-slate-300">الوصف القصير</label>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="input resize-none" placeholder="نبذة قصيرة..." />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-bold text-slate-300">وصف المادة التفصيلي</label>
+          <textarea value={courseDescription} onChange={(e) => setCourseDescription(e.target.value)} rows={3} className="input resize-none" placeholder="وصف تفصيلي للمادة ومحتوياتها..." />
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost">إلغاء</button>
@@ -521,9 +675,10 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
   );
 }
 
-function UsersTab({ students, promote }: {
+function UsersTab({ students, requestRoleChange, busyId }: {
   students: Profile[];
-  promote: (id: string, toRole: 'admin' | 'trusted' | 'student') => void;
+  requestRoleChange: (user: Profile, toRole: Role) => void;
+  busyId: string | null;
 }) {
   if (students.length === 0) {
     return <div className="card p-12 text-center"><p className="text-slate-400">لا يوجد مستخدمون.</p></div>;
@@ -544,13 +699,13 @@ function UsersTab({ students, promote }: {
             <div className="flex items-center gap-2">
               {u.role === 'student' ? (
                 <>
-                  <button onClick={() => promote(u.id, 'trusted')} className="btn-primary" title="ترقية إلى موثوق"><Icon name="Shield" className="h-4 w-4" /> موثوق</button>
-                  <button onClick={() => promote(u.id, 'admin')} className="btn-ghost border border-accent-500/30 text-accent-400 hover:bg-accent-500/10" title="ترقية إلى مدير"><Icon name="ShieldCheck" className="h-4 w-4" /> مدير</button>
+                  <button onClick={() => requestRoleChange(u, 'trusted')} className="btn-primary" title="ترقية إلى موثوق" disabled={busyId === u.id}><Icon name="Shield" className="h-4 w-4" /> موثوق</button>
+                  <button onClick={() => requestRoleChange(u, 'admin')} className="btn-ghost border border-accent-500/30 text-accent-400 hover:bg-accent-500/10" title="ترقية إلى مدير" disabled={busyId === u.id}><Icon name="ShieldCheck" className="h-4 w-4" /> مدير</button>
                 </>
               ) : u.role === 'trusted' ? (
                 <>
-                  <button onClick={() => promote(u.id, 'admin')} className="btn-ghost border border-accent-500/30 text-accent-400 hover:bg-accent-500/10" title="ترقية إلى مدير"><Icon name="ShieldCheck" className="h-4 w-4" /> مدير</button>
-                  <button onClick={() => promote(u.id, 'student')} className="btn-ghost" title="تخفيض إلى طالب"><Icon name="GraduationCap" className="h-4 w-4" /> طالب</button>
+                  <button onClick={() => requestRoleChange(u, 'admin')} className="btn-ghost border border-accent-500/30 text-accent-400 hover:bg-accent-500/10" title="ترقية إلى مدير" disabled={busyId === u.id}><Icon name="ShieldCheck" className="h-4 w-4" /> مدير</button>
+                  <button onClick={() => requestRoleChange(u, 'student')} className="btn-ghost" title="تخفيض إلى طالب" disabled={busyId === u.id}><Icon name="GraduationCap" className="h-4 w-4" /> طالب</button>
                 </>
               ) : null}
             </div>

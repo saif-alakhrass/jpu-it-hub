@@ -1,4 +1,15 @@
 import { supabase } from '@/lib/supabase';
+import {
+  MAX_FILE_SIZE_MB,
+  MAX_FILE_SIZE_BYTES,
+  ALLOWED_MIME_TYPES,
+  ALLOWED_EXTENSIONS,
+  UPLOAD_MAX_PER_WINDOW,
+  UPLOAD_WINDOW_MS,
+} from '@/lib/constants';
+
+export { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES, UPLOAD_MAX_PER_WINDOW };
+export { ALLOWED_MIME_TYPES, ALLOWED_EXTENSIONS };
 
 const SIGNED_URL_EXPIRY = 3600;
 
@@ -36,30 +47,10 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
   }
 }
 
-export const UPLOAD_MAX_PER_WINDOW = 5;
-const UPLOAD_WINDOW_MS = 10 * 60 * 1000;
-
 export function canUploadNow(recentTimestamps: number[]): boolean {
   const cutoff = Date.now() - UPLOAD_WINDOW_MS;
   return recentTimestamps.filter((t) => t > cutoff).length < UPLOAD_MAX_PER_WINDOW;
 }
-
-export const MAX_FILE_SIZE_MB = 20;
-export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-export const ALLOWED_MIME_TYPES: readonly string[] = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'image/png',
-  'image/jpeg',
-];
-
-export const ALLOWED_EXTENSIONS: readonly string[] = [
-  'pdf', 'doc', 'docx', 'ppt', 'pptx', 'png', 'jpg', 'jpeg',
-];
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

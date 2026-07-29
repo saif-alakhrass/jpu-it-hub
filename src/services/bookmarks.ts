@@ -1,5 +1,5 @@
-import { supabase } from './supabase';
-import type { Bookmark, BookmarkWithFile, FileRow } from './types';
+import { supabase } from '@/lib/supabase';
+import type { Bookmark, BookmarkWithFile, FileRow } from '@/lib/types';
 
 export async function isBookmarked(resourceId: string): Promise<boolean> {
   const { data } = await supabase

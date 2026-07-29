@@ -1,28 +1,14 @@
 import { useState, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
-import { supabase } from '@/lib/supabase';
-import {
-  validateFile,
-  formatFileSize,
-  getFileIcon,
-  canUploadNow,
-  UPLOAD_MAX_PER_WINDOW,
-  MAX_FILE_SIZE_MB,
-} from '@/lib/storage';
+import { formatFileSize, getFileIcon, canUploadNow } from '@/lib/storage';
+import { UPLOAD_MAX_PER_WINDOW, MAX_FILE_SIZE_MB } from '@/lib/constants';
+import { useUpload, type QueuedFile } from '@/hooks/useUpload';
 import type { FileTab } from '@/lib/types';
 
 function buildBatchTitle(tabLabel: string, count: number): string {
   const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
   return `${tabLabel} - مجموعة (${count} ملفات) - ${d}`;
-}
-
-interface QueuedFile {
-  id: string;
-  file: File;
-  title: string;
-  status: 'waiting' | 'uploading' | 'done' | 'error';
-  error?: string;
 }
 
 interface MultiFileUploadProps {
@@ -50,26 +36,14 @@ export function MultiFileUpload({
 }: MultiFileUploadProps) {
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadTimes, setUploadTimes] = useState<number[]>([]);
   const [batchTitle, setBatchTitle] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { uploading, uploadTimes, uploadBatch, validateQueue } = useUpload();
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
-    const arr = Array.from(fileList);
-    const newItems: QueuedFile[] = [];
-    for (const f of arr) {
-      const v = validateFile(f);
-      newItems.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}-${f.name}`,
-        file: f,
-        title: f.name.replace(/\.[^.]+$/, ''),
-        status: v.ok ? 'waiting' : 'error',
-        error: v.ok ? undefined : v.message,
-      });
-    }
+    const newItems = validateQueue(fileList);
     setQueue((prev) => [...prev, ...newItems]);
-  }, []);
+  }, [validateQueue]);
 
   function removeFile(id: string) {
     setQueue((prev) => prev.filter((q) => q.id !== id));
@@ -92,7 +66,6 @@ export function MultiFileUpload({
 
   function resetAndClose() {
     setQueue([]);
-    setUploading(false);
     setBatchTitle('');
     onClose();
   }
@@ -112,95 +85,26 @@ export function MultiFileUpload({
       return;
     }
 
-    setUploading(true);
-    let successCount = 0;
-    let failCount = 0;
+    const result = await uploadBatch(
+      toUpload,
+      { subjectId, tab: activeTab, userId, canPublishDirectly, batchTitle, tabLabel },
+      (item, status, error) => {
+        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status, error } : q)));
+      },
+    );
 
-    const isBatch = toUpload.length > 1;
-    let batchId: string | null = null;
-
-    if (isBatch) {
-      const title = batchTitle.trim() || buildBatchTitle(tabLabel, toUpload.length);
-      const { data: batch, error: batchErr } = await supabase
-        .from('file_batches')
-        .insert({
-          subject_id: subjectId,
-          tab: activeTab,
-          title,
-          file_count: toUpload.length,
-          status: canPublishDirectly ? 'approved' : 'pending',
-        })
-        .select('id')
-        .maybeSingle();
-      if (batchErr || !batch) {
-        setUploading(false);
-        onToast({ message: 'فشل إنشاء المجموعة: ' + (batchErr?.message ?? 'خطأ غير معروف'), type: 'error' });
-        return;
-      }
-      batchId = batch.id;
-    }
-
-    for (const item of toUpload) {
-      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'uploading' } : q)));
-
-      const ext = item.file.name.split('.').pop() ?? 'bin';
-      const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-
-      const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
-      if (upErr) {
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: 'فشل رفع الملف' } : q)));
-        failCount++;
-        continue;
-      }
-
-      const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
-      const { error: insErr } = await supabase.from('files').insert({
-        subject_id: subjectId,
-        tab: activeTab,
-        title: item.title.trim() || item.file.name,
-        storage_path: path,
-        file_url: pub.publicUrl,
-        file_type: ext,
-        file_size: item.file.size,
-        batch_id: batchId,
-        status: canPublishDirectly ? 'approved' : 'pending',
-      });
-
-      if (insErr) {
-        await supabase.storage.from('files').remove([path]);
-        let msg = 'فشل حفظ الملف';
-        if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
-        else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'error', error: msg } : q)));
-        failCount++;
-        continue;
-      }
-
-      setUploadTimes((prev) => [...prev, Date.now()]);
-      setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: 'done' } : q)));
-      successCount++;
-    }
-
-    if (isBatch && batchId && successCount === 0) {
-      await supabase.from('file_batches').delete().eq('id', batchId);
-    } else if (isBatch && batchId && successCount > 0 && successCount !== toUpload.length) {
-      await supabase.from('file_batches').update({ file_count: successCount }).eq('id', batchId);
-    }
-
-    setUploading(false);
-
-    if (successCount > 0) {
+    if (result.successCount > 0) {
       onToast({
-        message: canPublishDirectly ? `تم نشر ${successCount} ملف بنجاح` : `تم رفع ${successCount} ملف وهم قيد المراجعة`,
+        message: canPublishDirectly ? `تم نشر ${result.successCount} ملف بنجاح` : `تم رفع ${result.successCount} ملف وهم قيد المراجعة`,
         type: 'success',
       });
       onUploaded();
     }
-    if (failCount > 0 && successCount === 0) {
-      onToast({ message: `فشل رفع ${failCount} ملف`, type: 'error' });
+    if (result.failCount > 0 && result.successCount === 0) {
+      onToast({ message: `فشل رفع ${result.failCount} ملف`, type: 'error' });
     }
 
-    if (successCount > 0 && failCount === 0) {
+    if (result.successCount > 0 && result.failCount === 0) {
       setTimeout(() => resetAndClose(), 800);
     }
   }
