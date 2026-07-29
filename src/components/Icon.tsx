@@ -9,7 +9,7 @@ import {
   ChevronDown, Settings, Save, BookMarked, Award, Hash,
   CheckCircle, Bookmark, BookmarkCheck, Folder, FolderTree,
   StickyNote, Pencil, Trash, Compass, BookX, RotateCcw,
-  ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning,
+  ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning, SearchX,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -24,7 +24,7 @@ const map: Record<string, LucideIcon> = {
   ChevronDown, Settings, Save, BookMarked, Award, Hash,
   CheckCircle, Bookmark, BookmarkCheck, Folder, FolderTree,
   StickyNote, Pencil, Trash, Compass, BookX, RotateCcw,
-  ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning,
+  ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning, SearchX,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {

@@ -26,6 +26,23 @@ import {
 } from '@/services/files';
 import { supabase } from '@/lib/supabase';
 
+function normalizeArabic(s: string): string {
+  return s
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[\u0622\u0623\u0625]/g, '\u0627')
+    .replace(/\u0629/g, '\u0647')
+    .replace(/\u0649/g, '\u064A')
+    .toLowerCase()
+    .trim();
+}
+
+function smartMatch(text: string, query: string): boolean {
+  const n = normalizeArabic(text);
+  const q = normalizeArabic(query);
+  if (!q) return true;
+  return n.includes(q);
+}
+
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
   | { kind: 'batch'; batch: FileBatch }
@@ -55,6 +72,7 @@ export function SubjectPage() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   async function loadSubject() {
     const data = await fetchSubject(subjectId);
@@ -120,6 +138,46 @@ export function SubjectPage() {
   }, [files, batches, activeTab]);
 
   const hasContent = groups.length > 0;
+
+  const filteredGroups: DisplayGroup[] = useMemo(() => {
+    if (!searchQuery.trim()) return groups;
+    const q = searchQuery.trim();
+    const result: DisplayGroup[] = [];
+    for (const group of groups) {
+      if (group.batch) {
+        const batchMatches = smartMatch(group.batch.title, q);
+        const matchingFiles = group.files.filter((f) => smartMatch(f.title, q));
+        if (batchMatches) {
+          result.push({ ...group, files: group.files });
+        } else if (matchingFiles.length > 0) {
+          result.push({ ...group, files: matchingFiles });
+        }
+      } else {
+        if (group.files.some((f) => smartMatch(f.title, q))) {
+          result.push(group);
+        }
+      }
+    }
+    return result;
+  }, [groups, searchQuery]);
+
+  const hasSearchResults = filteredGroups.length > 0;
+
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    const q = searchQuery.trim();
+    const toExpand = new Set<string>();
+    for (const group of groups) {
+      if (group.batch && !smartMatch(group.batch.title, q)) {
+        if (group.files.some((f) => smartMatch(f.title, q))) {
+          toExpand.add(group.batch.id);
+        }
+      }
+    }
+    if (toExpand.size > 0) {
+      setExpandedBatches((prev) => new Set([...prev, ...toExpand]));
+    }
+  }, [groups, searchQuery]);
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return;
@@ -297,6 +355,27 @@ export function SubjectPage() {
         ))}
       </div>
 
+      {hasContent && (
+        <div className="relative mb-5 max-w-md">
+          <Icon name="Search" className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="ابحث في الملفات والمجموعات..."
+            className="input pr-11"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-500 transition hover:bg-white/5 hover:text-slate-300"
+              aria-label="مسح البحث"
+            >
+              <Icon name="X" className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+
       {!hasContent ? (
         <EmptyState
           icon="FolderOpen"
@@ -305,9 +384,17 @@ export function SubjectPage() {
           ctaLabel={session ? "كن أول من يرفع!" : "تسجيل الدخول"}
           onCta={session ? () => setUploadOpen(true) : () => navigate('/auth')}
         />
+      ) : !hasSearchResults && searchQuery.trim() ? (
+        <EmptyState
+          icon="SearchX"
+          title="لا توجد نتائج تطابق بحثك"
+          message="لم نجد ملفات أو مجموعات تطابق بحثك. جرب كلمات أخرى أو امسح البحث."
+          ctaLabel="مسح البحث"
+          onCta={() => setSearchQuery('')}
+        />
       ) : (
         <div className="grid gap-3">
-          {groups.map((group) => {
+          {filteredGroups.map((group) => {
             const batch = group.batch;
             const standalone = group.files[0] ?? null;
             return batch ? (

@@ -37,6 +37,9 @@ export function MultiFileUpload({
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [batchTitle, setBatchTitle] = useState('');
+  const [titleErrors, setTitleErrors] = useState<Set<string>>(new Set());
+  const [batchTitleError, setBatchTitleError] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { uploading, uploadTimes, uploadBatch, validateQueue } = useUpload();
 
@@ -51,6 +54,9 @@ export function MultiFileUpload({
 
   function updateTitle(id: string, title: string) {
     setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, title } : q)));
+    if (showValidation && title.trim()) {
+      setTitleErrors((prev) => { const n = new Set(prev); n.delete(id); return n; });
+    }
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -76,6 +82,18 @@ export function MultiFileUpload({
   async function handleBatchUpload() {
     const toUpload = queue.filter((q) => q.status === 'waiting');
     if (toUpload.length === 0) return;
+
+    setShowValidation(true);
+    const emptyTitles = new Set(toUpload.filter((q) => !q.title.trim()).map((q) => q.id));
+    const batchEmpty = showBatchField && !batchTitle.trim();
+    if (emptyTitles.size > 0 || batchEmpty) {
+      setTitleErrors(emptyTitles);
+      setBatchTitleError(batchEmpty);
+      onToast({ message: 'يرجى إدخال عنوان وصفي لكل ملف قبل الرفع', type: 'error' });
+      return;
+    }
+    setTitleErrors(new Set());
+    setBatchTitleError(false);
 
     if (!canUploadNow([...uploadTimes, ...Array(toUpload.length).fill(Date.now())])) {
       onToast({
@@ -146,16 +164,20 @@ export function MultiFileUpload({
         </div>
 
         {showBatchField && (
-          <div className="rounded-xl border border-white/10 bg-ink-900/40 p-3">
-            <label className="mb-1.5 block text-xs font-bold text-slate-400">عنوان المجموعة (اختياري)</label>
+          <div className={`rounded-xl border p-3 transition ${batchTitleError ? 'border-danger-500/50 bg-danger-500/5' : 'border-white/10 bg-ink-900/40'}`}>
+            <label className="mb-1.5 block text-xs font-bold text-slate-400">عنوان المجموعة (مطلوب)</label>
             <input
               value={batchTitle}
-              onChange={(e) => setBatchTitle(e.target.value)}
+              onChange={(e) => { setBatchTitle(e.target.value); if (showValidation && e.target.value.trim()) setBatchTitleError(false); }}
               placeholder={buildBatchTitle(tabLabel, validWaiting)}
-              className="input-sm"
+              className={`input-sm ${batchTitleError ? 'border-danger-500/50 ring-1 ring-danger-500/30' : ''}`}
               disabled={uploading}
             />
-            <p className="mt-1.5 text-xs text-slate-500">سيتم تجميع {validWaiting} ملفات في مجموعة واحدة قابلة للفتح والتنزيل.</p>
+            {batchTitleError ? (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-danger-400"><Icon name="AlertCircle" className="h-3 w-3" /> يرجى إدخال عنوان للمجموعة</p>
+            ) : (
+              <p className="mt-1.5 text-xs text-slate-500">سيتم تجميع {validWaiting} ملفات في مجموعة واحدة قابلة للفتح والتنزيل.</p>
+            )}
           </div>
         )}
 
@@ -185,7 +207,18 @@ export function MultiFileUpload({
                 </span>
                 <div className="min-w-0 flex-1">
                   {q.status === 'waiting' ? (
-                    <input value={q.title} onChange={(e) => updateTitle(q.id, e.target.value)} placeholder="عنوان الملف..." className="input-sm" disabled={uploading} />
+                    <div>
+                      <input
+                        value={q.title}
+                        onChange={(e) => updateTitle(q.id, e.target.value)}
+                        placeholder="عنوان الملف (مطلوب)..."
+                        className={`input-sm ${titleErrors.has(q.id) ? 'border-danger-500/50 ring-1 ring-danger-500/30' : ''}`}
+                        disabled={uploading}
+                      />
+                      {titleErrors.has(q.id) && (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-danger-400"><Icon name="AlertCircle" className="h-3 w-3" /> هذا الحقل مطلوب</p>
+                      )}
+                    </div>
                   ) : (
                     <p className="truncate text-sm font-bold text-slate-200">{q.title || q.file.name}</p>
                   )}
