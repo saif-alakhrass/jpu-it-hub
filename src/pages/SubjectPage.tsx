@@ -63,7 +63,7 @@ export function SubjectPage() {
         .order('created_at', { ascending: false }),
       supabase
         .from('file_batches')
-        .select('id, subject_id, tab, title, uploader_id, status, file_count, created_at, uploader:profiles!file_batches_uploader_id_fkey(id, full_name, role)')
+        .select('id, subject_id, tab, title, uploader_id, status, file_count, created_at')
         .eq('subject_id', subjectId)
         .order('created_at', { ascending: false }),
     ]);
@@ -145,28 +145,40 @@ export function SubjectPage() {
             .filter((b) => b.file_count > 0),
         );
       }
-      setToast({ message: `تم حذف الملف "${file.title}"`, type: 'success' });
+      setToast({ message: `تم حذف الملف "${file.title}" نهائياً`, type: 'success' });
       return;
     }
-    // batch delete
+    // batch hard delete: storage objects → child file rows → batch row
     const batch = deleteTarget.batch;
     setBusyId(batch.id);
     const batchFiles = files.filter((f) => f.batch_id === batch.id);
     const paths = batchFiles.map((f) => f.storage_path).filter(Boolean);
     if (paths.length > 0) {
-      await supabase.storage.from('files').remove(paths);
+      const { error: storageErr } = await supabase.storage.from('files').remove(paths);
+      if (storageErr) {
+        setBusyId(null);
+        setDeleteTarget(null);
+        setToast({ message: 'فشل حذف ملفات التخزين: ' + storageErr.message, type: 'error' });
+        return;
+      }
     }
-    await supabase.from('files').delete().eq('batch_id', batch.id);
-    const { error } = await supabase.from('file_batches').delete().eq('id', batch.id);
+    const { error: filesErr } = await supabase.from('files').delete().eq('batch_id', batch.id);
+    if (filesErr) {
+      setBusyId(null);
+      setDeleteTarget(null);
+      setToast({ message: 'فشل حذف سجلات الملفات: ' + filesErr.message, type: 'error' });
+      return;
+    }
+    const { error: batchErr } = await supabase.from('file_batches').delete().eq('id', batch.id);
     setBusyId(null);
     setDeleteTarget(null);
-    if (error) {
-      setToast({ message: 'فشل حذف المجموعة: ' + error.message, type: 'error' });
+    if (batchErr) {
+      setToast({ message: 'فشل حذف المجموعة: ' + batchErr.message, type: 'error' });
       return;
     }
     setFiles((prev) => prev.filter((f) => f.batch_id !== batch.id));
     setBatches((prev) => prev.filter((b) => b.id !== batch.id));
-    setToast({ message: `تم حذف المجموعة "${batch.title}" وكل ملفاتها`, type: 'success' });
+    setToast({ message: `تم حذف المجموعة "${batch.title}" وكل ملفاتها نهائياً`, type: 'success' });
   }
 
   async function handleToggleBookmark(file: FileRow) {
@@ -471,7 +483,7 @@ function BatchFolderCard({
             )}
           </div>
           <div className="mt-0.5 flex items-center gap-3 text-xs text-slate-500">
-            <span>{batch.uploader?.full_name ?? 'مستخدم'}</span>
+            <span>{files[0]?.uploader?.full_name ?? 'مستخدم'}</span>
             <span>·</span>
             <span>{files.length} ملف</span>
             <span>·</span>
