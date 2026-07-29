@@ -139,11 +139,17 @@ export function SubjectPage() {
       }
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
       if (deleteTarget.batchId) {
-        setBatches((prev) =>
-          prev
-            .map((b) => (b.id === deleteTarget.batchId ? { ...b, file_count: Math.max(0, b.file_count - 1) } : b))
-            .filter((b) => b.file_count > 0),
-        );
+        const remaining = files.filter((f) => f.batch_id === deleteTarget.batchId && f.id !== file.id);
+        if (remaining.length === 0) {
+          await supabase.from('file_batches').delete().eq('id', deleteTarget.batchId);
+          setBatches((prev) => prev.filter((b) => b.id !== deleteTarget.batchId));
+        } else {
+          setBatches((prev) =>
+            prev
+              .map((b) => (b.id === deleteTarget.batchId ? { ...b, file_count: Math.max(0, b.file_count - 1) } : b))
+              .filter((b) => b.file_count > 0),
+          );
+        }
       }
       setToast({ message: `تم حذف الملف "${file.title}" نهائياً`, type: 'success' });
       return;
