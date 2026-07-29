@@ -10,7 +10,7 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getBookmarkedIds, getUserFolders } from '@/lib/bookmarks';
 import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject } from '@/lib/types';
-import { formatFileSize, getSignedFileUrl } from '@/lib/storage';
+import { formatFileSize, getSignedFileUrl, openFilePreview, downloadFile } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
@@ -543,13 +543,14 @@ function BatchFolderCard({
 }
 
 function FileActions({
-  file, isOwn, pending, isAdmin, bookmarkedIds, signedUrls, busyId, onToggleBookmark, onDelete, bookmarkForEditor, setBookmarkForEditor, setToast,
+  file, isAdmin, bookmarkedIds, signedUrls, busyId, onToggleBookmark, onDelete, bookmarkForEditor, setBookmarkForEditor, setToast,
 }: CardProps & {
   file: FileRow;
   isOwn: boolean;
   pending: boolean;
   onDelete: () => void;
 }) {
+  const url = signedUrls[file.id] ?? '';
   return (
     <div className="relative flex shrink-0 items-center gap-1">
       <button
@@ -571,20 +572,28 @@ function FileActions({
           onSaved={() => setToast({ message: 'تم تحديث المحفوظ', type: 'success' })}
         />
       )}
-      {!pending || isOwn ? (
-        signedUrls[file.id] ? (
-          <a href={signedUrls[file.id] ?? ''} target="_blank" rel="noreferrer" className="btn-ghost shrink-0" title="معاينة / تنزيل">
+      {url ? (
+        <>
+          <button
+            onClick={() => openFilePreview(url)}
+            className="btn-ghost shrink-0"
+            title="عرض"
+          >
+            <Icon name="ExternalLink" className="h-4 w-4" />
+            <span className="hidden sm:inline">عرض</span>
+          </button>
+          <button
+            onClick={() => downloadFile(url, file.title)}
+            className="btn-ghost shrink-0"
+            title="تنزيل"
+          >
             <Icon name="Download" className="h-4 w-4" />
             <span className="hidden sm:inline">تنزيل</span>
-          </a>
-        ) : (
-          <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
-            <Icon name="Loader2" className="h-3 w-3 animate-spin" />
-          </span>
-        )
+          </button>
+        </>
       ) : (
         <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
-          <Icon name="Lock" className="h-3 w-3" /> مخفي
+          <Icon name="Loader2" className="h-3 w-3 animate-spin" />
         </span>
       )}
       {isAdmin && (

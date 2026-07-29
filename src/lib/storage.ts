@@ -10,6 +10,32 @@ export async function getSignedFileUrl(storagePath: string): Promise<string | nu
   return data.signedUrl;
 }
 
+export function getPublicFileUrl(storagePath: string): string {
+  return supabase.storage.from('files').getPublicUrl(storagePath).data.publicUrl;
+}
+
+export function openFilePreview(url: string): void {
+  window.open(url, '_blank');
+}
+
+export async function downloadFile(url: string, fallbackName: string): Promise<void> {
+  if (!url) return;
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = fallbackName || 'file';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    window.open(url, '_blank');
+  }
+}
+
 export const UPLOAD_MAX_PER_WINDOW = 5;
 const UPLOAD_WINDOW_MS = 10 * 60 * 1000;
 
