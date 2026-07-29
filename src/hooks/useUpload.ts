@@ -78,13 +78,12 @@ export function useUpload() {
         continue;
       }
 
-      const { data: pub } = supabase.storage.from('files').getPublicUrl(path);
       const { error: insErr } = await supabase.from('files').insert({
         subject_id: opts.subjectId,
         tab: opts.tab,
         title: item.title.trim() || item.file.name,
         storage_path: path,
-        file_url: pub.publicUrl,
+        file_url: path,
         file_type: ext,
         file_size: item.file.size,
         batch_id: batchId,

@@ -21,8 +21,10 @@ export async function getSignedFileUrl(storagePath: string): Promise<string | nu
   return data.signedUrl;
 }
 
-export function getPublicFileUrl(storagePath: string): string {
-  return supabase.storage.from('files').getPublicUrl(storagePath).data.publicUrl;
+export async function downloadFileViaStorage(storagePath: string, fallbackName: string): Promise<void> {
+  const url = await getSignedFileUrl(storagePath);
+  if (!url) return;
+  await downloadFile(url, fallbackName);
 }
 
 export function openFilePreview(url: string): void {

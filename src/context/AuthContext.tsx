@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { signInWithEmail, signUpWithEmail, signInWithGoogle, signOutUser, loadProfile as loadProfileSvc } from '@/services/auth';
+import { signInWithEmail, signUpWithEmail, signInWithGoogle as signInWithGoogleSvc, signOutUser, loadProfile as loadProfileSvc } from '@/services/auth';
 import type { Profile, Role } from '@/lib/types';
 
 interface AuthState {
@@ -89,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signInWithGoogle() {
     if (!isSupabaseConfigured) return;
-    await signInWithGoogle();
+    await signInWithGoogleSvc();
   }
 
   async function signOut() {
