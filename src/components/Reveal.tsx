@@ -5,15 +5,13 @@ export function Reveal({
   className = '',
   delay = 0,
   y = 24,
-  as: Tag = 'div',
 }: {
   children: ReactNode;
   className?: string;
   delay?: number;
   y?: number;
-  as?: keyof JSX.IntrinsicElements;
 }) {
-  const ref = useRef<HTMLElement | null>(null);
+  const ref = useRef<HTMLDivElement | null>(null);
   const [shown, setShown] = useState(false);
 
   useEffect(() => {
@@ -34,10 +32,9 @@ export function Reveal({
     return () => io.disconnect();
   }, []);
 
-  const Component = Tag as any;
   return (
-    <Component
-      ref={ref as any}
+    <div
+      ref={ref}
       className={className}
       style={{
         transition: `opacity 0.7s cubic-bezier(0.22,1,0.36,1) ${delay}ms, transform 0.7s cubic-bezier(0.22,1,0.36,1) ${delay}ms`,
@@ -46,7 +43,7 @@ export function Reveal({
       }}
     >
       {children}
-    </Component>
+    </div>
   );
 }
 
