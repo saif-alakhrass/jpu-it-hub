@@ -3,14 +3,14 @@ import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
 import { BookmarkEditor } from '@/components/BookmarkEditor';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmarks';
 import { getBookmarkedIds } from '@/services/bookmarks';
 import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject, type Difficulty } from '@/lib/types';
-import { formatFileSize, getSignedFileUrl, openFilePreview, downloadFile } from '@/lib/storage';
+import { formatFileSize } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
@@ -21,26 +21,11 @@ import {
   deleteFile,
   deleteBatch,
   removeStorageObjects,
-  updateBatchFileCount,
 } from '@/services/files';
 import { supabase } from '@/lib/supabase';
-
-function normalizeArabic(s: string): string {
-  return s
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/[\u0622\u0623\u0625]/g, '\u0627')
-    .replace(/\u0629/g, '\u0647')
-    .replace(/\u0649/g, '\u064A')
-    .toLowerCase()
-    .trim();
-}
-
-function smartMatch(text: string, query: string): boolean {
-  const n = normalizeArabic(text);
-  const q = normalizeArabic(query);
-  if (!q) return true;
-  return n.includes(q);
-}
+import { getUserErrorMessage } from '@/lib/serviceError';
+import { smartMatch } from '@/lib/arabicSearch';
+import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -62,12 +47,16 @@ export function SubjectPage() {
   const [files, setFiles] = useState<FileRow[]>([]);
   const [batches, setBatches] = useState<FileBatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [bookmarkForEditor, setBookmarkForEditor] = useState<{ bookmark: Bookmark; folders: string[] } | null>(null);
 
-  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const reportFileAccessError = useCallback((message: string) => {
+    setToast({ message, type: 'error' });
+  }, []);
+  const { accessingFileId, accessFile } = useSignedFileAccess(reportFileAccessError);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
@@ -87,26 +76,21 @@ export function SubjectPage() {
     setBatches(b);
   }, [subjectId]);
 
-  useEffect(() => {
-    if (files.length === 0) return;
-    (async () => {
-      const entries = await Promise.all(
-        files.map(async (f) => {
-          const url = await getSignedFileUrl(f.storage_path);
-          return [f.id, url] as const;
-        }),
-      );
-      setSignedUrls(Object.fromEntries(entries.filter(([, u]) => u) as [string, string][]));
-    })();
-  }, [files]);
+  const loadPage = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      await Promise.all([loadSubject(), loadFiles()]);
+    } catch (error) {
+      setLoadError(getUserErrorMessage(error, 'تعذر تحميل المادة وملفاتها.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [loadFiles, loadSubject]);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await Promise.all([loadSubject(), loadFiles()]);
-      setLoading(false);
-    })();
-  }, [loadFiles, loadSubject]);
+    void loadPage();
+  }, [loadPage]);
 
   useEffect(() => {
     if (!session || files.length === 0) return;
@@ -183,16 +167,16 @@ export function SubjectPage() {
     if (deleteTarget.kind === 'file') {
       const file = deleteTarget.file;
       setBusyId(file.id);
-      if (file.storage_path) {
-        await removeStorageObjects([file.storage_path]);
-      }
       const ok = await deleteFile(file.id);
-      setBusyId(null);
-      setDeleteTarget(null);
       if (!ok) {
+        setBusyId(null);
+        setDeleteTarget(null);
         setToast({ message: 'فشل حذف الملف', type: 'error' });
         return;
       }
+      const storageOk = file.storage_path ? await removeStorageObjects([file.storage_path]) : true;
+      setBusyId(null);
+      setDeleteTarget(null);
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
       if (deleteTarget.batchId) {
         const remaining = files.filter((f) => f.batch_id === deleteTarget.batchId && f.id !== file.id);
@@ -200,7 +184,6 @@ export function SubjectPage() {
           await deleteBatch(deleteTarget.batchId);
           setBatches((prev) => prev.filter((b) => b.id !== deleteTarget.batchId));
         } else {
-          await updateBatchFileCount(deleteTarget.batchId, remaining.length);
           setBatches((prev) =>
             prev
               .map((b) => (b.id === deleteTarget.batchId ? { ...b, file_count: Math.max(0, b.file_count - 1) } : b))
@@ -208,7 +191,12 @@ export function SubjectPage() {
           );
         }
       }
-      setToast({ message: `تم حذف الملف "${file.title}" نهائياً`, type: 'success' });
+      setToast({
+        message: storageOk
+          ? `تم حذف الملف "${file.title}" نهائياً`
+          : `تم حذف سجل "${file.title}"، لكن ملف التخزين يحتاج تنظيفًا يدويًا`,
+        type: storageOk ? 'success' : 'error',
+      });
       return;
     }
     // batch hard delete: storage objects → child file rows → batch row
@@ -216,15 +204,6 @@ export function SubjectPage() {
     setBusyId(batch.id);
     const batchFiles = files.filter((f) => f.batch_id === batch.id);
     const paths = batchFiles.map((f) => f.storage_path).filter(Boolean);
-    if (paths.length > 0) {
-      const storageOk = await removeStorageObjects(paths);
-      if (!storageOk) {
-        setBusyId(null);
-        setDeleteTarget(null);
-        setToast({ message: 'فشل حذف ملفات التخزين', type: 'error' });
-        return;
-      }
-    }
     const { error: filesErr } = await supabase.from('files').delete().eq('batch_id', batch.id);
     if (filesErr) {
       setBusyId(null);
@@ -232,6 +211,7 @@ export function SubjectPage() {
       setToast({ message: 'فشل حذف سجلات الملفات: ' + filesErr.message, type: 'error' });
       return;
     }
+    const storageOk = paths.length === 0 || await removeStorageObjects(paths);
     const batchOk = await deleteBatch(batch.id);
     setBusyId(null);
     setDeleteTarget(null);
@@ -241,7 +221,12 @@ export function SubjectPage() {
     }
     setFiles((prev) => prev.filter((f) => f.batch_id !== batch.id));
     setBatches((prev) => prev.filter((b) => b.id !== batch.id));
-    setToast({ message: `تم حذف المجموعة "${batch.title}" وكل ملفاتها نهائياً`, type: 'success' });
+    setToast({
+      message: storageOk
+        ? `تم حذف المجموعة "${batch.title}" وكل ملفاتها نهائياً`
+        : `تم حذف المجموعة "${batch.title}"، لكن بعض ملفات التخزين تحتاج تنظيفًا يدويًا`,
+      type: storageOk ? 'success' : 'error',
+    });
   }
 
   async function handleToggleBookmark(file: FileRow) {
@@ -293,7 +278,12 @@ export function SubjectPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-20 text-center">
         <Icon name="AlertCircle" className="mx-auto mb-3 h-12 w-12 text-slate-600" />
-        <p className="text-slate-400">المادة غير موجودة.</p>
+        <p className="text-slate-400">{loadError ?? 'المادة غير موجودة.'}</p>
+        {loadError && (
+          <button onClick={() => void loadPage()} className="btn-primary mt-4">
+            <Icon name="RefreshCw" className="h-4 w-4" /> إعادة المحاولة
+          </button>
+        )}
         <button onClick={() => navigate('/')} className="btn-ghost mt-4">
           <Icon name="Home" className="h-4 w-4" /> العودة للرئيسية
         </button>
@@ -406,7 +396,9 @@ export function SubjectPage() {
                 profile={profile}
                 isAdmin={isAdmin}
                 bookmarkedIds={bookmarkedIds}
-                signedUrls={signedUrls}
+                accessingFileId={accessingFileId}
+                onPreview={(file) => void accessFile(file, 'preview')}
+                onDownload={(file) => void accessFile(file, 'download')}
                 busyId={busyId}
                 onToggleBookmark={handleToggleBookmark}
                 onDeleteFile={(file) => setDeleteTarget({ kind: 'file', file, batchId: batch.id })}
@@ -422,7 +414,9 @@ export function SubjectPage() {
                 profile={profile}
                 isAdmin={isAdmin}
                 bookmarkedIds={bookmarkedIds}
-                signedUrls={signedUrls}
+                accessingFileId={accessingFileId}
+                onPreview={(file) => void accessFile(file, 'preview')}
+                onDownload={(file) => void accessFile(file, 'download')}
                 busyId={busyId}
                 onToggleBookmark={handleToggleBookmark}
                 onDelete={() => setDeleteTarget({ kind: 'file', file: standalone, batchId: null })}
@@ -487,7 +481,9 @@ export function SubjectPage() {
 interface CardProps {
   isAdmin: boolean;
   bookmarkedIds: Set<string>;
-  signedUrls: Record<string, string>;
+  accessingFileId: string | null;
+  onPreview: (file: FileRow) => void;
+  onDownload: (file: FileRow) => void;
   busyId: string | null;
   onToggleBookmark: (f: FileRow) => void;
   bookmarkForEditor: { bookmark: Bookmark; folders: string[] } | null;
@@ -500,7 +496,7 @@ interface ProfileCardProps extends CardProps {
 }
 
 function FileRowCard({
-  file, profile, isAdmin, bookmarkedIds, signedUrls, busyId, onToggleBookmark, onDelete, bookmarkForEditor, setBookmarkForEditor, setToast,
+  file, profile, isAdmin, bookmarkedIds, accessingFileId, onPreview, onDownload, busyId, onToggleBookmark, onDelete, bookmarkForEditor, setBookmarkForEditor, setToast,
 }: ProfileCardProps & { file: FileRow; onDelete: () => void }) {
   const isOwn = profile?.id === file.uploader_id;
   const pending = file.status === 'pending';
@@ -533,7 +529,9 @@ function FileRowCard({
         pending={pending}
         isAdmin={isAdmin}
         bookmarkedIds={bookmarkedIds}
-        signedUrls={signedUrls}
+        accessingFileId={accessingFileId}
+        onPreview={onPreview}
+        onDownload={onDownload}
         busyId={busyId}
         onToggleBookmark={onToggleBookmark}
         onDelete={onDelete}
@@ -546,7 +544,7 @@ function FileRowCard({
 }
 
 function BatchFolderCard({
-  batch, files, expanded, onToggle, profile, isAdmin, bookmarkedIds, signedUrls, busyId, onToggleBookmark, onDeleteFile, onDeleteBatch, bookmarkForEditor, setBookmarkForEditor, setToast,
+  batch, files, expanded, onToggle, profile, isAdmin, bookmarkedIds, accessingFileId, onPreview, onDownload, busyId, onToggleBookmark, onDeleteFile, onDeleteBatch, bookmarkForEditor, setBookmarkForEditor, setToast,
 }: ProfileCardProps & {
   batch: FileBatch;
   files: FileRow[];
@@ -628,7 +626,9 @@ function BatchFolderCard({
                     pending={fPending}
                     isAdmin={isAdmin}
                     bookmarkedIds={bookmarkedIds}
-                    signedUrls={signedUrls}
+                    accessingFileId={accessingFileId}
+                    onPreview={onPreview}
+                    onDownload={onDownload}
                     busyId={busyId}
                     onToggleBookmark={onToggleBookmark}
                     onDelete={() => onDeleteFile(f)}
@@ -647,14 +647,14 @@ function BatchFolderCard({
 }
 
 function FileActions({
-  file, isAdmin, bookmarkedIds, signedUrls, busyId, onToggleBookmark, onDelete, bookmarkForEditor, setBookmarkForEditor, setToast,
+  file, isAdmin, bookmarkedIds, accessingFileId, onPreview, onDownload, busyId, onToggleBookmark, onDelete, bookmarkForEditor, setBookmarkForEditor, setToast,
 }: CardProps & {
   file: FileRow;
   isOwn: boolean;
   pending: boolean;
   onDelete: () => void;
 }) {
-  const url = signedUrls[file.id] ?? '';
+  const accessing = accessingFileId === file.id;
   return (
     <div className="relative flex shrink-0 items-center gap-1">
       <button
@@ -676,30 +676,24 @@ function FileActions({
           onSaved={() => setToast({ message: 'تم تحديث المحفوظ', type: 'success' })}
         />
       )}
-      {url ? (
-        <>
-          <button
-            onClick={() => openFilePreview(url)}
-            className="btn-ghost shrink-0"
-            title="عرض"
-          >
-            <Icon name="ExternalLink" className="h-4 w-4" />
-            <span className="hidden sm:inline">عرض</span>
-          </button>
-          <button
-            onClick={() => downloadFile(url, file.title)}
-            className="btn-ghost shrink-0"
-            title="تنزيل"
-          >
-            <Icon name="Download" className="h-4 w-4" />
-            <span className="hidden sm:inline">تنزيل</span>
-          </button>
-        </>
-      ) : (
-        <span className="badge bg-ink-700 text-slate-500 border border-white/5 shrink-0">
-          <Icon name="Loader2" className="h-3 w-3 animate-spin" />
-        </span>
-      )}
+      <button
+        onClick={() => onPreview(file)}
+        className="btn-ghost shrink-0"
+        title="عرض"
+        disabled={accessing}
+      >
+        <Icon name={accessing ? 'Loader2' : 'ExternalLink'} className={`h-4 w-4 ${accessing ? 'animate-spin' : ''}`} />
+        <span className="hidden sm:inline">عرض</span>
+      </button>
+      <button
+        onClick={() => onDownload(file)}
+        className="btn-ghost shrink-0"
+        title="تنزيل"
+        disabled={accessing}
+      >
+        <Icon name={accessing ? 'Loader2' : 'Download'} className={`h-4 w-4 ${accessing ? 'animate-spin' : ''}`} />
+        <span className="hidden sm:inline">تنزيل</span>
+      </button>
       {isAdmin && (
         <button
           onClick={onDelete}

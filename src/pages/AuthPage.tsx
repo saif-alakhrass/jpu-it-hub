@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '@/components/Icon';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { mapAuthError } from '@/lib/authErrors';

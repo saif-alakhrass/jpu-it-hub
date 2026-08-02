@@ -10,13 +10,20 @@ export function useSubjectsPaged(search: string, major: string | undefined) {
     totalPages: 1,
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
   const [page, setPage] = useState(0);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const result = await fetchSubjectsPaged(page, search || undefined, major);
-    setData(result);
-    setLoading(false);
+    setError(null);
+    try {
+      const result = await fetchSubjectsPaged(page, search || undefined, major);
+      setData(result);
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setLoading(false);
+    }
   }, [page, search, major]);
 
   useEffect(() => {
@@ -27,23 +34,30 @@ export function useSubjectsPaged(search: string, major: string | undefined) {
     void reload();
   }, [reload]);
 
-  return { data, loading, page, setPage, reload };
+  return { data, loading, error, page, setPage, reload };
 }
 
 export function useAllSubjects() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const items = await fetchAllSubjects();
-    setSubjects(items);
-    setLoading(false);
+    setError(null);
+    try {
+      const items = await fetchAllSubjects();
+      setSubjects(items);
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { subjects, loading, reload };
+  return { subjects, loading, error, reload };
 }

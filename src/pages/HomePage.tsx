@@ -3,7 +3,7 @@ import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
 import { Pagination } from '@/components/Pagination';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
@@ -12,6 +12,7 @@ import { SubjectCardSkeletonGrid } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { useSubjectsPaged } from '@/hooks/useSubjects';
 import { createSubject } from '@/services/subjects';
+import { getUserErrorMessage } from '@/lib/serviceError';
 
 export function HomePage() {
   const { session } = useAuth();
@@ -26,7 +27,7 @@ export function HomePage() {
   const [newMajor, setNewMajor] = useState<string>(MAJORS[0] ?? '');
   const [submitting, setSubmitting] = useState(false);
 
-  const { data, loading, page, setPage, reload } = useSubjectsPaged(search, major);
+  const { data, loading, error, page, setPage, reload } = useSubjectsPaged(search, major);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -101,6 +102,14 @@ export function HomePage() {
 
       {loading ? (
         <SubjectCardSkeletonGrid count={6} />
+      ) : error ? (
+        <EmptyState
+          icon="WifiOff"
+          title="تعذر تحميل المواد"
+          message={getUserErrorMessage(error, 'حدثت مشكلة أثناء الاتصال بقاعدة البيانات. تحقق من اتصالك وحاول مجددًا.')}
+          ctaLabel="إعادة المحاولة"
+          onCta={() => void reload()}
+        />
       ) : data.items.length === 0 ? (
         <EmptyState
           icon="FolderOpen"

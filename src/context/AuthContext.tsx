@@ -1,25 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle as signInWithGoogleSvc, signOutUser, loadProfile as loadProfileSvc } from '@/services/auth';
-import type { Profile, Role } from '@/lib/types';
-
-interface AuthState {
-  session: Session | null;
-  profile: Profile | null;
-  loading: boolean;
-  role: Role | null;
-  isAdmin: boolean;
-  isTrusted: boolean;
-  canPublishDirectly: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: string | null; notice?: string | null }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null; notice?: string | null }>;
-  signInWithGoogle: () => Promise<void>;
-  signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthState | undefined>(undefined);
+import type { Profile } from '@/lib/types';
+import { AuthContext } from '@/context/authState';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -113,10 +97,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
 }

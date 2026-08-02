@@ -12,23 +12,30 @@ export function useSubjectFiles(subjectId: string, tab?: FileTab) {
   const [files, setFiles] = useState<FileRow[]>([]);
   const [batches, setBatches] = useState<FileBatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const [f, b] = await Promise.all([
-      fetchFilesForSubject(subjectId, tab),
-      fetchBatchesForSubject(subjectId, tab),
-    ]);
-    setFiles(f);
-    setBatches(b);
-    setLoading(false);
+    setError(null);
+    try {
+      const [f, b] = await Promise.all([
+        fetchFilesForSubject(subjectId, tab),
+        fetchBatchesForSubject(subjectId, tab),
+      ]);
+      setFiles(f);
+      setBatches(b);
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setLoading(false);
+    }
   }, [subjectId, tab]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { files, batches, loading, reload, setFiles, setBatches };
+  return { files, batches, loading, error, reload, setFiles, setBatches };
 }
 
 export function usePendingFiles() {
@@ -39,20 +46,26 @@ export function usePendingFiles() {
     totalPages: 1,
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
   const [page, setPage] = useState(0);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const result = await fetchPendingFilesPaged(page);
-    setData(result);
-    setLoading(false);
+    setError(null);
+    try {
+      setData(await fetchPendingFilesPaged(page));
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setLoading(false);
+    }
   }, [page]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { data, loading, page, setPage, reload };
+  return { data, loading, error, page, setPage, reload };
 }
 
 export function useRejectedFiles() {
@@ -63,18 +76,24 @@ export function useRejectedFiles() {
     totalPages: 1,
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<unknown>(null);
   const [page, setPage] = useState(0);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const result = await fetchRejectedFilesPaged(page);
-    setData(result);
-    setLoading(false);
+    setError(null);
+    try {
+      setData(await fetchRejectedFilesPaged(page));
+    } catch (nextError) {
+      setError(nextError);
+    } finally {
+      setLoading(false);
+    }
   }, [page]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { data, loading, page, setPage, reload };
+  return { data, loading, error, page, setPage, reload };
 }

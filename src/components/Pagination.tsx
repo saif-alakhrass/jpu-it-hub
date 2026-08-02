@@ -29,6 +29,8 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
           <button
             key={p}
             onClick={() => onPageChange(p)}
+            aria-current={p === page ? 'page' : undefined}
+            aria-label={`الصفحة ${p + 1}`}
             className={`grid h-9 min-w-9 place-items-center rounded-lg px-3 text-sm font-bold transition ${
               p === page
                 ? 'bg-brand-500 text-ink-950'

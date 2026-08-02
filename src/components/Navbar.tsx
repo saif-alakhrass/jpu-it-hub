@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icon';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 
 function initials(name: string | null | undefined): string {

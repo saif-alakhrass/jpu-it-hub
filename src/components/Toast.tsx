@@ -17,7 +17,11 @@ export function Toast({ message, type = 'success', onClose, actionLabel, onActio
   const iconName = { success: 'Check', error: 'AlertCircle', info: 'AlertCircle' }[type];
 
   return (
-    <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 animate-slideUp">
+    <div
+      className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 animate-slideUp"
+      role={type === 'error' ? 'alert' : 'status'}
+      aria-live={type === 'error' ? 'assertive' : 'polite'}
+    >
       <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-card ${styles}`}>
         <Icon name={iconName} className="h-5 w-5 shrink-0" />
         <span className="text-sm font-bold">{message}</span>
@@ -29,7 +33,7 @@ export function Toast({ message, type = 'success', onClose, actionLabel, onActio
             {actionLabel}
           </button>
         )}
-        <button onClick={onClose} className="ms-2 opacity-60 hover:opacity-100">
+        <button onClick={onClose} className="ms-2 opacity-60 hover:opacity-100" aria-label="إغلاق الإشعار">
           <Icon name="X" className="h-4 w-4" />
         </button>
       </div>

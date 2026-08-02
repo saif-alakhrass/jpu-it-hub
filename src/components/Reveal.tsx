@@ -46,37 +46,3 @@ export function Reveal({
     </div>
   );
 }
-
-export function useCountUp(target: number, duration = 1600) {
-  const ref = useRef<HTMLSpanElement | null>(null);
-  const [value, setValue] = useState(0);
-  const done = useRef(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting && !done.current) {
-            done.current = true;
-            const start = performance.now();
-            const tick = (now: number) => {
-              const p = Math.min((now - start) / duration, 1);
-              const eased = 1 - Math.pow(1 - p, 3);
-              setValue(Math.round(eased * target));
-              if (p < 1) requestAnimationFrame(tick);
-            };
-            requestAnimationFrame(tick);
-            io.disconnect();
-          }
-        });
-      },
-      { threshold: 0.4 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [target, duration]);
-
-  return { ref, value };
-}
