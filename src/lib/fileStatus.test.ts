@@ -38,6 +38,20 @@ describe('file approval lifecycle', () => {
     expect(canTransition(file.status, 'rejected')).toBe(true);
     const rejected = transitionFile(file, 'rejected');
     expect(rejected.status).toBe('rejected');
+    expect(rejected.storage_path).toBe(file.storage_path);
+    expect(rejected.id).toBe(file.id);
+  });
+
+  it('keeps rejected files restorable instead of treating rejection as deletion', () => {
+    const rejected = transitionFile(makeFile(), 'rejected');
+    const restored = transitionFile(rejected, 'approved');
+
+    expect(restored.status).toBe('approved');
+    expect(restored.storage_path).toBe('u1/file.pdf');
+  });
+
+  it('does not allow a rejected file to return to pending', () => {
+    expect(canTransition('rejected', 'pending')).toBe(false);
   });
 
   it('full lifecycle: pending -> approved -> rejected -> approved (restore)', () => {

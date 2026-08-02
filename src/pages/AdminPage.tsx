@@ -4,7 +4,7 @@ import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
 import { Pagination } from '@/components/Pagination';
 import { useAuth } from '@/context/AuthContext';
-import { TABS, type FileRow, type Profile, type Subject, type FileStatus, type Role, type Difficulty } from '@/lib/types';
+import { TABS, type FileRow, type Profile, type Subject, type Role, type Difficulty } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
 import {
@@ -12,10 +12,7 @@ import {
   fetchRejectedFilesPaged,
   fetchAdminStats,
   setFileStatus,
-  deleteFile,
-  removeStorageObjects,
   setBatchStatus,
-  updateBatchFileCount,
   type AdminStats,
 } from '@/services/files';
 import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
@@ -92,13 +89,11 @@ export function AdminPage() {
     setBusyId(file.id);
     const ok = await setFileStatus(file.id, 'rejected');
     if (!ok) { setToast({ message: 'فشل رفض الملف', type: 'error' }); setBusyId(null); return; }
-    if (file.storage_path) await removeStorageObjects([file.storage_path]);
-    await deleteFile(file.id);
     if (file.batch_id) await setBatchStatus(file.batch_id, 'rejected');
     setPending((prev) => prev.filter((f) => f.id !== file.id));
     await loadStats();
     await loadRejected();
-    setToast({ message: 'تم رفض الملف وحذفه نهائياً', type: 'success' });
+    setToast({ message: 'تم رفض الملف ويمكن استعادته لاحقاً', type: 'success' });
     setPreview(null);
     setSignedPreviewUrl(null);
     setConfirmReject(null);
@@ -186,8 +181,6 @@ export function AdminPage() {
           setPendingPage={setPendingPage}
           approve={handleApprove}
           requestReject={(f) => setConfirmReject(f)}
-          preview={preview}
-          setPreview={setPreview}
           openPreview={openPreview}
           busyId={busyId}
           rejectedTotal={rejectedTotal}
@@ -246,15 +239,15 @@ export function AdminPage() {
             <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
               <Icon name="FileWarning" className="h-5 w-5 shrink-0" />
               <div>
-                <p className="font-bold">سيتم رفض الملف وحذفه نهائياً</p>
-                <p className="mt-1 text-sm">سيُحذف "{confirmReject.title}" من قاعدة البيانات ومن التخزين. لا يمكن التراجع عن هذا الإجراء.</p>
+                <p className="font-bold">سيتم رفض الملف وإخفاؤه</p>
+                <p className="mt-1 text-sm">سيبقى "{confirmReject.title}" محفوظاً ليتمكن المدير من مراجعته أو استعادته لاحقاً.</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setConfirmReject(null)} className="btn-ghost" disabled={busyId === confirmReject.id}>إلغاء</button>
               <button onClick={() => performReject(confirmReject)} className="btn-danger" disabled={busyId === confirmReject.id}>
                 {busyId === confirmReject.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-                رفض وحذف نهائي
+                تأكيد الرفض
               </button>
             </div>
           </div>
@@ -366,7 +359,7 @@ function ProgressBar({ label, value, total, color }: { label: string; value: num
 
 function PendingTab({
   pending, pendingTotal, pendingPage, setPendingPage,
-  approve, requestReject, preview, setPreview, openPreview, busyId,
+  approve, requestReject, openPreview, busyId,
   rejectedTotal, rejectedFiles, rejectedPage, setRejectedPage, restore,
 }: {
   pending: FileRow[];
@@ -375,8 +368,6 @@ function PendingTab({
   setPendingPage: (p: number) => void;
   approve: (id: string, batchId?: string | null) => void;
   requestReject: (f: FileRow) => void;
-  preview: FileRow | null;
-  setPreview: (f: FileRow | null) => void;
   openPreview: (f: FileRow) => void;
   busyId: string | null;
   rejectedTotal: number;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -21,7 +21,6 @@ import {
   deleteFile,
   deleteBatch,
   removeStorageObjects,
-  setBatchStatus,
   updateBatchFileCount,
 } from '@/services/files';
 import { supabase } from '@/lib/supabase';
@@ -74,19 +73,19 @@ export function SubjectPage() {
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
 
-  async function loadSubject() {
+  const loadSubject = useCallback(async () => {
     const data = await fetchSubject(subjectId);
     setSubject(data);
-  }
+  }, [subjectId]);
 
-  async function loadFiles() {
+  const loadFiles = useCallback(async () => {
     const [f, b] = await Promise.all([
       fetchFilesForSubject(subjectId),
       fetchBatchesForSubject(subjectId),
     ]);
     setFiles(f);
     setBatches(b);
-  }
+  }, [subjectId]);
 
   useEffect(() => {
     if (files.length === 0) return;
@@ -107,7 +106,7 @@ export function SubjectPage() {
       await Promise.all([loadSubject(), loadFiles()]);
       setLoading(false);
     })();
-  }, [subjectId]);
+  }, [loadFiles, loadSubject]);
 
   useEffect(() => {
     if (!session || files.length === 0) return;
