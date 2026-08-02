@@ -53,8 +53,6 @@ export function useUpload() {
           subject_id: opts.subjectId,
           tab: opts.tab,
           title,
-          file_count: toUpload.length,
-          status: opts.canPublishDirectly ? 'approved' : 'pending',
         })
         .select('id')
         .maybeSingle();
@@ -108,8 +106,6 @@ export function useUpload() {
 
     if (isBatch && batchId && successCount === 0) {
       await supabase.from('file_batches').delete().eq('id', batchId);
-    } else if (isBatch && batchId && successCount > 0 && successCount !== toUpload.length) {
-      await supabase.from('file_batches').update({ file_count: successCount }).eq('id', batchId);
     }
 
     setUploading(false);

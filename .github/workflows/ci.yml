@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -31,4 +39,7 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm run test
+        run: npm run test:coverage
+
+      - name: Block critical production vulnerabilities
+        run: npm audit --omit=dev --audit-level=critical

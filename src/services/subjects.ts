@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { Subject, Difficulty } from '@/lib/types';
 import { PAGE_SIZE } from '@/lib/constants';
+import { failService } from '@/lib/serviceError';
 
 export interface PaginatedSubjects {
   items: Subject[];
@@ -29,7 +30,7 @@ export async function fetchSubjectsPaged(page: number, search?: string, major?: 
     .order('created_at', { ascending: false })
     .range(from, to);
 
-  if (error) return { items: [], total: count ?? 0, page, totalPages: 0 };
+  if (error) failService('fetch subjects', error);
 
   const items = (data ?? []) as Subject[];
   const total = count ?? 0;
@@ -46,7 +47,7 @@ export async function fetchAllSubjects(): Promise<Subject[]> {
     .from('subjects')
     .select(SUBJECT_COLUMNS)
     .order('created_at', { ascending: false });
-  if (error) return [];
+  if (error) failService('fetch all subjects', error);
   return (data ?? []) as Subject[];
 }
 
@@ -56,7 +57,7 @@ export async function fetchSubject(id: string): Promise<Subject | null> {
     .select(SUBJECT_COLUMNS)
     .eq('id', id)
     .maybeSingle();
-  if (error) return null;
+  if (error) failService('fetch subject', error);
   return data as Subject | null;
 }
 
@@ -94,7 +95,24 @@ export async function updateSubject(
   return !error;
 }
 
-export async function deleteSubject(id: string): Promise<boolean> {
+export interface DeleteSubjectResult {
+  ok: boolean;
+  storageCleanupFailed: boolean;
+}
+
+export async function deleteSubject(id: string): Promise<DeleteSubjectResult> {
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select('storage_path')
+    .eq('subject_id', id);
+  if (filesError) return { ok: false, storageCleanupFailed: false };
+
   const { error } = await supabase.from('subjects').delete().eq('id', id);
-  return !error;
+  if (error) return { ok: false, storageCleanupFailed: false };
+
+  const paths = (files ?? []).map((file) => file.storage_path).filter(Boolean);
+  if (paths.length === 0) return { ok: true, storageCleanupFailed: false };
+
+  const { error: storageError } = await supabase.storage.from('files').remove(paths);
+  return { ok: true, storageCleanupFailed: Boolean(storageError) };
 }

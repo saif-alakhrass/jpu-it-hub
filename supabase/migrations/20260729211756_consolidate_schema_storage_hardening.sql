@@ -46,7 +46,18 @@ uploader, or admins).
 - Safe to re-run; no data is lost.
 */
 
--- 1. Add box_name to file_batches
+-- 1. Ensure file_batches exists, then add box_name
+CREATE TABLE IF NOT EXISTS public.file_batches (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  subject_id uuid NOT NULL REFERENCES public.subjects(id) ON DELETE CASCADE,
+  tab text NOT NULL CHECK (tab IN ('summaries', 'exams', 'images', 'slides')),
+  title text NOT NULL,
+  uploader_id uuid NOT NULL DEFAULT auth.uid() REFERENCES public.profiles(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  file_count integer NOT NULL DEFAULT 0 CHECK (file_count >= 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 ALTER TABLE public.file_batches
   ADD COLUMN IF NOT EXISTS box_name text;
 
@@ -88,6 +99,8 @@ CREATE TRIGGER trg_consolidated_protect_role
 
 DROP POLICY IF EXISTS "files_bucket_read_public" ON storage.objects;
 DROP POLICY IF EXISTS "files_bucket_read_restricted" ON storage.objects;
+
+UPDATE storage.buckets SET public = false WHERE id = 'files';
 
 -- New policy: allow read only for approved files, uploader, or admin
 -- We check the files table to see if the object path corresponds to an

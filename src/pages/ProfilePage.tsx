@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Toast } from '@/components/Toast';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
 import { updateProfile } from '@/services/auth';

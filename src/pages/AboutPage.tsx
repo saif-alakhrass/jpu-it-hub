@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
-import { Reveal, useCountUp } from '@/components/Reveal';
+import { Reveal } from '@/components/Reveal';
+import { useCountUp } from '@/hooks/useCountUp';
 import { useRouter } from '@/lib/router';
 import { supabase } from '@/lib/supabase';
 import type { TeamMember } from '@/lib/types';

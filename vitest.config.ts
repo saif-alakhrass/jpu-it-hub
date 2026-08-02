@@ -13,5 +13,15 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      thresholds: {
+        statements: 59,
+        branches: 60,
+        functions: 70,
+        lines: 60,
+      },
+    },
   },
 });

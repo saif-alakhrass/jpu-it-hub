@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { FileBatch, FileRow, FileStatus, FileTab } from '@/lib/types';
 import { PAGE_SIZE } from '@/lib/constants';
+import { failService } from '@/lib/serviceError';
 
 const FILE_COLUMNS =
   'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)';
@@ -22,7 +23,7 @@ export async function fetchFilesForSubject(subjectId: string, tab?: FileTab): Pr
     .eq('subject_id', subjectId);
   if (tab) query = query.eq('tab', tab);
   const { data, error } = await query.order('created_at', { ascending: false });
-  if (error) return [];
+  if (error) failService('fetch files for subject', error);
   return (data ?? []) as unknown as FileRow[];
 }
 
@@ -33,7 +34,7 @@ export async function fetchBatchesForSubject(subjectId: string, tab?: FileTab): 
     .eq('subject_id', subjectId);
   if (tab) query = query.eq('tab', tab);
   const { data, error } = await query.order('created_at', { ascending: false });
-  if (error) return [];
+  if (error) failService('fetch file batches for subject', error);
   return (data ?? []) as unknown as FileBatch[];
 }
 
@@ -46,7 +47,7 @@ export async function fetchPendingFilesPaged(page: number): Promise<PaginatedFil
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .range(from, to);
-  if (error) return { items: [], total: 0, page, totalPages: 0 };
+  if (error) failService('fetch pending files', error);
   return {
     items: (data ?? []) as unknown as FileRow[],
     total: count ?? 0,
@@ -64,7 +65,7 @@ export async function fetchRejectedFilesPaged(page: number): Promise<PaginatedFi
     .eq('status', 'rejected')
     .order('created_at', { ascending: false })
     .range(from, to);
-  if (error) return { items: [], total: 0, page, totalPages: 0 };
+  if (error) failService('fetch rejected files', error);
   return {
     items: (data ?? []) as unknown as FileRow[],
     total: count ?? 0,
@@ -86,16 +87,6 @@ export async function deleteFile(id: string): Promise<boolean> {
 export async function removeStorageObjects(paths: string[]): Promise<boolean> {
   if (paths.length === 0) return true;
   const { error } = await supabase.storage.from('files').remove(paths);
-  return !error;
-}
-
-export async function setBatchStatus(batchId: string, status: FileStatus): Promise<boolean> {
-  const { error } = await supabase.from('file_batches').update({ status }).eq('id', batchId);
-  return !error;
-}
-
-export async function updateBatchFileCount(batchId: string, count: number): Promise<boolean> {
-  const { error } = await supabase.from('file_batches').update({ file_count: count }).eq('id', batchId);
   return !error;
 }
 
@@ -127,6 +118,10 @@ export async function fetchAdminStats(): Promise<AdminStats> {
     supabase.from('subjects').select('*', { count: 'exact', head: true }),
     supabase.from('file_batches').select('*', { count: 'exact', head: true }),
   ]);
+
+  const failed = [files, pending, rejected, users, trusted, admins, subjects, batches]
+    .find((result) => result.error);
+  if (failed?.error) failService('fetch admin statistics', failed.error);
 
   return {
     totalFiles: files.count ?? 0,
