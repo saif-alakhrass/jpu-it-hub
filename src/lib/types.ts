@@ -27,6 +27,8 @@ export interface Subject {
   course_description: string | null;
 }
 
+export type StorageProvider = 'supabase' | 'r2';
+
 export interface FileRow {
   id: string;
   subject_id: string;
@@ -40,6 +42,10 @@ export interface FileRow {
   status: FileStatus;
   created_at: string;
   batch_id: string | null;
+  storage_provider: StorageProvider | null;
+  object_key: string | null;
+  file_hash: string | null;
+  mime_type: string | null;
   uploader?: Profile | null;
   subject?: Subject | null;
 }
@@ -64,38 +70,10 @@ export const TABS: { key: FileTab; label: string; icon: string }[] = [
   { key: 'slides', label: 'سلايدات وكتب', icon: 'Presentation' },
 ];
 
-export const MAJORS = [
-  'علم الحاسوب',
-  'الأمن السيبراني',
-];
+export const MAJORS = ['علم الحاسوب', 'الأمن السيبراني'];
 
-export const ACADEMIC_YEARS = [
-  'السنة الأولى',
-  'السنة الثانية',
-  'السنة الثالثة',
-  'السنة الرابعة',
-  'السنة الخامسة',
-];
+export const ACADEMIC_YEARS = ['السنة الأولى', 'السنة الثانية', 'السنة الثالثة', 'السنة الرابعة', 'السنة الخامسة'];
 
-export interface TeamMember {
-  id: string;
-  name: string;
-  role: string;
-  image_url: string;
-  bio: string | null;
-  sort_order: number;
-  created_at: string;
-}
-
-export interface Bookmark {
-  id: string;
-  user_id: string;
-  resource_id: string;
-  folder_name: string;
-  note: string | null;
-  created_at: string;
-}
-
-export interface BookmarkWithFile extends Bookmark {
-  file: FileRow | null;
-}
+export interface TeamMember { id: string; name: string; role: string; image_url: string; bio: string | null; sort_order: number; created_at: string; }
+export interface Bookmark { id: string; user_id: string; resource_id: string; folder_name: string; note: string | null; created_at: string; }
+export interface BookmarkWithFile extends Bookmark { file: FileRow | null; }

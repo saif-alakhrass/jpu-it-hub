@@ -1,0 +1,19 @@
+# Cloudflare Worker — Environment Variables
+#
+# Copy this file to .dev.vars for local development (wrangler dev).
+# For production, set secrets via:
+#   wrangler secret put SUPABASE_URL
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put JWT_SECRET
+#   wrangler secret put R2_ACCESS_KEY_ID
+#   wrangler secret put R2_SECRET_ACCESS_KEY
+#   wrangler secret put R2_ACCOUNT_ID
+#
+# Non-secret vars are in wrangler.toml [vars] section.
+
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+JWT_SECRET=your-supabase-jwt-secret
+R2_ACCESS_KEY_ID=your-r2-access-key
+R2_SECRET_ACCESS_KEY=your-r2-secret-key
+R2_ACCOUNT_ID=your-cloudflare-account-id
