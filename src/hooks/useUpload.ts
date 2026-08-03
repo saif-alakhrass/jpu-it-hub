@@ -2,6 +2,14 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileTab } from '@/lib/types';
 import { validateFile } from '@/lib/storage';
+import {
+  isR2Configured,
+  requestUploadPresign,
+  uploadToR2,
+  confirmUpload,
+  computeFileHash,
+  checkHashDuplicate,
+} from '@/lib/r2Client';
 
 export interface QueuedFile {
   id: string;
@@ -35,12 +43,10 @@ export function useUpload() {
   ): Promise<UploadResult> {
     const toUpload = files.filter((f) => f.status === 'waiting');
     if (toUpload.length === 0) return { successCount: 0, failCount: 0, error: null };
-
     setUploading(true);
     let successCount = 0;
     let failCount = 0;
     let firstError: string | null = null;
-
     const isBatch = toUpload.length > 1;
     let batchId: string | null = null;
 
@@ -49,11 +55,7 @@ export function useUpload() {
       const title = opts.batchTitle?.trim() || `${opts.tabLabel} - مجموعة (${toUpload.length} ملفات) - ${d}`;
       const { data: batch, error: batchErr } = await supabase
         .from('file_batches')
-        .insert({
-          subject_id: opts.subjectId,
-          tab: opts.tab,
-          title,
-        })
+        .insert({ subject_id: opts.subjectId, tab: opts.tab, title })
         .select('id')
         .maybeSingle();
       if (batchErr || !batch) {
@@ -63,53 +65,101 @@ export function useUpload() {
       batchId = batch.id;
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+
     for (const item of toUpload) {
       onProgress?.(item, 'uploading');
       const ext = item.file.name.split('.').pop() ?? 'bin';
-      const path = `${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
-      if (upErr) {
-        onProgress?.(item, 'error', 'فشل رفع الملف');
-        failCount++;
-        if (!firstError) firstError = upErr.message;
-        continue;
+      if (isR2Configured() && accessToken) {
+        const result = await uploadViaR2(item, ext, opts, batchId, accessToken);
+        if (result.success) {
+          successCount++;
+          setUploadTimes((prev) => [...prev, Date.now()]);
+          onProgress?.(item, 'done');
+        } else {
+          failCount++;
+          if (!firstError) firstError = result.error;
+          onProgress?.(item, 'error', result.error);
+        }
+      } else {
+        const result = await uploadViaSupabase(item, ext, opts, batchId);
+        if (result.success) {
+          successCount++;
+          setUploadTimes((prev) => [...prev, Date.now()]);
+          onProgress?.(item, 'done');
+        } else {
+          failCount++;
+          if (!firstError) firstError = result.error;
+          onProgress?.(item, 'error', result.error);
+        }
       }
-
-      const { error: insErr } = await supabase.from('files').insert({
-        subject_id: opts.subjectId,
-        tab: opts.tab,
-        title: item.title.trim() || item.file.name,
-        storage_path: path,
-        file_url: path,
-        file_type: ext,
-        file_size: item.file.size,
-        batch_id: batchId,
-        status: opts.canPublishDirectly ? 'approved' : 'pending',
-      });
-
-      if (insErr) {
-        await supabase.storage.from('files').remove([path]);
-        let msg = 'فشل حفظ الملف';
-        if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
-        else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
-        onProgress?.(item, 'error', msg);
-        failCount++;
-        if (!firstError) firstError = msg;
-        continue;
-      }
-
-      setUploadTimes((prev) => [...prev, Date.now()]);
-      onProgress?.(item, 'done');
-      successCount++;
     }
 
     if (isBatch && batchId && successCount === 0) {
       await supabase.from('file_batches').delete().eq('id', batchId);
     }
-
     setUploading(false);
     return { successCount, failCount, error: firstError };
+  }
+
+  async function uploadViaR2(
+    item: QueuedFile, ext: string,
+    opts: { subjectId: string; tab: FileTab; userId: string; canPublishDirectly: boolean; tabLabel: string },
+    batchId: string | null, accessToken: string,
+  ): Promise<{ success: boolean; error: string }> {
+    try {
+      const presign = await requestUploadPresign(accessToken, {
+        file_name: item.file.name, file_size: item.file.size, file_type: ext,
+        subject_id: opts.subjectId, tab: opts.tab, batch_id: batchId,
+      });
+      if (!presign) return { success: false, error: 'فشل الحصول على رابط الرفع' };
+
+      const uploaded = await uploadToR2(presign.upload_url, item.file, presign.mime_type);
+      if (!uploaded) return { success: false, error: 'فشل رفع الملف إلى التخزين' };
+
+      const fileHash = await computeFileHash(item.file);
+      const isDup = await checkHashDuplicate(accessToken, fileHash, opts.subjectId);
+      if (isDup) return { success: false, error: 'ملف مكرر: يوجد ملف بنفس المحتوى في هذه المادة' };
+
+      const confirmed = await confirmUpload(accessToken, {
+        object_key: presign.object_key, file_id: presign.file_id,
+        file_name: item.title.trim() || item.file.name, file_type: ext,
+        file_size: item.file.size, file_hash: fileHash, mime_type: presign.mime_type,
+        subject_id: opts.subjectId, tab: opts.tab, batch_id: batchId,
+      });
+      if (!confirmed || !confirmed.success) return { success: false, error: 'فشل حفظ سجل الملف' };
+
+      return { success: true, error: '' };
+    } catch {
+      return { success: false, error: 'حدث خطأ غير متوقع أثناء الرفع' };
+    }
+  }
+
+  async function uploadViaSupabase(
+    item: QueuedFile, ext: string,
+    opts: { subjectId: string; tab: FileTab; userId: string; canPublishDirectly: boolean; tabLabel: string },
+    batchId: string | null,
+  ): Promise<{ success: boolean; error: string }> {
+    const path = `${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
+    if (upErr) return { success: false, error: 'فشل رفع الملف' };
+
+    const { error: insErr } = await supabase.from('files').insert({
+      subject_id: opts.subjectId, tab: opts.tab, title: item.title.trim() || item.file.name,
+      storage_path: path, file_url: path, file_type: ext, file_size: item.file.size,
+      batch_id: batchId, storage_provider: 'supabase',
+      status: opts.canPublishDirectly ? 'approved' : 'pending',
+    });
+    if (insErr) {
+      await supabase.storage.from('files').remove([path]);
+      let msg = 'فشل حفظ الملف';
+      if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
+      else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+      return { success: false, error: msg };
+    }
+    return { success: true, error: '' };
   }
 
   function validateQueue(fileList: FileList | File[]): QueuedFile[] {
@@ -117,10 +167,8 @@ export function useUpload() {
       const v = validateFile(f);
       return {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}-${f.name}`,
-        file: f,
-        title: f.name.replace(/\.[^.]+$/, ''),
-        status: v.ok ? 'waiting' : 'error',
-        error: v.ok ? undefined : v.message,
+        file: f, title: f.name.replace(/\.[^.]+$/, ''),
+        status: v.ok ? 'waiting' : 'error', error: v.ok ? undefined : v.message,
       };
     });
   }
