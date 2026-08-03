@@ -27,6 +27,8 @@ export interface Subject {
   course_description: string | null;
 }
 
+export type StorageProvider = 'supabase' | 'r2';
+
 export interface FileRow {
   id: string;
   subject_id: string;
@@ -40,6 +42,10 @@ export interface FileRow {
   status: FileStatus;
   created_at: string;
   batch_id: string | null;
+  storage_provider: StorageProvider | null;
+  object_key: string | null;
+  file_hash: string | null;
+  mime_type: string | null;
   uploader?: Profile | null;
   subject?: Subject | null;
 }

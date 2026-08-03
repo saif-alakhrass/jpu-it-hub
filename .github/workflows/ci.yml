@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,7 +26,7 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         run: npm ci
 
       - name: Lint
@@ -38,8 +38,33 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test
+      - name: Test with coverage
         run: npm run test:coverage
 
       - name: Block critical production vulnerabilities
         run: npm audit --omit=dev --audit-level=critical
+
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker dependencies
+        run: npm install
+
+      - name: Worker typecheck
+        run: npm run typecheck
+
+      - name: Worker tests
+        run: npm test

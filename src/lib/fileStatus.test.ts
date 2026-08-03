@@ -21,6 +21,10 @@ function makeFile(overrides: Partial<FileRow> = {}): FileRow {
     status: 'pending',
     created_at: '2025-01-01T00:00:00Z',
     batch_id: null,
+    storage_provider: 'supabase',
+    object_key: null,
+    file_hash: null,
+    mime_type: null,
     ...overrides,
   };
 }

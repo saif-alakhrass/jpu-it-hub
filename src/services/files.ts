@@ -4,7 +4,7 @@ import { PAGE_SIZE } from '@/lib/constants';
 import { failService } from '@/lib/serviceError';
 
 const FILE_COLUMNS =
-  'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)';
+  'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, storage_provider, object_key, file_hash, mime_type, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)';
 
 const BATCH_COLUMNS =
   'id, subject_id, tab, title, uploader_id, status, file_count, created_at';
