@@ -20,6 +20,7 @@ export interface Env {
   FILES_BUCKET: R2Bucket;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_ANON_KEY?: string;
   JWT_SECRET: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
@@ -150,7 +151,7 @@ async function verifyWithSupabase(token: string, env: Env): Promise<SupabaseAuth
   const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
     headers: {
       Authorization: `Bearer ${token}`,
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
     },
   });
   if (!response.ok) return null;
