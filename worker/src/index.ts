@@ -108,7 +108,7 @@ function getCorsHeaders(env: Env, origin: string | null): Headers {
   const allowed = (env.CORS_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim());
   const headers = new Headers({
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Object-Key',
     'Access-Control-Max-Age': '86400',
   });
   if (origin && allowed.includes(origin)) {
@@ -598,6 +598,12 @@ export default {
         return handleUploadPresign(env, request, userId);
       }
 
+      // Route: PUT /upload-proxy — CORS-safe fallback if a browser cannot
+      // complete a direct presigned R2 upload.
+      if (path === '/upload-proxy' && request.method === 'PUT') {
+        return handleUploadProxy(env, request, userId);
+      }
+
       // Route: POST /download-presign — get a presigned GET URL for downloading
       if (path === '/download-presign' && request.method === 'POST') {
         return handleDownloadPresign(env, request, userId, isAdmin);
@@ -688,6 +694,33 @@ async function handleUploadPresign(env: Env, request: Request, userId: string): 
     mime_type: mimeType,
     expires_in: expiry,
   });
+}
+
+async function handleUploadProxy(env: Env, request: Request, userId: string): Promise<Response> {
+  const objectKey = request.headers.get('X-Object-Key') || '';
+  if (!validateObjectKey(objectKey) || objectKey.split('/')[0] !== userId) {
+    return corsError(env, request, 403, 'Invalid object key');
+  }
+
+  const declaredSize = Number(request.headers.get('Content-Length') || 0);
+  if (declaredSize > getMaxSize(env)) {
+    return corsError(env, request, 413, 'File too large');
+  }
+
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength === 0 || bytes.byteLength > getMaxSize(env)) {
+    return corsError(env, request, 413, 'File too large or empty');
+  }
+
+  const ext = getExtension(objectKey);
+  if (!isAllowedExtension(ext) || !checkMagicBytes(new Uint8Array(bytes.slice(0, 16)), ext)) {
+    return corsError(env, request, 400, 'File content does not match its type');
+  }
+
+  await env.FILES_BUCKET.put(objectKey, bytes, {
+    httpMetadata: { contentType: ALLOWED_MIME_TYPES[ext] || 'application/octet-stream' },
+  });
+  return corsResponse(env, request, 200, { success: true });
 }
 
 interface ConfirmUploadRequest {

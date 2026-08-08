@@ -146,7 +146,13 @@ export function useUpload() {
       }
 
       // 2. Upload file binary to R2 via presigned URL
-      const uploaded = await uploadToR2(presign.upload_url, item.file, presign.mime_type);
+      const uploaded = await uploadToR2(
+        presign.upload_url,
+        item.file,
+        presign.mime_type,
+        accessToken,
+        presign.object_key,
+      );
       if (!uploaded) {
         return { success: false, error: 'فشل رفع الملف إلى التخزين' };
       }

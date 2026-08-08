@@ -92,6 +92,8 @@ export async function uploadToR2(
   presignUrl: string,
   file: File,
   mimeType: string,
+  accessToken: string,
+  objectKey: string,
 ): Promise<boolean> {
   try {
     const res = await fetch(presignUrl, {
@@ -99,14 +101,23 @@ export async function uploadToR2(
       headers: { 'Content-Type': mimeType },
       body: file,
     });
-    return res.ok;
+    if (res.ok) return true;
   } catch {
-    // Some browsers report a CORS network error after R2 has accepted a
-    // presigned PUT. confirm-upload performs the authoritative R2 HEAD check
-    // before a database record can be created, so let that safe confirmation
-    // decide whether the upload actually succeeded.
-    return true;
+    // Fall through to the authenticated Worker fallback below.
   }
+
+  // Some browser/R2 combinations cannot complete the response handshake for
+  // a presigned PUT. The Worker repeats all file validation before writing.
+  const fallback = await fetch(`${WORKER_URL}/upload-proxy`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': mimeType,
+      'X-Object-Key': objectKey,
+    },
+    body: file,
+  });
+  return fallback.ok;
 }
 
 /**
