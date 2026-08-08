@@ -16,7 +16,7 @@ bucket_name = "jpu-it-hub-files"
 #   wrangler secret put R2_SECRET_ACCESS_KEY
 #   wrangler secret put R2_ACCOUNT_ID
 [vars]
-CORS_ALLOWED_ORIGINS = "http://localhost:5173,https://jpu-it-hub.vercel.app"
+CORS_ALLOWED_ORIGINS = "http://localhost:5173,https://jpu-it-hub.vercel.app,https://jpu-it-85tkimn6b-jpu-it-hub.vercel.app"
 MAX_FILE_SIZE_BYTES = "20971520"
 UPLOAD_MAX_PER_WINDOW = "5"
 UPLOAD_WINDOW_MINUTES = "10"
