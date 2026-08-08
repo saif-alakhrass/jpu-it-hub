@@ -10,12 +10,14 @@ export default defineConfig(({ mode }) => {
   const supabaseUrl = env.VITE_SUPABASE_URL || env.SUPABASE_URL || '';
   const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
   const r2WorkerUrl = env.VITE_R2_WORKER_URL || '';
+  const r2WorkerProxyTarget = env.R2_WORKER_PROXY_TARGET || '';
+  const clientWorkerUrl = mode === 'development' && r2WorkerProxyTarget ? '/r2-worker' : r2WorkerUrl;
 
   return {
     define: {
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
-      'import.meta.env.VITE_R2_WORKER_URL': JSON.stringify(r2WorkerUrl),
+      'import.meta.env.VITE_R2_WORKER_URL': JSON.stringify(clientWorkerUrl),
     },
     plugins: [react()],
     resolve: {
@@ -26,5 +28,16 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       exclude: ['lucide-react'],
     },
+    server: r2WorkerProxyTarget
+      ? {
+          proxy: {
+            '/r2-worker': {
+              target: r2WorkerProxyTarget,
+              changeOrigin: true,
+              rewrite: (path) => path.replace(/^\/r2-worker/, ''),
+            },
+          },
+        }
+      : undefined,
   };
 });
