@@ -131,7 +131,7 @@ export async function confirmUpload(
   },
 ): Promise<{ success: boolean; file?: unknown } | null> {
   const res = await fetch(`${WORKER_URL}/confirm-upload`, {
-    method: POST,
+    method: 'POST',
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify(params),
   });
