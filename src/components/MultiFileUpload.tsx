@@ -119,7 +119,10 @@ export function MultiFileUpload({
       onUploaded();
     }
     if (result.failCount > 0 && result.successCount === 0) {
-      onToast({ message: `فشل رفع ${result.failCount} ملف`, type: 'error' });
+      onToast({
+        message: result.error ? `فشل رفع ${result.failCount} ملف: ${result.error}` : `فشل رفع ${result.failCount} ملف`,
+        type: 'error',
+      });
     }
 
     if (result.successCount > 0 && result.failCount === 0) {
