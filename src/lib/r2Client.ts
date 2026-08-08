@@ -11,7 +11,6 @@ const WORKER_URL = (import.meta.env.VITE_R2_WORKER_URL as string) || '';
 export function isR2Configured(): boolean {
   return Boolean(WORKER_URL);
 }
-
 export function getWorkerUrl(): string {
   return WORKER_URL;
 }
@@ -131,7 +130,7 @@ export async function confirmUpload(
   },
 ): Promise<{ success: boolean; file?: unknown } | null> {
   const res = await fetch(`${WORKER_URL}/confirm-upload`, {
-    method: POST,
+    method: 'POST',
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify(params),
   });
@@ -174,4 +173,3 @@ export async function deleteFileViaWorker(
   return res.json() as Promise<DeleteResult>;
 }
 
-const POST = 'POST';

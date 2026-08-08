@@ -169,6 +169,9 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
     // Allow if issuer matches — don't reject if SUPABASE_URL is not set (for testing)
   }
 
+  const expectedIssuer = `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
+  if (payload.iss !== expectedIssuer || payload.aud !== 'authenticated' || !payload.sub) return null;
+
   return payload;
 }
 
