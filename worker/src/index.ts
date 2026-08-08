@@ -293,6 +293,22 @@ async function fetchProfile(env: Env, userId: string): Promise<Profile | null> {
   return data[0] ?? null;
 }
 
+async function authenticateWithProfile(env: Env, token: string): Promise<Profile | null> {
+  const [, payloadB64] = token.split('.');
+  const payload = payloadB64 ? decodeJson<JwtPayload>(payloadB64) : null;
+  if (!payload?.sub) return null;
+  const url = `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${payload.sub}&select=id,role`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
+  if (!res.ok) return null;
+  const data = await res.json() as Profile[];
+  return data[0] ?? null;
+}
+
 async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | null> {
   const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
@@ -562,19 +578,16 @@ export default {
         return corsError(env, request, 401, 'Missing authorization token');
       }
 
-      const jwt = await verifyJwt(token, env);
-      if (!jwt) {
+      // Supabase validates the access token at its RLS boundary on every
+      // request, then returns only the caller's own profile.
+      const profile = await authenticateWithProfile(env, token);
+      if (!profile) {
         return corsError(env, request, 401, 'Invalid or expired token');
       }
 
-      const userId = jwt.sub;
+      const userId = profile.id;
       if (!userId) {
         return corsError(env, request, 401, 'Invalid token: missing subject');
-      }
-
-      const profile = await fetchProfile(env, userId);
-      if (!profile) {
-        return corsError(env, request, 403, 'Profile not found');
       }
 
       const isAdmin = profile.role === 'admin';
