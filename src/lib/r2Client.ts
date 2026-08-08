@@ -43,6 +43,24 @@ export interface DeleteResult {
   message?: string;
 }
 
+export class WorkerRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkerRequestError';
+  }
+}
+
+async function throwWorkerError(response: Response): Promise<never> {
+  let message = `تعذر الاتصال بخدمة الملفات (${response.status})`;
+  try {
+    const body = await response.json() as { error?: string };
+    if (body.error) message = body.error;
+  } catch {
+    // Keep the safe status-based error when the response is not JSON.
+  }
+  throw new WorkerRequestError(message);
+}
+
 /**
  * Request a presigned PUT URL from the Worker for uploading a file to R2.
  */
@@ -62,7 +80,7 @@ export async function requestUploadPresign(
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify(params),
   });
-  if (!res.ok) return null;
+  if (!res.ok) return throwWorkerError(res);
   return res.json() as Promise<UploadPresignResult>;
 }
 

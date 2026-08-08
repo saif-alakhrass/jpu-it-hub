@@ -180,8 +180,11 @@ export function useUpload() {
       }
 
       return { success: true, error: '' };
-    } catch {
-      return { success: false, error: 'حدث خطأ غير متوقع أثناء الرفع' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء الرفع',
+      };
     }
   }
 
