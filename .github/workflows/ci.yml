@@ -61,10 +61,13 @@ jobs:
           cache-dependency-path: worker/package-lock.json
 
       - name: Install Worker dependencies
-        run: npm install
+        run: npm ci
 
       - name: Worker typecheck
         run: npm run typecheck
 
-      - name: Worker tests
-        run: npm test
+      - name: Worker tests with coverage
+        run: npm run test:coverage
+
+      - name: Worker build
+        run: npm run build

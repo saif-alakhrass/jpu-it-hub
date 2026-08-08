@@ -8,6 +8,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "wrangler deploy --dry-run",
     "test:watch": "vitest"
   },
   "devDependencies": {
