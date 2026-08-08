@@ -395,7 +395,8 @@ async function createPresignedUrl(
   const bucketName = 'jpu-it-hub-files';
   const region = 'auto';
   const service = 's3';
-  const host = `${bucketName}.${accountId}.r2.cloudflarestorage.com`;
+  // R2's S3 endpoint uses path-style addressing, not bucket subdomains.
+  const host = `${accountId}.r2.cloudflarestorage.com`;
 
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -405,7 +406,7 @@ async function createPresignedUrl(
   const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
   const credential = `${env.R2_ACCESS_KEY_ID}/${credentialScope}`;
 
-  const canonicalUriStr = canonicalUri(objectKey);
+  const canonicalUriStr = `${bucketName}/${canonicalUri(objectKey)}`;
   const canonicalQueryString = [
     `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     `X-Amz-Credential=${encodeURIComponent(credential)}`,
