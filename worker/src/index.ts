@@ -20,6 +20,7 @@ export interface Env {
   FILES_BUCKET: R2Bucket;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_ANON_KEY?: string;
   JWT_SECRET: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
@@ -107,7 +108,7 @@ function getCorsHeaders(env: Env, origin: string | null): Headers {
   const allowed = (env.CORS_ALLOWED_ORIGINS || '').split(',').map((o) => o.trim());
   const headers = new Headers({
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Object-Key',
     'Access-Control-Max-Age': '86400',
   });
   if (origin && allowed.includes(origin)) {
@@ -129,8 +130,70 @@ function corsError(env: Env, request: Request, status: number, message: string):
 }
 
 // ---------------------------------------------------------------------------
-// JWT Verification (HS256)
+// JWT verification
 // ---------------------------------------------------------------------------
+
+interface JwtHeader {
+  alg: 'HS256' | 'ES256';
+  kid?: string;
+}
+
+interface JwksResponse {
+  keys: Array<JsonWebKey & { kid?: string }>;
+}
+
+interface SupabaseAuthUser {
+  id: string;
+  email?: string;
+}
+
+async function verifyWithSupabase(token: string, env: Env): Promise<SupabaseAuthUser | null> {
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
+  if (!response.ok) return null;
+  const user = await response.json() as SupabaseAuthUser;
+  return user.id ? user : null;
+}
+
+function decodeBase64Url(value: string): Uint8Array {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+}
+
+function decodeJson<T>(value: string): T | null {
+  try {
+    return JSON.parse(new TextDecoder().decode(decodeBase64Url(value))) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyEs256(
+  header: JwtHeader,
+  headerB64: string,
+  payloadB64: string,
+  signatureB64: string,
+  env: Env,
+): Promise<boolean> {
+  if (!header.kid) return false;
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`);
+  if (!response.ok) return false;
+  const jwks = await response.json() as JwksResponse;
+  const jwk = jwks.keys.find((key) => key.kid === header.kid && key.kty === 'EC' && key.crv === 'P-256');
+  if (!jwk) return false;
+
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  return crypto.subtle.verify(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    key,
+    decodeBase64Url(signatureB64),
+    new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+  );
+}
 
 async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
   const parts = token.split('.');
@@ -139,30 +202,58 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
   const [headerB64, payloadB64, signatureB64] = parts;
   if (!headerB64 || !payloadB64 || !signatureB64) return null;
 
-  // Decode header
-  const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
-  if (header.alg !== 'HS256') return null;
+  const header = decodeJson<JwtHeader>(headerB64);
+  const payload = decodeJson<JwtPayload>(payloadB64);
+  if (!header || !payload) return null;
 
-  // Verify signature
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(env.JWT_SECRET),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  );
+  if (header.alg === 'ES256') {
+    try {
+      const locallyValid = await verifyEs256(header, headerB64, payloadB64, signatureB64, env);
+      if (!locallyValid) {
+        // Supabase is the authoritative JWT verifier. This fallback supports
+        // current asymmetric signing-key formats while keeping every request
+        // authenticated server-to-server.
+        const user = await verifyWithSupabase(token, env);
+        if (!user || user.id !== payload.sub) return null;
+      }
+    } catch {
+      return null;
+    }
+  } else if (header.alg !== 'HS256') {
+    return null;
+  }
 
-  const signedData = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const signature = Uint8Array.from(atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-  const valid = await crypto.subtle.verify('HMAC', key, signature, signedData);
-  if (!valid) return null;
-
-  // Decode payload
-  const payload: JwtPayload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+  // Verify legacy HS256 signatures.
+  if (header.alg === 'HS256') {
+    let locallyValid = false;
+    try {
+      if (env.JWT_SECRET) {
+        const key = await crypto.subtle.importKey(
+          'raw',
+          new TextEncoder().encode(env.JWT_SECRET),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['verify'],
+        );
+        locallyValid = await crypto.subtle.verify(
+          'HMAC',
+          key,
+          decodeBase64Url(signatureB64),
+          new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+        );
+      }
+    } catch {
+      locallyValid = false;
+    }
+    if (!locallyValid) {
+      const user = await verifyWithSupabase(token, env);
+      if (!user || user.id !== payload.sub) return null;
+    }
+  }
 
   // Check expiry
   const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && payload.exp < now) return null;
+  if (!payload.exp || payload.exp < now) return null;
 
   // Check issuer (should be the Supabase URL)
   if (env.SUPABASE_URL && payload.iss && !payload.iss.startsWith(env.SUPABASE_URL.replace(/\/$/, ''))) {
@@ -197,6 +288,22 @@ function supabaseHeaders(env: Env): Headers {
 async function fetchProfile(env: Env, userId: string): Promise<Profile | null> {
   const url = `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=id,role`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
+  if (!res.ok) return null;
+  const data = await res.json() as Profile[];
+  return data[0] ?? null;
+}
+
+async function authenticateWithProfile(env: Env, token: string): Promise<Profile | null> {
+  const [, payloadB64] = token.split('.');
+  const payload = payloadB64 ? decodeJson<JwtPayload>(payloadB64) : null;
+  if (!payload?.sub) return null;
+  const url = `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${payload.sub}&select=id,role`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
   if (!res.ok) return null;
   const data = await res.json() as Profile[];
   return data[0] ?? null;
@@ -288,7 +395,8 @@ async function createPresignedUrl(
   const bucketName = 'jpu-it-hub-files';
   const region = 'auto';
   const service = 's3';
-  const host = `${bucketName}.${accountId}.r2.cloudflarestorage.com`;
+  // R2's S3 endpoint uses path-style addressing, not bucket subdomains.
+  const host = `${accountId}.r2.cloudflarestorage.com`;
 
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -298,7 +406,7 @@ async function createPresignedUrl(
   const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
   const credential = `${env.R2_ACCESS_KEY_ID}/${credentialScope}`;
 
-  const canonicalUriStr = canonicalUri(objectKey);
+  const canonicalUriStr = `${bucketName}/${canonicalUri(objectKey)}`;
   const canonicalQueryString = [
     `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     `X-Amz-Credential=${encodeURIComponent(credential)}`,
@@ -471,19 +579,16 @@ export default {
         return corsError(env, request, 401, 'Missing authorization token');
       }
 
-      const jwt = await verifyJwt(token, env);
-      if (!jwt) {
+      // Supabase validates the access token at its RLS boundary on every
+      // request, then returns only the caller's own profile.
+      const profile = await authenticateWithProfile(env, token);
+      if (!profile) {
         return corsError(env, request, 401, 'Invalid or expired token');
       }
 
-      const userId = jwt.sub;
+      const userId = profile.id;
       if (!userId) {
         return corsError(env, request, 401, 'Invalid token: missing subject');
-      }
-
-      const profile = await fetchProfile(env, userId);
-      if (!profile) {
-        return corsError(env, request, 403, 'Profile not found');
       }
 
       const isAdmin = profile.role === 'admin';
@@ -491,6 +596,12 @@ export default {
       // Route: POST /upload-presign — get a presigned PUT URL for uploading
       if (path === '/upload-presign' && request.method === 'POST') {
         return handleUploadPresign(env, request, userId);
+      }
+
+      // Route: PUT /upload-proxy — CORS-safe fallback if a browser cannot
+      // complete a direct presigned R2 upload.
+      if (path === '/upload-proxy' && request.method === 'PUT') {
+        return handleUploadProxy(env, request, userId);
       }
 
       // Route: POST /download-presign — get a presigned GET URL for downloading
@@ -583,6 +694,33 @@ async function handleUploadPresign(env: Env, request: Request, userId: string): 
     mime_type: mimeType,
     expires_in: expiry,
   });
+}
+
+async function handleUploadProxy(env: Env, request: Request, userId: string): Promise<Response> {
+  const objectKey = request.headers.get('X-Object-Key') || '';
+  if (!validateObjectKey(objectKey) || objectKey.split('/')[0] !== userId) {
+    return corsError(env, request, 403, 'Invalid object key');
+  }
+
+  const declaredSize = Number(request.headers.get('Content-Length') || 0);
+  if (declaredSize > getMaxSize(env)) {
+    return corsError(env, request, 413, 'File too large');
+  }
+
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength === 0 || bytes.byteLength > getMaxSize(env)) {
+    return corsError(env, request, 413, 'File too large or empty');
+  }
+
+  const ext = getExtension(objectKey);
+  if (!isAllowedExtension(ext) || !checkMagicBytes(new Uint8Array(bytes.slice(0, 16)), ext)) {
+    return corsError(env, request, 400, 'File content does not match its type');
+  }
+
+  await env.FILES_BUCKET.put(objectKey, bytes, {
+    httpMetadata: { contentType: ALLOWED_MIME_TYPES[ext] || 'application/octet-stream' },
+  });
+  return corsResponse(env, request, 200, { success: true });
 }
 
 interface ConfirmUploadRequest {

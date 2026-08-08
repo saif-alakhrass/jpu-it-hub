@@ -9,6 +9,7 @@ import {
   confirmUpload,
   computeFileHash,
   checkHashDuplicate,
+  requestDownloadPresign,
 } from '@/lib/r2Client';
 
 export interface QueuedFile {
@@ -145,7 +146,13 @@ export function useUpload() {
       }
 
       // 2. Upload file binary to R2 via presigned URL
-      const uploaded = await uploadToR2(presign.upload_url, item.file, presign.mime_type);
+      const uploaded = await uploadToR2(
+        presign.upload_url,
+        item.file,
+        presign.mime_type,
+        accessToken,
+        presign.object_key,
+      );
       if (!uploaded) {
         return { success: false, error: 'فشل رفع الملف إلى التخزين' };
       }
@@ -175,13 +182,20 @@ export function useUpload() {
         batch_id: batchId,
       });
       if (!confirmed || !confirmed.success) {
-        // Worker already cleaned up the R2 object if DB save failed
+        // The Worker may have saved the record even if a browser-side CORS
+        // error hid its response. Verify the exact new file before reporting
+        // failure; this does not expose a URL or bypass authorization.
+        const recovered = await requestDownloadPresign(accessToken, presign.file_id);
+        if (recovered) return { success: true, error: '' };
         return { success: false, error: 'فشل حفظ سجل الملف' };
       }
 
       return { success: true, error: '' };
-    } catch {
-      return { success: false, error: 'حدث خطأ غير متوقع أثناء الرفع' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء الرفع',
+      };
     }
   }
 

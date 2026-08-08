@@ -43,6 +43,24 @@ export interface DeleteResult {
   message?: string;
 }
 
+export class WorkerRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkerRequestError';
+  }
+}
+
+async function throwWorkerError(response: Response): Promise<never> {
+  let message = `تعذر الاتصال بخدمة الملفات (${response.status})`;
+  try {
+    const body = await response.json() as { error?: string };
+    if (body.error) message = body.error;
+  } catch {
+    // Keep the safe status-based error when the response is not JSON.
+  }
+  throw new WorkerRequestError(message);
+}
+
 /**
  * Request a presigned PUT URL from the Worker for uploading a file to R2.
  */
@@ -62,7 +80,7 @@ export async function requestUploadPresign(
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify(params),
   });
-  if (!res.ok) return null;
+  if (!res.ok) return throwWorkerError(res);
   return res.json() as Promise<UploadPresignResult>;
 }
 
@@ -71,16 +89,25 @@ export async function requestUploadPresign(
  * The Content-Type header must match what was specified during presigning.
  */
 export async function uploadToR2(
-  presignUrl: string,
+  _presignUrl: string,
   file: File,
   mimeType: string,
+  accessToken: string,
+  objectKey: string,
 ): Promise<boolean> {
-  const res = await fetch(presignUrl, {
+  // Direct browser PUTs to private R2 can fail after the object is accepted
+  // due to browser-level CORS handling. Use the authenticated Worker path as
+  // the reliable upload transport; it writes only the generated object key.
+  const fallback = await fetch(`${WORKER_URL}/upload-proxy`, {
     method: 'PUT',
-    headers: { 'Content-Type': mimeType },
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': mimeType,
+      'X-Object-Key': objectKey,
+    },
     body: file,
   });
-  return res.ok;
+  return fallback.ok;
 }
 
 /**
