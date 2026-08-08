@@ -224,21 +224,30 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
 
   // Verify legacy HS256 signatures.
   if (header.alg === 'HS256') {
-    if (!env.JWT_SECRET) return null;
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(env.JWT_SECRET),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify'],
-    );
-    const valid = await crypto.subtle.verify(
-      'HMAC',
-      key,
-      decodeBase64Url(signatureB64),
-      new TextEncoder().encode(`${headerB64}.${payloadB64}`),
-    );
-    if (!valid) return null;
+    let locallyValid = false;
+    try {
+      if (env.JWT_SECRET) {
+        const key = await crypto.subtle.importKey(
+          'raw',
+          new TextEncoder().encode(env.JWT_SECRET),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['verify'],
+        );
+        locallyValid = await crypto.subtle.verify(
+          'HMAC',
+          key,
+          decodeBase64Url(signatureB64),
+          new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+        );
+      }
+    } catch {
+      locallyValid = false;
+    }
+    if (!locallyValid) {
+      const user = await verifyWithSupabase(token, env);
+      if (!user || user.id !== payload.sub) return null;
+    }
   }
 
   // Check expiry
