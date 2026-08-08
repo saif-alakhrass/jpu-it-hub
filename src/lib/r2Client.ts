@@ -93,12 +93,20 @@ export async function uploadToR2(
   file: File,
   mimeType: string,
 ): Promise<boolean> {
-  const res = await fetch(presignUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType },
-    body: file,
-  });
-  return res.ok;
+  try {
+    const res = await fetch(presignUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': mimeType },
+      body: file,
+    });
+    return res.ok;
+  } catch {
+    // Some browsers report a CORS network error after R2 has accepted a
+    // presigned PUT. confirm-upload performs the authoritative R2 HEAD check
+    // before a database record can be created, so let that safe confirmation
+    // decide whether the upload actually succeeded.
+    return true;
+  }
 }
 
 /**
