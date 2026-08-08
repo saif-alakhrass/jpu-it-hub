@@ -129,8 +129,53 @@ function corsError(env: Env, request: Request, status: number, message: string):
 }
 
 // ---------------------------------------------------------------------------
-// JWT Verification (HS256)
+// JWT verification
 // ---------------------------------------------------------------------------
+
+interface JwtHeader {
+  alg: 'HS256' | 'ES256';
+  kid?: string;
+}
+
+interface JwksResponse {
+  keys: Array<JsonWebKey & { kid?: string }>;
+}
+
+function decodeBase64Url(value: string): Uint8Array {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+}
+
+function decodeJson<T>(value: string): T | null {
+  try {
+    return JSON.parse(new TextDecoder().decode(decodeBase64Url(value))) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function verifyEs256(
+  header: JwtHeader,
+  headerB64: string,
+  payloadB64: string,
+  signatureB64: string,
+  env: Env,
+): Promise<boolean> {
+  if (!header.kid) return false;
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`);
+  if (!response.ok) return false;
+  const jwks = await response.json() as JwksResponse;
+  const jwk = jwks.keys.find((key) => key.kid === header.kid && key.kty === 'EC' && key.crv === 'P-256');
+  if (!jwk) return false;
+
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  return crypto.subtle.verify(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    key,
+    decodeBase64Url(signatureB64),
+    new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+  );
+}
 
 async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
   const parts = token.split('.');
@@ -139,30 +184,42 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
   const [headerB64, payloadB64, signatureB64] = parts;
   if (!headerB64 || !payloadB64 || !signatureB64) return null;
 
-  // Decode header
-  const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
-  if (header.alg !== 'HS256') return null;
+  const header = decodeJson<JwtHeader>(headerB64);
+  const payload = decodeJson<JwtPayload>(payloadB64);
+  if (!header || !payload) return null;
 
-  // Verify signature
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(env.JWT_SECRET),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  );
+  if (header.alg === 'ES256') {
+    try {
+      if (!await verifyEs256(header, headerB64, payloadB64, signatureB64, env)) return null;
+    } catch {
+      return null;
+    }
+  } else if (header.alg !== 'HS256') {
+    return null;
+  }
 
-  const signedData = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const signature = Uint8Array.from(atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-  const valid = await crypto.subtle.verify('HMAC', key, signature, signedData);
-  if (!valid) return null;
-
-  // Decode payload
-  const payload: JwtPayload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+  // Verify legacy HS256 signatures.
+  if (header.alg === 'HS256') {
+    if (!env.JWT_SECRET) return null;
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(env.JWT_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      decodeBase64Url(signatureB64),
+      new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+    );
+    if (!valid) return null;
+  }
 
   // Check expiry
   const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && payload.exp < now) return null;
+  if (!payload.exp || payload.exp < now) return null;
 
   // Check issuer (should be the Supabase URL)
   if (env.SUPABASE_URL && payload.iss && !payload.iss.startsWith(env.SUPABASE_URL.replace(/\/$/, ''))) {
