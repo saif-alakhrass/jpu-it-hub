@@ -141,6 +141,23 @@ interface JwksResponse {
   keys: Array<JsonWebKey & { kid?: string }>;
 }
 
+interface SupabaseAuthUser {
+  id: string;
+  email?: string;
+}
+
+async function verifyWithSupabase(token: string, env: Env): Promise<SupabaseAuthUser | null> {
+  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+  });
+  if (!response.ok) return null;
+  const user = await response.json() as SupabaseAuthUser;
+  return user.id ? user : null;
+}
+
 function decodeBase64Url(value: string): Uint8Array {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
@@ -190,7 +207,14 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
 
   if (header.alg === 'ES256') {
     try {
-      if (!await verifyEs256(header, headerB64, payloadB64, signatureB64, env)) return null;
+      const locallyValid = await verifyEs256(header, headerB64, payloadB64, signatureB64, env);
+      if (!locallyValid) {
+        // Supabase is the authoritative JWT verifier. This fallback supports
+        // current asymmetric signing-key formats while keeping every request
+        // authenticated server-to-server.
+        const user = await verifyWithSupabase(token, env);
+        if (!user || user.id !== payload.sub) return null;
+      }
     } catch {
       return null;
     }
