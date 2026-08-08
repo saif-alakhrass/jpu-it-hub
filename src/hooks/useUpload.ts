@@ -9,6 +9,7 @@ import {
   confirmUpload,
   computeFileHash,
   checkHashDuplicate,
+  requestDownloadPresign,
 } from '@/lib/r2Client';
 
 export interface QueuedFile {
@@ -175,7 +176,11 @@ export function useUpload() {
         batch_id: batchId,
       });
       if (!confirmed || !confirmed.success) {
-        // Worker already cleaned up the R2 object if DB save failed
+        // The Worker may have saved the record even if a browser-side CORS
+        // error hid its response. Verify the exact new file before reporting
+        // failure; this does not expose a URL or bypass authorization.
+        const recovered = await requestDownloadPresign(accessToken, presign.file_id);
+        if (recovered) return { success: true, error: '' };
         return { success: false, error: 'فشل حفظ سجل الملف' };
       }
 
