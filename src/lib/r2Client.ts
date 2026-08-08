@@ -89,25 +89,15 @@ export async function requestUploadPresign(
  * The Content-Type header must match what was specified during presigning.
  */
 export async function uploadToR2(
-  presignUrl: string,
+  _presignUrl: string,
   file: File,
   mimeType: string,
   accessToken: string,
   objectKey: string,
 ): Promise<boolean> {
-  try {
-    const res = await fetch(presignUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': mimeType },
-      body: file,
-    });
-    if (res.ok) return true;
-  } catch {
-    // Fall through to the authenticated Worker fallback below.
-  }
-
-  // Some browser/R2 combinations cannot complete the response handshake for
-  // a presigned PUT. The Worker repeats all file validation before writing.
+  // Direct browser PUTs to private R2 can fail after the object is accepted
+  // due to browser-level CORS handling. Use the authenticated Worker path as
+  // the reliable upload transport; it writes only the generated object key.
   const fallback = await fetch(`${WORKER_URL}/upload-proxy`, {
     method: 'PUT',
     headers: {
