@@ -18,8 +18,32 @@ export function useRouter() {
       window.scrollTo(0, 0);
       return;
     }
-    const frame = requestAnimationFrame(() => window.scrollTo(0, Number(savedPosition)));
-    return () => cancelAnimationFrame(frame);
+    const target = Number(savedPosition);
+    if (!Number.isFinite(target) || target <= 0) {
+      window.scrollTo(0, 0);
+      return;
+    }
+
+    let cancelled = false;
+    let frame = 0;
+    let retries = 0;
+    const restore = () => {
+      if (cancelled) return;
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      if (maxScroll >= target) {
+        window.scrollTo(0, target);
+        return;
+      }
+      // Subject pages first render a small loading state, then grow after their
+      // data arrives. Retry while content is expanding instead of restoring to
+      // a position that the initial page height cannot represent.
+      if (retries++ < 20) window.setTimeout(restore, 100);
+    };
+    frame = requestAnimationFrame(restore);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [scrollKey]);
 
   const route: Route = {
