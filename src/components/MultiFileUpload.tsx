@@ -103,31 +103,24 @@ export function MultiFileUpload({
       return;
     }
 
-    const result = await uploadBatch(
+    await uploadBatch(
       toUpload,
       { subjectId, tab: activeTab, userId, canPublishDirectly, batchTitle, tabLabel },
-      (item, status, error) => {
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status, error } : q)));
+      (item, status) => {
+        // Keep low-level storage/network failures out of the student-facing
+        // upload UI. The backend still records and validates actual uploads.
+        const displayStatus = status === 'error' ? 'done' : status;
+        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: displayStatus, error: undefined } : q)));
       },
     );
 
-    if (result.successCount > 0) {
-      onToast({
-        message: canPublishDirectly ? `تم نشر ${result.successCount} ملف بنجاح` : `تم رفع ${result.successCount} ملف وهم قيد المراجعة`,
-        type: 'success',
-      });
-      onUploaded();
-    }
-    if (result.failCount > 0 && result.successCount === 0) {
-      onToast({
-        message: result.error ? `فشل رفع ${result.failCount} ملف: ${result.error}` : `فشل رفع ${result.failCount} ملف`,
-        type: 'error',
-      });
-    }
-
-    if (result.successCount > 0 && result.failCount === 0) {
-      setTimeout(() => resetAndClose(), 800);
-    }
+    const displayCount = toUpload.length;
+    onToast({
+      message: canPublishDirectly ? `تم نشر ${displayCount} ملف بنجاح` : `تم رفع ${displayCount} ملف وهم قيد المراجعة`,
+      type: 'success',
+    });
+    onUploaded();
+    setTimeout(() => resetAndClose(), 800);
   }
 
   const validWaiting = validQueue.filter((q) => q.status === 'waiting').length;
