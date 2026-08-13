@@ -14,11 +14,33 @@ import { useSubjectsPaged } from '@/hooks/useSubjects';
 import { createSubject } from '@/services/subjects';
 import { getUserErrorMessage } from '@/lib/serviceError';
 
+const HOME_VIEW_KEY = 'jpu-it-hub:home-view';
+
+interface HomeViewState {
+  search: string;
+  major: string;
+  page: number;
+}
+
+function readHomeView(): HomeViewState {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(HOME_VIEW_KEY) ?? '{}') as Partial<HomeViewState>;
+    return {
+      search: typeof saved.search === 'string' ? saved.search : '',
+      major: typeof saved.major === 'string' && MAJORS.includes(saved.major) ? saved.major : (MAJORS[0] ?? ''),
+      page: Number.isInteger(saved.page) && (saved.page ?? 0) >= 0 ? saved.page! : 0,
+    };
+  } catch {
+    return { search: '', major: MAJORS[0] ?? '', page: 0 };
+  }
+}
+
 export function HomePage() {
   const { session } = useAuth();
   const { navigate } = useRouter();
-  const [search, setSearch] = useState('');
-  const [major, setMajor] = useState<string>(MAJORS[0] ?? '');
+  const [initialView] = useState(readHomeView);
+  const [search, setSearch] = useState(initialView.search);
+  const [major, setMajor] = useState<string>(initialView.major);
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -27,8 +49,12 @@ export function HomePage() {
   const [newMajor, setNewMajor] = useState<string>(MAJORS[0] ?? '');
   const [submitting, setSubmitting] = useState(false);
 
-  const { data, loading, error, page, setPage, reload } = useSubjectsPaged(search, major);
+  const { data, loading, error, page, setPage, reload } = useSubjectsPaged(search, major, initialView.page);
   const restoredScroll = useRef(false);
+
+  useEffect(() => {
+    sessionStorage.setItem(HOME_VIEW_KEY, JSON.stringify({ search, major, page }));
+  }, [search, major, page]);
 
   useEffect(() => {
     if (loading || restoredScroll.current) return;

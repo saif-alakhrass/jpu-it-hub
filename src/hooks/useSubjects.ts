@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { fetchSubjectsPaged, fetchAllSubjects, fetchSubject } from '@/services/subjects';
 
@@ -13,11 +13,16 @@ function useDebouncedValue<T>(value: T, delay = 250): T {
   return debounced;
 }
 
-export function useSubjectsPaged(search: string, major: string | undefined) {
-  const [page, setPage] = useState(0);
+export function useSubjectsPaged(search: string, major: string | undefined, initialPage = 0) {
+  const [page, setPage] = useState(initialPage);
   const debouncedSearch = useDebouncedValue(search.trim());
+  const firstFilterRender = useRef(true);
 
   useEffect(() => {
+    if (firstFilterRender.current) {
+      firstFilterRender.current = false;
+      return;
+    }
     setPage(0);
   }, [debouncedSearch, major]);
 
