@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -9,15 +9,12 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmarks';
 import { getBookmarkedIds } from '@/services/bookmarks';
-import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject, type Difficulty } from '@/lib/types';
+import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
-import { fetchSubject } from '@/services/subjects';
 import {
-  fetchFilesForSubject,
-  fetchBatchesForSubject,
   deleteFile,
   deleteBatch,
   removeStorageObjects,
@@ -26,6 +23,8 @@ import { supabase } from '@/lib/supabase';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
+import { useSubject } from '@/hooks/useSubjects';
+import { useSubjectFiles } from '@/hooks/useFiles';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -40,14 +39,15 @@ interface DisplayGroup {
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
-  const { navigate, route } = useRouter();
+  const { navigate, goBack, route } = useRouter();
   const subjectId = route.params.id ?? '';
-  const [subject, setSubject] = useState<Subject | null>(null);
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
-  const [files, setFiles] = useState<FileRow[]>([]);
-  const [batches, setBatches] = useState<FileBatch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const subjectQuery = useSubject(subjectId);
+  const { files, batches, loading: filesLoading, error: filesError, reload: reloadFiles, setFiles, setBatches } = useSubjectFiles(subjectId);
+  const subject = subjectQuery.data ?? null;
+  const loading = subjectQuery.isLoading || filesLoading;
+  const queryError = subjectQuery.error ?? filesError;
+  const loadError = queryError ? getUserErrorMessage(queryError, 'تعذر تحميل المادة وملفاتها.') : null;
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
@@ -61,36 +61,11 @@ export function SubjectPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
-
-  const loadSubject = useCallback(async () => {
-    const data = await fetchSubject(subjectId);
-    setSubject(data);
-  }, [subjectId]);
-
-  const loadFiles = useCallback(async () => {
-    const [f, b] = await Promise.all([
-      fetchFilesForSubject(subjectId),
-      fetchBatchesForSubject(subjectId),
-    ]);
-    setFiles(f);
-    setBatches(b);
-  }, [subjectId]);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadPage = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      await Promise.all([loadSubject(), loadFiles()]);
-    } catch (error) {
-      setLoadError(getUserErrorMessage(error, 'تعذر تحميل المادة وملفاتها.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [loadFiles, loadSubject]);
-
-  useEffect(() => {
-    void loadPage();
-  }, [loadPage]);
+    await Promise.all([subjectQuery.refetch(), reloadFiles()]);
+  }, [subjectQuery, reloadFiles]);
 
   useEffect(() => {
     if (!session || files.length === 0) return;
@@ -123,8 +98,8 @@ export function SubjectPage() {
   const hasContent = groups.length > 0;
 
   const filteredGroups: DisplayGroup[] = useMemo(() => {
-    if (!searchQuery.trim()) return groups;
-    const q = searchQuery.trim();
+    if (!deferredSearchQuery.trim()) return groups;
+    const q = deferredSearchQuery.trim();
     const result: DisplayGroup[] = [];
     for (const group of groups) {
       if (group.batch) {
@@ -142,13 +117,13 @@ export function SubjectPage() {
       }
     }
     return result;
-  }, [groups, searchQuery]);
+  }, [groups, deferredSearchQuery]);
 
   const hasSearchResults = filteredGroups.length > 0;
 
   useEffect(() => {
-    if (!searchQuery.trim()) return;
-    const q = searchQuery.trim();
+    if (!deferredSearchQuery.trim()) return;
+    const q = deferredSearchQuery.trim();
     const toExpand = new Set<string>();
     for (const group of groups) {
       if (group.batch && !smartMatch(group.batch.title, q)) {
@@ -160,7 +135,7 @@ export function SubjectPage() {
     if (toExpand.size > 0) {
       setExpandedBatches((prev) => new Set([...prev, ...toExpand]));
     }
-  }, [groups, searchQuery]);
+  }, [groups, deferredSearchQuery]);
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return;
@@ -293,7 +268,7 @@ export function SubjectPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
-      <button onClick={() => navigate('/')} className="mb-5 flex items-center gap-1 text-sm text-slate-400 hover:text-brand-300 transition">
+      <button onClick={goBack} className="mb-5 flex items-center gap-1 text-sm text-slate-400 hover:text-brand-300 transition">
         <Icon name="ChevronLeft" className="h-4 w-4" />
         العودة للمواد
       </button>
@@ -373,7 +348,7 @@ export function SubjectPage() {
           ctaLabel={session ? "كن أول من يرفع!" : "تسجيل الدخول"}
           onCta={session ? () => setUploadOpen(true) : () => navigate('/auth')}
         />
-      ) : !hasSearchResults && searchQuery.trim() ? (
+      ) : !hasSearchResults && deferredSearchQuery.trim() ? (
         <EmptyState
           icon="SearchX"
           title="لا توجد نتائج تطابق بحثك"
@@ -438,7 +413,7 @@ export function SubjectPage() {
           userId={profile.id}
           canPublishDirectly={canPublishDirectly}
           tabLabel={TABS.find((t) => t.key === activeTab)?.label ?? ''}
-          onUploaded={loadFiles}
+          onUploaded={() => { void reloadFiles(); }}
           onToast={setToast}
         />
       )}
@@ -501,7 +476,7 @@ function FileRowCard({
   const isOwn = profile?.id === file.uploader_id;
   const pending = file.status === 'pending';
   return (
-    <div className={`card flex items-center gap-4 p-4 transition hover:border-white/10 ${pending && !isOwn ? 'opacity-50' : ''}`}>
+    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''}`}>
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink-700 text-brand-400">
         <Icon name="File" className="h-5 w-5" />
       </span>
@@ -557,8 +532,8 @@ function BatchFolderCard({
   const pending = batch.status === 'pending';
   const totalSize = files.reduce((sum, f) => sum + (f.file_size ?? 0), 0);
   return (
-    <div className={`card overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
-      <div className="flex items-center gap-4 p-4">
+    <div className={`card min-w-0 overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
+      <div className="flex min-w-0 items-center gap-3 p-4 sm:gap-4">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-400">
           <Icon name="FolderOpen" className="h-5 w-5" />
         </span>
@@ -609,7 +584,7 @@ function BatchFolderCard({
               const fOwn = profile?.id === f.uploader_id;
               const fPending = f.status === 'pending';
               return (
-                <div key={f.id} className="flex items-center gap-3 rounded-lg bg-ink-800/40 p-3">
+                <div key={f.id} className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-ink-800/40 p-3 sm:flex-nowrap">
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
                     <Icon name="File" className="h-4 w-4" />
                   </span>
@@ -656,7 +631,7 @@ function FileActions({
 }) {
   const accessing = accessingFileId === file.id;
   return (
-    <div className="relative flex shrink-0 items-center gap-1">
+    <div className="relative flex w-full shrink-0 items-center justify-end gap-1 border-t border-white/5 pt-2 sm:w-auto sm:border-0 sm:pt-0">
       <button
         onClick={() => onToggleBookmark(file)}
         className={`rounded-lg p-2 transition ${

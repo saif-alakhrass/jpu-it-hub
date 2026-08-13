@@ -1,63 +1,57 @@
-import { useCallback, useEffect, useState } from 'react';
-import { fetchSubjectsPaged, fetchAllSubjects, type PaginatedSubjects } from '@/services/subjects';
-import type { Subject } from '@/lib/types';
+import { useEffect, useRef, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { fetchSubjectsPaged, fetchAllSubjects, fetchSubject } from '@/services/subjects';
 
-export function useSubjectsPaged(search: string, major: string | undefined) {
-  const [data, setData] = useState<PaginatedSubjects>({
-    items: [],
-    total: 0,
-    page: 0,
-    totalPages: 1,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-  const [page, setPage] = useState(0);
+function useDebouncedValue<T>(value: T, delay = 250): T {
+  const [debounced, setDebounced] = useState(value);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchSubjectsPaged(page, search || undefined, major);
-      setData(result);
-    } catch (nextError) {
-      setError(nextError);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+
+  return debounced;
+}
+
+export function useSubjectsPaged(search: string, major: string | undefined, initialPage = 0) {
+  const [page, setPage] = useState(initialPage);
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const firstFilterRender = useRef(true);
+
+  useEffect(() => {
+    if (firstFilterRender.current) {
+      firstFilterRender.current = false;
+      return;
     }
-  }, [page, search, major]);
-
-  useEffect(() => {
     setPage(0);
-  }, [search, major]);
+  }, [debouncedSearch, major]);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const query = useQuery({
+    queryKey: ['subjects', 'paged', page, debouncedSearch, major ?? null],
+    queryFn: () => fetchSubjectsPaged(page, debouncedSearch || undefined, major),
+    placeholderData: keepPreviousData,
+  });
 
-  return { data, loading, error, page, setPage, reload };
+  return {
+    data: query.data ?? { items: [], total: 0, page, totalPages: 1 },
+    loading: query.isLoading,
+    refreshing: query.isFetching,
+    error: query.error,
+    page,
+    setPage,
+    reload: query.refetch,
+  };
 }
 
 export function useAllSubjects() {
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
+  const query = useQuery({ queryKey: ['subjects', 'all'], queryFn: fetchAllSubjects });
+  return { subjects: query.data ?? [], loading: query.isLoading, error: query.error, reload: query.refetch };
+}
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const items = await fetchAllSubjects();
-      setSubjects(items);
-    } catch (nextError) {
-      setError(nextError);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  return { subjects, loading, error, reload };
+export function useSubject(subjectId: string) {
+  return useQuery({
+    queryKey: ['subjects', 'detail', subjectId],
+    queryFn: () => fetchSubject(subjectId),
+    enabled: Boolean(subjectId),
+  });
 }

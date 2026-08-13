@@ -10,12 +10,33 @@ html, body, #root {
   height: 100%;
 }
 
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   @apply bg-ink-950 text-slate-200 font-sans antialiased;
+  overflow-x: hidden;
   background-image:
     radial-gradient(60rem 60rem at 85% -10%, rgba(22,160,106,0.12), transparent 60%),
     radial-gradient(50rem 50rem at 0% 100%, rgba(52,189,130,0.08), transparent 55%);
   background-attachment: fixed;
+}
+
+/* Fixed gradient layers and translucent blur are expensive on mobile GPUs. */
+@media (max-width: 640px) {
+  body { background-attachment: scroll; }
+  .card { backdrop-filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -40,10 +61,11 @@ body {
     @apply rounded-2xl bg-ink-850/80 border border-white/5 shadow-card backdrop-blur-sm;
   }
   .input {
-    @apply w-full rounded-xl bg-ink-900 border border-white/10 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30;
+    /* iOS zooms when an editable field is smaller than 16px. */
+    @apply w-full rounded-xl bg-ink-900 border border-white/10 px-4 py-2.5 text-base sm:text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30;
   }
   .input-sm {
-    @apply w-full rounded-lg bg-ink-900 border border-white/10 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30;
+    @apply w-full rounded-lg bg-ink-900 border border-white/10 px-3 py-2 text-base sm:py-1.5 sm:text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30;
   }
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold;

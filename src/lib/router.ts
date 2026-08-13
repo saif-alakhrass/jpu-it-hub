@@ -10,7 +10,7 @@ export function useRouter() {
   const location = useLocation();
   const navigateRR = useNavigate();
   const params = useParams();
-
+  const scrollKey = `jpu-it-hub:scroll:${location.pathname}${location.search}${location.hash}`;
   const route: Route = {
     path: location.pathname,
     params: params as Record<string, string>,
@@ -18,12 +18,19 @@ export function useRouter() {
 
   const navigate = useCallback(
     (to: string) => {
+      // Capture synchronously before React Router replaces the current route.
+      // This is the reliable path for course cards on touch devices, where a
+      // final scroll event is not guaranteed before a tap.
+      sessionStorage.setItem(scrollKey, String(window.scrollY));
       const target = to.startsWith('#') ? to.slice(1) : to;
       navigateRR(target);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    [navigateRR],
+    [navigateRR, scrollKey],
   );
 
-  return { route, navigate };
+  const goBack = useCallback(() => {
+    navigateRR(-1);
+  }, [navigateRR]);
+
+  return { route, navigate, goBack };
 }
