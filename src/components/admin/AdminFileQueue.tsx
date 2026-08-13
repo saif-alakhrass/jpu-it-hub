@@ -18,12 +18,13 @@ interface AdminFileQueueProps {
   rejectedPage: number;
   setRejectedPage: (page: number) => void;
   restore: (id: string) => void;
+  requestDeleteRejected: (file: FileRow) => void;
 }
 
 export function AdminFileQueue({
   pending, pendingTotal, pendingPage, setPendingPage,
   approve, requestReject, openPreview, busyId,
-  rejectedTotal, rejectedFiles, rejectedPage, setRejectedPage, restore,
+  rejectedTotal, rejectedFiles, rejectedPage, setRejectedPage, restore, requestDeleteRejected,
 }: AdminFileQueueProps) {
   const [showRejected, setShowRejected] = useState(false);
 
@@ -67,9 +68,14 @@ export function AdminFileQueue({
                   <h3 className="mt-1.5 truncate font-bold text-slate-200">{file.title}</h3>
                   <div className="mt-0.5 text-xs text-slate-500">{file.uploader?.full_name ?? 'مستخدم'}</div>
                 </div>
-                <button onClick={() => restore(file.id)} className="btn-primary" disabled={busyId === file.id}>
-                  {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="RotateCcw" className="h-4 w-4" />} استعادة ونشر
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => restore(file.id)} className="btn-primary" disabled={busyId === file.id}>
+                    {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="RotateCcw" className="h-4 w-4" />} استعادة ونشر
+                  </button>
+                  <button onClick={() => requestDeleteRejected(file)} className="btn-danger" disabled={busyId === file.id}>
+                    {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} حذف نهائي
+                  </button>
+                </div>
               </div>
             ))}
             <Pagination page={rejectedPage} totalPages={Math.max(1, Math.ceil(rejectedTotal / PAGE_SIZE))} onPageChange={setRejectedPage} />

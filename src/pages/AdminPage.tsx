@@ -6,12 +6,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { type FileRow, type Profile, type Subject, type Role, type Difficulty } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
-import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
 import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
   fetchRejectedFilesPaged,
   fetchAdminStats,
+  deleteFile,
+  removeStorageObjects,
   setFileStatus,
   type AdminStats,
 } from '@/services/files';
@@ -42,6 +44,7 @@ export function AdminPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
+  const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
 
   const loadPending = useCallback(async () => {
@@ -113,6 +116,51 @@ export function AdminPage() {
     await loadStats();
     setToast({ message: 'تمت استعادة الملف ونشره', type: 'success' });
     setBusyId(null);
+  }
+
+  async function performDeleteRejected(file: FileRow) {
+    setBusyId(file.id);
+    try {
+      if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) throw new Error('Missing authenticated session');
+
+        const result = await deleteFileViaWorker(accessToken, file.id);
+        if (!result) throw new Error('Worker delete request failed');
+
+        if (!result.success) {
+          await loadRejected();
+          await loadStats();
+          setConfirmDeleteRejected(null);
+          setToast({
+            message: result.cleanup_queued
+              ? 'تم حذف سجل الملف، لكن تعذر حذف النسخة المخزنة. أُضيفت عملية تنظيف لإعادة المحاولة.'
+              : 'تعذر حذف الملف نهائيًا.',
+            type: 'error',
+          });
+          return;
+        }
+      } else {
+        const storageDeleted = file.storage_path
+          ? await removeStorageObjects([file.storage_path])
+          : true;
+        if (!storageDeleted) throw new Error('Legacy storage delete failed');
+
+        const recordDeleted = await deleteFile(file.id);
+        if (!recordDeleted) throw new Error('Database record delete failed');
+      }
+
+      setRejectedFiles((files) => files.filter((item) => item.id !== file.id));
+      setRejectedTotal((total) => Math.max(0, total - 1));
+      setConfirmDeleteRejected(null);
+      await loadStats();
+      setToast({ message: 'تم حذف الملف المرفوض نهائيًا من التخزين والسجل.', type: 'success' });
+    } catch {
+      setToast({ message: 'تعذر حذف الملف نهائيًا. لم يُزل من القائمة.', type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function performRoleChange(user: Profile, toRole: Role) {
@@ -209,6 +257,7 @@ export function AdminPage() {
           rejectedPage={rejectedPage}
           setRejectedPage={setRejectedPage}
           restore={handleRestore}
+          requestDeleteRejected={setConfirmDeleteRejected}
         />
       ) : tab === 'subjects' ? (
         <SubjectsTab subjects={subjects} setToast={setToast} onUpdated={loadSubjects} />
@@ -269,6 +318,27 @@ export function AdminPage() {
               <button onClick={() => performReject(confirmReject)} className="btn-danger" disabled={busyId === confirmReject.id}>
                 {busyId === confirmReject.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
                 تأكيد الرفض
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!confirmDeleteRejected} onClose={() => setConfirmDeleteRejected(null)} title="حذف ملف مرفوض نهائيًا">
+        {confirmDeleteRejected && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
+              <Icon name="Trash2" className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-bold">هذا الإجراء لا يمكن التراجع عنه</p>
+                <p className="mt-1 text-sm">سيُحذف &quot;{confirmDeleteRejected.title}&quot; من التخزين ومن قاعدة البيانات نهائيًا.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setConfirmDeleteRejected(null)} className="btn-ghost" disabled={busyId === confirmDeleteRejected.id}>إلغاء</button>
+              <button onClick={() => performDeleteRejected(confirmDeleteRejected)} className="btn-danger" disabled={busyId === confirmDeleteRejected.id}>
+                {busyId === confirmDeleteRejected.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
+                حذف نهائي
               </button>
             </div>
           </div>
