@@ -15,6 +15,17 @@ export function ScrollRestoration() {
   const storageKey = keyFor(pathname, search, hash);
 
   useEffect(() => {
+    // On mobile history navigation the browser may restore its own stale
+    // position after React has rendered, overwriting our saved position.
+    // Keep one source of truth: this component's persisted route position.
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useEffect(() => {
     let frame = 0;
     const save = () => sessionStorage.setItem(storageKey, String(window.scrollY));
     const scheduleSave = () => {
