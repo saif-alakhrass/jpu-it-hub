@@ -6,6 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { type FileRow, type Profile, type Subject, type Role, type Difficulty } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
+import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
   fetchRejectedFilesPaged,
@@ -128,8 +130,25 @@ export function AdminPage() {
   async function openPreview(file: FileRow) {
     setPreview(file);
     setSignedPreviewUrl(null);
-    const url = await getSignedFileUrl(file.storage_path);
-    setSignedPreviewUrl(url);
+    try {
+      let url: string | null = null;
+      if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (token) {
+          const result = await requestDownloadPresign(token, file.id);
+          if (result?.download_url) url = result.download_url;
+          else if (result?.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
+        }
+      } else {
+        url = await getSignedFileUrl(file.storage_path);
+      }
+      if (!url) throw new Error('preview URL unavailable');
+      setSignedPreviewUrl(url);
+    } catch {
+      setPreview(null);
+      setToast({ message: 'تعذر إنشاء رابط معاينة آمن للملف.', type: 'error' });
+    }
   }
 
   if (authLoading) {
