@@ -9,15 +9,12 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmarks';
 import { getBookmarkedIds } from '@/services/bookmarks';
-import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Subject, type Difficulty } from '@/lib/types';
+import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
-import { fetchSubject } from '@/services/subjects';
 import {
-  fetchFilesForSubject,
-  fetchBatchesForSubject,
   deleteFile,
   deleteBatch,
   removeStorageObjects,
@@ -26,6 +23,8 @@ import { supabase } from '@/lib/supabase';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
+import { useSubject } from '@/hooks/useSubjects';
+import { useSubjectFiles } from '@/hooks/useFiles';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -42,12 +41,13 @@ export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
   const { navigate, route } = useRouter();
   const subjectId = route.params.id ?? '';
-  const [subject, setSubject] = useState<Subject | null>(null);
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
-  const [files, setFiles] = useState<FileRow[]>([]);
-  const [batches, setBatches] = useState<FileBatch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const subjectQuery = useSubject(subjectId);
+  const { files, batches, loading: filesLoading, error: filesError, reload: reloadFiles, setFiles, setBatches } = useSubjectFiles(subjectId);
+  const subject = subjectQuery.data ?? null;
+  const loading = subjectQuery.isLoading || filesLoading;
+  const queryError = subjectQuery.error ?? filesError;
+  const loadError = queryError ? getUserErrorMessage(queryError, 'تعذر تحميل المادة وملفاتها.') : null;
   const [uploadOpen, setUploadOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
@@ -63,35 +63,9 @@ export function SubjectPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
-  const loadSubject = useCallback(async () => {
-    const data = await fetchSubject(subjectId);
-    setSubject(data);
-  }, [subjectId]);
-
-  const loadFiles = useCallback(async () => {
-    const [f, b] = await Promise.all([
-      fetchFilesForSubject(subjectId),
-      fetchBatchesForSubject(subjectId),
-    ]);
-    setFiles(f);
-    setBatches(b);
-  }, [subjectId]);
-
   const loadPage = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      await Promise.all([loadSubject(), loadFiles()]);
-    } catch (error) {
-      setLoadError(getUserErrorMessage(error, 'تعذر تحميل المادة وملفاتها.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [loadFiles, loadSubject]);
-
-  useEffect(() => {
-    void loadPage();
-  }, [loadPage]);
+    await Promise.all([subjectQuery.refetch(), reloadFiles()]);
+  }, [subjectQuery, reloadFiles]);
 
   useEffect(() => {
     if (!session || files.length === 0) return;
@@ -439,7 +413,7 @@ export function SubjectPage() {
           userId={profile.id}
           canPublishDirectly={canPublishDirectly}
           tabLabel={TABS.find((t) => t.key === activeTab)?.label ?? ''}
-          onUploaded={loadFiles}
+          onUploaded={() => { void reloadFiles(); }}
           onToast={setToast}
         />
       )}
