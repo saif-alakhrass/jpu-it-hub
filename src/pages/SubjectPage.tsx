@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -61,6 +61,7 @@ export function SubjectPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadSubject = useCallback(async () => {
     const data = await fetchSubject(subjectId);
@@ -123,8 +124,8 @@ export function SubjectPage() {
   const hasContent = groups.length > 0;
 
   const filteredGroups: DisplayGroup[] = useMemo(() => {
-    if (!searchQuery.trim()) return groups;
-    const q = searchQuery.trim();
+    if (!deferredSearchQuery.trim()) return groups;
+    const q = deferredSearchQuery.trim();
     const result: DisplayGroup[] = [];
     for (const group of groups) {
       if (group.batch) {
@@ -142,13 +143,13 @@ export function SubjectPage() {
       }
     }
     return result;
-  }, [groups, searchQuery]);
+  }, [groups, deferredSearchQuery]);
 
   const hasSearchResults = filteredGroups.length > 0;
 
   useEffect(() => {
-    if (!searchQuery.trim()) return;
-    const q = searchQuery.trim();
+    if (!deferredSearchQuery.trim()) return;
+    const q = deferredSearchQuery.trim();
     const toExpand = new Set<string>();
     for (const group of groups) {
       if (group.batch && !smartMatch(group.batch.title, q)) {
@@ -160,7 +161,7 @@ export function SubjectPage() {
     if (toExpand.size > 0) {
       setExpandedBatches((prev) => new Set([...prev, ...toExpand]));
     }
-  }, [groups, searchQuery]);
+  }, [groups, deferredSearchQuery]);
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return;
@@ -373,7 +374,7 @@ export function SubjectPage() {
           ctaLabel={session ? "كن أول من يرفع!" : "تسجيل الدخول"}
           onCta={session ? () => setUploadOpen(true) : () => navigate('/auth')}
         />
-      ) : !hasSearchResults && searchQuery.trim() ? (
+      ) : !hasSearchResults && deferredSearchQuery.trim() ? (
         <EmptyState
           icon="SearchX"
           title="لا توجد نتائج تطابق بحثك"
@@ -501,7 +502,7 @@ function FileRowCard({
   const isOwn = profile?.id === file.uploader_id;
   const pending = file.status === 'pending';
   return (
-    <div className={`card flex items-center gap-4 p-4 transition hover:border-white/10 ${pending && !isOwn ? 'opacity-50' : ''}`}>
+    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''}`}>
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink-700 text-brand-400">
         <Icon name="File" className="h-5 w-5" />
       </span>
@@ -557,8 +558,8 @@ function BatchFolderCard({
   const pending = batch.status === 'pending';
   const totalSize = files.reduce((sum, f) => sum + (f.file_size ?? 0), 0);
   return (
-    <div className={`card overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
-      <div className="flex items-center gap-4 p-4">
+    <div className={`card min-w-0 overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
+      <div className="flex min-w-0 items-center gap-3 p-4 sm:gap-4">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-400">
           <Icon name="FolderOpen" className="h-5 w-5" />
         </span>
@@ -609,7 +610,7 @@ function BatchFolderCard({
               const fOwn = profile?.id === f.uploader_id;
               const fPending = f.status === 'pending';
               return (
-                <div key={f.id} className="flex items-center gap-3 rounded-lg bg-ink-800/40 p-3">
+                <div key={f.id} className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-ink-800/40 p-3 sm:flex-nowrap">
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-ink-700 text-brand-400">
                     <Icon name="File" className="h-4 w-4" />
                   </span>
@@ -656,7 +657,7 @@ function FileActions({
 }) {
   const accessing = accessingFileId === file.id;
   return (
-    <div className="relative flex shrink-0 items-center gap-1">
+    <div className="relative flex w-full shrink-0 items-center justify-end gap-1 border-t border-white/5 pt-2 sm:w-auto sm:border-0 sm:pt-0">
       <button
         onClick={() => onToggleBookmark(file)}
         className={`rounded-lg p-2 transition ${
