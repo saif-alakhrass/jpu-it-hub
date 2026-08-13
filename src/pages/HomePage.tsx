@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -28,6 +28,22 @@ export function HomePage() {
   const [submitting, setSubmitting] = useState(false);
 
   const { data, loading, error, page, setPage, reload } = useSubjectsPaged(search, major);
+  const restoredScroll = useRef(false);
+
+  useEffect(() => {
+    if (loading || restoredScroll.current) return;
+    const rawPosition = sessionStorage.getItem('jpu-it-hub:scroll:/');
+    const target = rawPosition === null ? 0 : Number(rawPosition);
+    if (!Number.isFinite(target) || target <= 0) return;
+
+    restoredScroll.current = true;
+    // This page owns the list height. Restore only after cards are rendered
+    // (from cache or the first response), not while a short loading shell is up.
+    const firstFrame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.scrollTo(0, target));
+    });
+    return () => cancelAnimationFrame(firstFrame);
+  }, [loading, data.items.length]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
