@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { Navbar } from '@/components/Navbar';
 import { Icon } from '@/components/Icon';
+import { ScrollRestoration } from '@/components/ScrollRestoration';
 
 const HomePage = lazy(() => import('@/pages/HomePage').then((module) => ({ default: module.HomePage })));
 const SubjectPage = lazy(() => import('@/pages/SubjectPage').then((module) => ({ default: module.SubjectPage })));
@@ -15,6 +16,7 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => 
 export default function App() {
   return (
     <AuthProvider>
+      <ScrollRestoration />
       <div className="flex min-h-screen flex-col">
         <Navbar />
         <main className="flex-1">
