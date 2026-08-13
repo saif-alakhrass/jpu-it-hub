@@ -39,7 +39,7 @@ interface DisplayGroup {
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
-  const { navigate, route } = useRouter();
+  const { navigate, goBack, route } = useRouter();
   const subjectId = route.params.id ?? '';
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
   const subjectQuery = useSubject(subjectId);
@@ -268,7 +268,7 @@ export function SubjectPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
-      <button onClick={() => navigate('/')} className="mb-5 flex items-center gap-1 text-sm text-slate-400 hover:text-brand-300 transition">
+      <button onClick={goBack} className="mb-5 flex items-center gap-1 text-sm text-slate-400 hover:text-brand-300 transition">
         <Icon name="ChevronLeft" className="h-4 w-4" />
         العودة للمواد
       </button>

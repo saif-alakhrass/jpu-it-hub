@@ -28,5 +28,9 @@ export function useRouter() {
     [navigateRR, scrollKey],
   );
 
-  return { route, navigate };
+  const goBack = useCallback(() => {
+    navigateRR(-1);
+  }, [navigateRR]);
+
+  return { route, navigate, goBack };
 }
