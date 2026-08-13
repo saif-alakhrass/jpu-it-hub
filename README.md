@@ -152,7 +152,7 @@ Do NOT set `SUPABASE_SERVICE_ROLE_KEY` or any R2 secrets in Vercel — those liv
 - **Supabase JWT verified on every Worker request** — upload, download, and delete
 - **File type validated at three layers**: frontend (extension + MIME), Worker (magic bytes), database (extension CHECK constraint)
 - **Path traversal protection**: object keys are validated as `{uuid}/{uuid}.{ext}` format at both Worker and database level
-- **Rate limiting**: 5 files per user per 10-minute window (in-memory + database trigger with advisory lock)
+- **Rate limiting**: 10 files لكل طالب، 20 لكل مستخدم موثوق، و50 لكل مدير ضمن نافذة 10 دقائق (in-memory + database trigger with advisory lock)
 - **Deduplication**: SHA-256 hash prevents identical files within the same subject (partial unique index)
 - **Signed URLs**: short-lived (5 minutes), never stored in the database
 - **Rollback safety**: if DB record save fails after R2 upload, the R2 object is automatically deleted; if R2 delete fails, a cleanup record is queued for retry

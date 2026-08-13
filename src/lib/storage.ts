@@ -4,11 +4,12 @@ import {
   MAX_FILE_SIZE_BYTES,
   ALLOWED_MIME_TYPES,
   ALLOWED_EXTENSIONS,
-  UPLOAD_MAX_PER_WINDOW,
+  UPLOAD_MAX_PER_WINDOW_BY_ROLE,
   UPLOAD_WINDOW_MS,
 } from '@/lib/constants';
+import type { Role } from '@/lib/types';
 
-export { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES, UPLOAD_MAX_PER_WINDOW };
+export { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES, UPLOAD_MAX_PER_WINDOW_BY_ROLE };
 export { ALLOWED_MIME_TYPES, ALLOWED_EXTENSIONS };
 
 const SIGNED_URL_EXPIRY = 3600;
@@ -49,9 +50,13 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
   }
 }
 
-export function canUploadNow(recentTimestamps: number[]): boolean {
+export function canUploadNow(recentTimestamps: number[], maxUploads: number): boolean {
   const cutoff = Date.now() - UPLOAD_WINDOW_MS;
-  return recentTimestamps.filter((t) => t > cutoff).length < UPLOAD_MAX_PER_WINDOW;
+  return recentTimestamps.filter((t) => t > cutoff).length < maxUploads;
+}
+
+export function getUploadLimit(role: Role): number {
+  return UPLOAD_MAX_PER_WINDOW_BY_ROLE[role];
 }
 
 export function formatFileSize(bytes: number): string {

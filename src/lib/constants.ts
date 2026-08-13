@@ -25,7 +25,11 @@ export const ROLE_LABELS: Record<Role, string> = {
   student: 'طالب',
 };
 
-export const UPLOAD_MAX_PER_WINDOW = 5;
+export const UPLOAD_MAX_PER_WINDOW_BY_ROLE: Record<Role, number> = {
+  student: 10,
+  trusted: 20,
+  admin: 50,
+};
 export const UPLOAD_WINDOW_MS = 10 * 60 * 1000;
 
 export const PAGE_SIZE = 20;

@@ -62,7 +62,11 @@ const MAGIC_BYTES: Record<string, number[]> = {
 };
 
 const DEFAULT_MAX_SIZE = 20 * 1024 * 1024; // 20 MB
-const DEFAULT_UPLOAD_MAX = 5;
+const UPLOAD_MAX_BY_ROLE: Record<Profile['role'], number> = {
+  student: 10,
+  trusted: 20,
+  admin: 50,
+};
 const DEFAULT_UPLOAD_WINDOW_MIN = 10;
 const DEFAULT_SIGNED_EXPIRY = 300; // 5 minutes
 
@@ -600,7 +604,7 @@ export default {
 
       // Route: POST /upload-presign — get a presigned PUT URL for uploading
       if (path === '/upload-presign' && request.method === 'POST') {
-        return handleUploadPresign(env, request, userId);
+        return handleUploadPresign(env, request, userId, profile.role);
       }
 
       // Route: PUT /upload-proxy — CORS-safe fallback if a browser cannot
@@ -650,7 +654,7 @@ interface UploadPresignRequest {
   batch_id?: string | null;
 }
 
-async function handleUploadPresign(env: Env, request: Request, userId: string): Promise<Response> {
+async function handleUploadPresign(env: Env, request: Request, userId: string, userRole: Profile['role']): Promise<Response> {
   const body = await request.json() as UploadPresignRequest;
   const { file_name, file_size, file_type, subject_id, tab } = body;
 
@@ -677,10 +681,10 @@ async function handleUploadPresign(env: Env, request: Request, userId: string): 
   }
 
   // Rate limit check
-  const maxUploads = parseInt(env.UPLOAD_MAX_PER_WINDOW || String(DEFAULT_UPLOAD_MAX), 10);
+  const maxUploads = UPLOAD_MAX_BY_ROLE[userRole];
   const windowMs = parseInt(env.UPLOAD_WINDOW_MINUTES || String(DEFAULT_UPLOAD_WINDOW_MIN), 10) * 60 * 1000;
   if (!checkInMemoryRateLimit(userId, maxUploads, windowMs)) {
-    return corsError(env, request, 429, 'Rate limit exceeded: maximum 5 uploads per 10 minutes');
+    return corsError(env, request, 429, `Rate limit exceeded: maximum ${maxUploads} uploads per 10 minutes`);
   }
 
   // Generate a file ID (UUID) for the object key

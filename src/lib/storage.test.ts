@@ -28,9 +28,13 @@ describe('storage helpers', () => {
     expect(formatFileSize(2 * 1024 * 1024)).toBe('2.0 MB');
   });
 
-  it('enforces the client-side upload window', () => {
+  it('enforces role-based client-side upload limits', () => {
     const now = Date.now();
-    expect(canUploadNow([now, now, now, now])).toBe(true);
-    expect(canUploadNow([now, now, now, now, now])).toBe(false);
+    expect(canUploadNow(Array(9).fill(now), 10)).toBe(true);
+    expect(canUploadNow(Array(10).fill(now), 10)).toBe(false);
+    expect(canUploadNow(Array(19).fill(now), 20)).toBe(true);
+    expect(canUploadNow(Array(20).fill(now), 20)).toBe(false);
+    expect(canUploadNow(Array(49).fill(now), 50)).toBe(true);
+    expect(canUploadNow(Array(50).fill(now), 50)).toBe(false);
   });
 });
