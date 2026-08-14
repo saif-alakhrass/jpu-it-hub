@@ -173,11 +173,12 @@ export async function confirmUpload(
 export async function requestDownloadPresign(
   accessToken: string,
   fileId: string,
+  mode: 'preview' | 'download' = 'preview',
 ): Promise<DownloadPresignResult | null> {
   const res = await fetch(`${WORKER_URL}/download-presign`, {
     method: 'POST',
     headers: getAuthHeaders(accessToken),
-    body: JSON.stringify({ file_id: fileId }),
+    body: JSON.stringify({ file_id: fileId, mode }),
   });
   if (!res.ok) return null;
   return res.json() as Promise<DownloadPresignResult>;
