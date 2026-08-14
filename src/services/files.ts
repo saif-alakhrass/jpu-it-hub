@@ -80,15 +80,31 @@ export async function setFileStatus(id: string, status: FileStatus, rejectionRea
   return !error;
 }
 
-export interface PendingFileUpdate { title: string; subject_id: string; tab: FileTab; }
+export async function fetchAdminFilesPaged(page: number, status?: FileStatus): Promise<PaginatedFiles> {
+  const from = page * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+  let query = supabase
+    .from('files')
+    .select(FILE_COLUMNS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(from, to);
+  if (status) query = query.eq('status', status);
+  const { data, error, count } = await query;
+  if (error) failService('fetch admin files', error);
+  return { items: (data ?? []) as unknown as FileRow[], total: count ?? 0, page, totalPages: Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE)) };
+}
 
-export async function updatePendingFile(id: string, changes: PendingFileUpdate): Promise<boolean> {
-  const { error } = await supabase.from('files').update({ ...changes, batch_id: null }).eq('id', id).eq('status', 'pending');
+export interface ManagedFileUpdate { title: string; subject_id: string; tab: FileTab; detachFromBatch?: boolean; }
+
+export async function updateManagedFile(id: string, changes: ManagedFileUpdate): Promise<boolean> {
+  const { detachFromBatch, ...details } = changes;
+  const update = detachFromBatch ? { ...details, batch_id: null, box_name: null } : details;
+  const { error } = await supabase.from('files').update(update).eq('id', id);
   return !error;
 }
 
-export async function updatePendingBatch(id: string, changes: PendingFileUpdate): Promise<boolean> {
-  const { error } = await supabase.rpc('admin_update_pending_batch', {
+export async function updateManagedBatch(id: string, changes: Omit<ManagedFileUpdate, 'detachFromBatch'>): Promise<boolean> {
+  const { error } = await supabase.rpc('admin_update_file_batch', {
     p_batch_id: id,
     p_title: changes.title,
     p_subject_id: changes.subject_id,
@@ -97,8 +113,8 @@ export async function updatePendingBatch(id: string, changes: PendingFileUpdate)
   return !error;
 }
 
-export async function groupPendingFiles(fileIds: string[], title: string): Promise<boolean> {
-  const { error } = await supabase.rpc('admin_group_pending_files', {
+export async function groupManagedFiles(fileIds: string[], title: string): Promise<boolean> {
+  const { error } = await supabase.rpc('admin_group_files', {
     p_file_ids: fileIds,
     p_title: title.trim(),
   });

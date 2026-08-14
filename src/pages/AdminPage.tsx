@@ -3,7 +3,7 @@ import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
-import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, TABS } from '@/lib/types';
+import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, type FileStatus, TABS } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
 import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
@@ -11,13 +11,14 @@ import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
   fetchRejectedFilesPaged,
+  fetchAdminFilesPaged,
   fetchAdminStats,
   deleteFile,
   removeStorageObjects,
   setFileStatus,
-  updatePendingFile,
-  updatePendingBatch,
-  groupPendingFiles,
+  updateManagedFile,
+  updateManagedBatch,
+  groupManagedFiles,
   moderatePendingBatch,
   type AdminStats,
 } from '@/services/files';
@@ -26,9 +27,10 @@ import { fetchProfiles, updateUserRole } from '@/services/auth';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { AdminOverview } from '@/components/admin/AdminOverview';
 import { AdminFileQueue } from '@/components/admin/AdminFileQueue';
+import { AdminFileLibrary } from '@/components/admin/AdminFileLibrary';
 import { AdminUsers } from '@/components/admin/AdminUsers';
 
-type AdminTab = 'overview' | 'pending' | 'subjects' | 'users';
+type AdminTab = 'overview' | 'pending' | 'files' | 'subjects' | 'users';
 
 export function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth();
@@ -38,6 +40,10 @@ export function AdminPage() {
   const [rejectedFiles, setRejectedFiles] = useState<FileRow[]>([]);
   const [rejectedTotal, setRejectedTotal] = useState(0);
   const [rejectedPage, setRejectedPage] = useState(0);
+  const [managedFiles, setManagedFiles] = useState<FileRow[]>([]);
+  const [managedTotal, setManagedTotal] = useState(0);
+  const [managedPage, setManagedPage] = useState(0);
+  const [managedStatus, setManagedStatus] = useState<FileStatus | 'all'>('all');
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Profile[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -49,10 +55,12 @@ export function AdminPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
-  const [editPending, setEditPending] = useState<FileRow | null>(null);
+  const [editFile, setEditFile] = useState<FileRow | null>(null);
   const [editBatch, setEditBatch] = useState<NonNullable<FileRow['batch']> | null>(null);
   const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
   const [groupPending, setGroupPending] = useState<FileRow[] | null>(null);
+  const [selectedManagedIds, setSelectedManagedIds] = useState<Set<string>>(new Set());
+  const [groupManaged, setGroupManaged] = useState<FileRow[] | null>(null);
   const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
 
@@ -67,6 +75,12 @@ export function AdminPage() {
     setRejectedFiles(result.items);
     setRejectedTotal(result.total);
   }, [rejectedPage]);
+
+  const loadManagedFiles = useCallback(async () => {
+    const result = await fetchAdminFilesPaged(managedPage, managedStatus === 'all' ? undefined : managedStatus);
+    setManagedFiles(result.items);
+    setManagedTotal(result.total);
+  }, [managedPage, managedStatus]);
 
   const loadSubjects = useCallback(async () => {
     setSubjects(await fetchAllSubjects());
@@ -83,13 +97,13 @@ export function AdminPage() {
   useEffect(() => {
     if (!isAdmin) return;
     setLoading(true);
-    Promise.all([loadPending(), loadRejected(), loadSubjects(), loadUsers(), loadStats()])
+    Promise.all([loadPending(), loadRejected(), loadManagedFiles(), loadSubjects(), loadUsers(), loadStats()])
       .catch((error) => setToast({
         message: getUserErrorMessage(error, 'تعذر تحميل بيانات لوحة الإدارة.'),
         type: 'error',
       }))
       .finally(() => setLoading(false));
-  }, [isAdmin, loadPending, loadRejected, loadSubjects, loadUsers, loadStats]);
+  }, [isAdmin, loadPending, loadRejected, loadManagedFiles, loadSubjects, loadUsers, loadStats]);
 
   async function handleApprove(id: string) {
     setBusyId(id);
@@ -130,36 +144,48 @@ export function AdminPage() {
     setBusyId(null);
   }
 
-  async function handleEditPending(file: FileRow, changes: { title: string; subject_id: string; tab: FileTab }) {
+  async function handleEditFile(file: FileRow, changes: { title: string; subject_id: string; tab: FileTab; detachFromBatch?: boolean }) {
     setBusyId(file.id);
-    const ok = await updatePendingFile(file.id, changes);
+    const ok = await updateManagedFile(file.id, changes);
     setBusyId(null);
     if (!ok) { setToast({ message: 'فشل حفظ تعديل الملف', type: 'error' }); return; }
-    setEditPending(null);
-    await loadPending();
-    setToast({ message: 'تم تعديل اسم الملف أو مكانه، ووصل إشعار للرافع', type: 'success' });
+    setEditFile(null);
+    await Promise.all([loadPending(), loadManagedFiles()]);
+    setToast({ message: changes.detachFromBatch ? 'تم نقل الملف خارج المجلد وتحديث مكانه.' : 'تم حفظ تعديل الملف مع إبقائه في مجلده.', type: 'success' });
   }
 
   async function handleEditBatch(batch: NonNullable<FileRow['batch']>, changes: { title: string; subject_id: string; tab: FileTab }) {
     setBusyId(batch.id);
-    const ok = await updatePendingBatch(batch.id, changes);
+    const ok = await updateManagedBatch(batch.id, changes);
     setBusyId(null);
     if (!ok) { setToast({ message: 'فشل حفظ تعديل المجلد', type: 'error' }); return; }
     setEditBatch(null);
-    await loadPending();
-    setToast({ message: 'تم تعديل المجلد وكل ملفاته المعلّقة', type: 'success' });
+    await Promise.all([loadPending(), loadManagedFiles()]);
+    setToast({ message: 'تم تعديل المجلد وكل ملفاته مع الحفاظ على تنظيمه.', type: 'success' });
   }
 
   async function handleGroupPending(title: string) {
     if (!groupPending) return;
     setBusyId('group-pending');
-    const ok = await groupPendingFiles(groupPending.map((file) => file.id), title);
+    const ok = await groupManagedFiles(groupPending.map((file) => file.id), title);
     setBusyId(null);
     if (!ok) { setToast({ message: 'تعذر تجميع الملفات. اختر ملفات معلقة من المادة والقسم نفسيهما.', type: 'error' }); return; }
     setGroupPending(null);
     setSelectedPendingIds(new Set());
-    await loadPending();
+    await Promise.all([loadPending(), loadManagedFiles()]);
     setToast({ message: 'تم تجميع الملفات في مجلد واحد للمراجعة', type: 'success' });
+  }
+
+  async function handleGroupManaged(title: string) {
+    if (!groupManaged) return;
+    setBusyId('group-managed');
+    const ok = await groupManagedFiles(groupManaged.map((file) => file.id), title);
+    setBusyId(null);
+    if (!ok) { setToast({ message: 'تعذر تجميع الملفات. اختر ملفات منفصلة لها نفس المادة والقسم والحالة.', type: 'error' }); return; }
+    setGroupManaged(null);
+    setSelectedManagedIds(new Set());
+    await loadManagedFiles();
+    setToast({ message: 'تم إنشاء المجلد مع الحفاظ على حالة الملفات الحالية.', type: 'success' });
   }
 
   async function handleRestore(id: string) {
@@ -284,6 +310,9 @@ export function AdminPage() {
         <button onClick={() => setTab('pending')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'pending' ? 'border-accent-500 text-accent-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="Clock" className="h-4 w-4" /> قيد المراجعة ({pendingTotal})
         </button>
+        <button onClick={() => setTab('files')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'files' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+          <Icon name="FolderCog" className="h-4 w-4" /> إدارة الملفات ({stats?.totalFiles ?? 0})
+        </button>
         <button onClick={() => setTab('subjects')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'subjects' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="BookOpen" className="h-4 w-4" /> المواد ({subjects.length})
         </button>
@@ -305,7 +334,7 @@ export function AdminPage() {
           approve={handleApprove}
           approveBatch={handleApproveBatch}
           requestReject={(f) => { setRejectionReason(''); setConfirmReject(f); }}
-          requestEdit={setEditPending}
+          requestEdit={setEditFile}
           requestEditBatch={setEditBatch}
           selectedIds={selectedPendingIds}
           toggleSelected={(id) => setSelectedPendingIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
@@ -318,6 +347,22 @@ export function AdminPage() {
           setRejectedPage={setRejectedPage}
           restore={handleRestore}
           requestDeleteRejected={setConfirmDeleteRejected}
+        />
+      ) : tab === 'files' ? (
+        <AdminFileLibrary
+          files={managedFiles}
+          total={managedTotal}
+          page={managedPage}
+          setPage={setManagedPage}
+          status={managedStatus}
+          setStatus={setManagedStatus}
+          selectedIds={selectedManagedIds}
+          toggleSelected={(id) => setSelectedManagedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
+          requestGroupSelected={() => setGroupManaged(managedFiles.filter((file) => selectedManagedIds.has(file.id)))}
+          openPreview={openPreview}
+          requestEdit={setEditFile}
+          requestEditBatch={setEditBatch}
+          busyId={busyId}
         />
       ) : tab === 'subjects' ? (
         <SubjectsTab subjects={subjects} setToast={setToast} onUpdated={loadSubjects} />
@@ -355,8 +400,8 @@ export function AdminPage() {
               <button onClick={() => { setRejectionReason(''); setConfirmReject(preview); }} className="btn-danger" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} رفض وحذف
               </button>
-              <button onClick={() => handleApprove(preview.id)} className="btn-primary" disabled={busyId === preview.id}>
-                {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة ونشر
+              <button onClick={() => preview.batch ? handleApproveBatch(preview.batch.id) : handleApprove(preview.id)} className="btn-primary" disabled={busyId === preview.id || busyId === preview.batch?.id}>
+                {busyId === preview.id || busyId === preview.batch?.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} {preview.batch ? 'موافقة على المجلد' : 'موافقة ونشر'}
               </button>
             </div>
           </div>
@@ -389,11 +434,12 @@ export function AdminPage() {
         )}
       </Modal>
 
-      {editPending && <EditPendingFileModal file={editPending} subjects={subjects} saving={busyId === editPending.id} onClose={() => setEditPending(null)} onSave={(changes) => void handleEditPending(editPending, changes)} />}
+      {editFile && <EditFileModal file={editFile} subjects={subjects} saving={busyId === editFile.id} onClose={() => setEditFile(null)} onSave={(changes) => void handleEditFile(editFile, changes)} />}
 
       {editBatch && <EditPendingBatchModal batch={editBatch} subjects={subjects} saving={busyId === editBatch.id} onClose={() => setEditBatch(null)} onSave={(changes) => void handleEditBatch(editBatch, changes)} />}
 
       {groupPending && <GroupPendingFilesModal files={groupPending} saving={busyId === 'group-pending'} onClose={() => setGroupPending(null)} onSave={(title) => void handleGroupPending(title)} />}
+      {groupManaged && <GroupPendingFilesModal files={groupManaged} saving={busyId === 'group-managed'} onClose={() => setGroupManaged(null)} onSave={(title) => void handleGroupManaged(title)} />}
 
       <Modal open={!!confirmDeleteRejected} onClose={() => setConfirmDeleteRejected(null)} title="حذف ملف مرفوض نهائيًا">
         {confirmDeleteRejected && (
@@ -447,32 +493,34 @@ const ROLE_LABELS_AR: Record<Role, string> = { admin: 'مدير', trusted: 'مو
 type ToastState = { message: string; type: 'success' | 'error' } | null;
 type SetToast = (t: ToastState) => void;
 
-function EditPendingFileModal({ file, subjects, saving, onClose, onSave }: {
+function EditFileModal({ file, subjects, saving, onClose, onSave }: {
   file: FileRow;
   subjects: Subject[];
   saving: boolean;
   onClose: () => void;
-  onSave: (changes: { title: string; subject_id: string; tab: FileTab }) => void;
+  onSave: (changes: { title: string; subject_id: string; tab: FileTab; detachFromBatch?: boolean }) => void;
 }) {
   const [title, setTitle] = useState(file.title);
   const [subjectId, setSubjectId] = useState(file.subject_id);
   const [tab, setTab] = useState<FileTab>(file.tab);
+  const [detachFromBatch, setDetachFromBatch] = useState(false);
   const changesLocation = subjectId !== file.subject_id || tab !== file.tab;
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const trimmedTitle = title.trim();
-    if (trimmedTitle.length >= 2) onSave({ title: trimmedTitle, subject_id: subjectId, tab });
+    if (trimmedTitle.length >= 2) onSave({ title: trimmedTitle, subject_id: subjectId, tab, detachFromBatch });
   }
 
-  return <Modal open onClose={onClose} title="تنظيم الملف قبل المراجعة">
+  return <Modal open onClose={onClose} title="تنظيم الملف">
     <form onSubmit={submit} className="space-y-4">
-      <p className="text-sm leading-6 text-slate-400">يمكنك تصحيح الاسم أو نقل الملف للقسم والمادة المناسبين بدل رفضه. سيصل للرافع إشعار بالتعديل.</p>
+      <p className="text-sm leading-6 text-slate-400">صحّح الاسم أو مكان الملف. تعديل الاسم وحده لا يغيّر المجلد الذي ينتمي إليه الملف.</p>
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">اسم الملف الظاهر</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="input" minLength={2} maxLength={180} required autoFocus /></div>
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">المادة</label><select value={subjectId} onChange={(event) => setSubjectId(event.target.value)} className="input" required>{subjects.map((subject) => <option className="bg-ink-900" key={subject.id} value={subject.id}>{subject.name}{subject.code ? ` (${subject.code})` : ''}</option>)}</select></div>
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">القسم</label><select value={tab} onChange={(event) => setTab(event.target.value as FileTab)} className="input">{TABS.map((option) => <option className="bg-ink-900" key={option.key} value={option.key}>{option.label}</option>)}</select></div>
-      {changesLocation && file.batch_id && <p className="rounded-xl border border-accent-500/25 bg-accent-500/10 px-3 py-2 text-xs leading-5 text-accent-300">نقل هذا الملف سيخرجه من مجموعته الحالية حتى لا تصبح المجموعة موزعة بين مواد أو أقسام مختلفة.</p>}
-      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ التعديل</button></div>
+      {file.batch_id && changesLocation && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-accent-500/25 bg-accent-500/10 p-3 text-sm text-accent-200"><input type="checkbox" checked={detachFromBatch} onChange={(event) => setDetachFromBatch(event.target.checked)} className="mt-1 h-4 w-4 accent-brand-500" /><span><strong>انقل الملف بشكل مستقل خارج المجلد</strong><br /><span className="text-xs">لتغيير مكان المجلد كله، أغلق هذه النافذة واختر «تعديل المجلد».</span></span></label>}
+      {file.batch_id && changesLocation && !detachFromBatch && <p className="text-xs text-accent-300">اختر نقل الملف بشكل مستقل أو عدّل المجلد كاملًا. لا يمكن وضع أعضاء المجلد في أماكن مختلفة بالخطأ.</p>}
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2 || (!!file.batch_id && changesLocation && !detachFromBatch)}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ التعديل</button></div>
     </form>
   </Modal>;
 }
