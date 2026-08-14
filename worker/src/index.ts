@@ -391,6 +391,14 @@ function canonicalUri(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/');
 }
 
+// AWS Signature V4 requires RFC 3986 encoding. encodeURIComponent leaves
+// apostrophes unescaped, while R2 canonicalizes them as %27.
+function awsQueryEncode(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
 async function createPresignedUrl(
   env: Env,
   objectKey: string,
@@ -422,7 +430,7 @@ async function createPresignedUrl(
     `X-Amz-SignedHeaders=host`,
   ];
   if (responseContentDisposition) {
-    queryParts.push(`response-content-disposition=${encodeURIComponent(responseContentDisposition)}`);
+    queryParts.push(`response-content-disposition=${awsQueryEncode(responseContentDisposition)}`);
   }
   const canonicalQueryString = queryParts.sort().join('&');
 
@@ -980,5 +988,6 @@ export {
   createPresignedUrl,
   getCorsHeaders,
   downloadContentDisposition,
+  awsQueryEncode,
 };
 export type { FileRecord, Profile, JwtPayload };

@@ -12,6 +12,7 @@ import {
   extractToken,
   getCorsHeaders,
   downloadContentDisposition,
+  awsQueryEncode,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
@@ -216,6 +217,10 @@ describe('upload validation', () => {
 });
 
 describe('download access', () => {
+  it('uses AWS-compatible encoding for Content-Disposition', () => {
+    expect(awsQueryEncode("attachment; filename*=UTF-8''lecture.pptx")).toContain('UTF-8%27%27lecture.pptx');
+  });
+
   it('preserves the stored upload name in the download response', () => {
     const value = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pptx' }));
     expect(value).toContain('filename="Lecture 1.pptx"');
