@@ -12,6 +12,7 @@ import {
   fetchPendingFilesPaged,
   fetchRejectedFilesPaged,
   fetchAdminFilesPaged,
+  fetchFilesForBatch,
   fetchAdminStats,
   deleteFile,
   removeStorageObjects,
@@ -362,6 +363,7 @@ export function AdminPage() {
           openPreview={openPreview}
           requestEdit={setEditFile}
           requestEditBatch={setEditBatch}
+          loadBatchFiles={fetchFilesForBatch}
           busyId={busyId}
         />
       ) : tab === 'subjects' ? (

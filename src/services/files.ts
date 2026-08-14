@@ -94,6 +94,16 @@ export async function fetchAdminFilesPaged(page: number, status?: FileStatus): P
   return { items: (data ?? []) as unknown as FileRow[], total: count ?? 0, page, totalPages: Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE)) };
 }
 
+export async function fetchFilesForBatch(batchId: string): Promise<FileRow[]> {
+  const { data, error } = await supabase
+    .from('files')
+    .select(FILE_COLUMNS)
+    .eq('batch_id', batchId)
+    .order('created_at', { ascending: false });
+  if (error) failService('fetch files for batch', error);
+  return (data ?? []) as unknown as FileRow[];
+}
+
 export interface ManagedFileUpdate { title: string; subject_id: string; tab: FileTab; detachFromBatch?: boolean; }
 
 export async function updateManagedFile(id: string, changes: ManagedFileUpdate): Promise<boolean> {
