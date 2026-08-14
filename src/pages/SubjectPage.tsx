@@ -92,14 +92,15 @@ export function SubjectPage() {
     })();
   }, [session, files]);
 
-  // The subject page is a content surface, not a moderation queue. RLS allows
-  // administrators to read rejected files, but they must not look published
-  // here. Rejected files stay in the admin queue; a student's own pending
-  // upload remains visible only to that student.
+  // The subject page is a content surface, not a moderation queue. Public
+  // visitors see only approved files. Administrators can additionally inspect
+  // rejected files here, clearly labelled, while a student sees only their
+  // own pending upload.
   const contentFiles = useMemo(() => files.filter((file) => (
     file.status === 'approved'
+    || (isAdmin && file.status === 'rejected')
     || (file.status === 'pending' && file.uploader_id === profile?.id)
-  )), [files, profile?.id]);
+  )), [files, isAdmin, profile?.id]);
 
   // Build display groups: batches first (with their files), then standalone files.
   // Files whose batch is invisible (hidden by RLS) fall back to standalone cards.
@@ -563,8 +564,9 @@ function FileRowCard({
 }: ProfileCardProps & { file: FileRow; onDelete: () => void }) {
   const isOwn = profile?.id === file.uploader_id;
   const pending = file.status === 'pending';
+  const rejected = file.status === 'rejected';
   return (
-    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''}`}>
+    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''} ${rejected ? 'border-danger-500/30' : ''}`}>
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink-700 text-brand-400">
         <Icon name="File" className="h-5 w-5" />
       </span>
@@ -575,6 +577,12 @@ function FileRowCard({
             <span className="badge bg-accent-500/15 text-accent-400 border border-accent-500/30">
               <Icon name="Clock" className="h-3 w-3" />
               قيد المراجعة
+            </span>
+          )}
+          {rejected && (
+            <span className="badge border border-danger-500/30 bg-danger-500/10 text-danger-300">
+              <Icon name="FileWarning" className="h-3 w-3" />
+              مرفوض
             </span>
           )}
         </div>
