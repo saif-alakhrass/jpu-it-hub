@@ -357,8 +357,16 @@ CREATE POLICY "subjects_select_public" ON public.subjects
   FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "subjects_insert_auth" ON public.subjects;
-CREATE POLICY "subjects_insert_auth" ON public.subjects
-  FOR INSERT TO authenticated WITH CHECK (auth.uid() = created_by);
+DROP POLICY IF EXISTS "subjects_insert_trusted_or_admin" ON public.subjects;
+CREATE POLICY "subjects_insert_trusted_or_admin" ON public.subjects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    auth.uid() = created_by
+    AND EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE id = auth.uid() AND role IN ('trusted', 'admin')
+    )
+  );
 
 DROP POLICY IF EXISTS "subjects_update_owner_or_admin" ON public.subjects;
 CREATE POLICY "subjects_update_owner_or_admin" ON public.subjects

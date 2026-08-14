@@ -36,7 +36,7 @@ function readHomeView(): HomeViewState {
 }
 
 export function HomePage() {
-  const { session } = useAuth();
+  const { session, isTrusted } = useAuth();
   const { navigate } = useRouter();
   const [initialView] = useState(readHomeView);
   const [search, setSearch] = useState(initialView.search);
@@ -75,6 +75,10 @@ export function HomePage() {
     e.preventDefault();
     if (!session) {
       navigate('/auth');
+      return;
+    }
+    if (!isTrusted) {
+      setToast({ message: 'إضافة المواد متاحة للحسابات الموثوقة والمدير فقط.', type: 'error' });
       return;
     }
     setSubmitting(true);
@@ -130,10 +134,12 @@ export function HomePage() {
             </button>
           ))}
         </div>
-        <button onClick={() => session ? setCreateOpen(true) : navigate('/auth')} className="btn-primary shrink-0">
-          <Icon name="Plus" className="h-4 w-4" />
-          مادة جديدة
-        </button>
+        {isTrusted && (
+          <button onClick={() => session ? setCreateOpen(true) : navigate('/auth')} className="btn-primary shrink-0">
+            <Icon name="Plus" className="h-4 w-4" />
+            مادة جديدة
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -150,9 +156,9 @@ export function HomePage() {
         <EmptyState
           icon="FolderOpen"
           title="لا توجد مواد مطابقة"
-          message="لم نجد مواد تطابق بحثك. كن أول من يضيف مادة في هذا التخصص!"
-          ctaLabel={session ? "إضافة مادة جديدة" : undefined}
-          onCta={session ? () => setCreateOpen(true) : undefined}
+          message={isTrusted ? "لم نجد مواد تطابق بحثك. يمكنك إضافة مادة في هذا التخصص." : "لم نجد مواد تطابق بحثك."}
+          ctaLabel={isTrusted ? "إضافة مادة جديدة" : undefined}
+          onCta={isTrusted ? () => setCreateOpen(true) : undefined}
         />
       ) : (
         <>
