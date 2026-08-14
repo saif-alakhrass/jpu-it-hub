@@ -45,16 +45,16 @@ export function Navbar() {
   })();
 
   const avatar = (
-    <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-sm font-extrabold text-ink-950 transition hover:ring-2 hover:ring-brand-400/50">
+    <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand-100 text-sm font-extrabold text-brand-700 transition hover:ring-2 hover:ring-brand-200">
       {initials(profile?.full_name)}
     </div>
   );
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/5 bg-ink-950/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-ink-600 bg-white/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <button onClick={() => navigate('/')} className="flex items-center gap-2.5 transition hover:opacity-90">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-600 text-white">
             <Icon name="GraduationCap" className="h-5 w-5" />
           </span>
           <div className="text-right leading-tight">
@@ -63,14 +63,14 @@ export function Navbar() {
           </div>
         </button>
         <nav className="hidden items-center gap-2 md:flex">
-          <button onClick={() => navigate('/')} className={`btn-ghost ${route.path === '/' ? 'bg-ink-700 text-brand-300' : ''}`}>
+          <button onClick={() => navigate('/')} className={`btn-ghost ${route.path === '/' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Home" className="h-4 w-4" /> الرئيسية
           </button>
-          <button onClick={() => navigate('/about')} className={`btn-ghost ${route.path === '/about' ? 'bg-ink-700 text-brand-300' : ''}`}>
+          <button onClick={() => navigate('/about')} className={`btn-ghost ${route.path === '/about' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Info" className="h-4 w-4" /> من نحن
           </button>
           {isAdmin && (
-            <button onClick={() => navigate('/admin')} className={`btn-ghost ${route.path === '/admin' ? 'bg-ink-700 text-accent-400' : ''}`}>
+            <button onClick={() => navigate('/admin')} className={`btn-ghost ${route.path === '/admin' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
               <Icon name="ShieldCheck" className="h-4 w-4" /> لوحة الإدارة
             </button>
           )}

@@ -132,41 +132,41 @@ export function AboutPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <section className="relative overflow-hidden card mb-14 p-8 text-center md:p-16">
-        <div className="absolute -left-16 -top-16 h-56 w-56 rounded-full bg-brand-500/20 blur-3xl" />
-        <div className="absolute -right-16 -bottom-16 h-56 w-56 rounded-full bg-accent-500/10 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(40rem_20rem_at_50%_-20%,rgba(52,189,130,0.12),transparent_70%)]" />
+        <div className="absolute -left-16 -top-16 h-56 w-56 rounded-full bg-sky-400/20 blur-3xl" />
+        <div className="absolute -right-16 -bottom-16 h-56 w-56 rounded-full bg-brand-500/15 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(40rem_20rem_at_50%_-20%,rgba(59,130,246,0.14),transparent_70%)]" />
         <div className="relative">
-          <Reveal y={20}><span className="badge mb-5 border border-brand-500/30 bg-brand-500/15 text-brand-300"><Icon name="Sparkles" className="h-3.5 w-3.5" /> منصة الطلاب الذكية</span></Reveal>
+          <Reveal y={20}><span className="badge mb-5 border border-brand-500/30 bg-brand-500/15 text-brand-300"><Icon name="Sparkles" className="h-3.5 w-3.5" /> عن الموقع</span></Reveal>
           <Reveal delay={80} y={24}><h1 className="text-3xl font-extrabold leading-tight text-slate-100 md:text-5xl">عن منصة <span className="text-brand-400">JPU-IT Hub</span></h1></Reveal>
-          <Reveal delay={160} y={20}><p className="mx-auto mt-4 max-w-2xl text-slate-400 md:text-lg">نُمكّن طلاب كلية تكنولوجيا المعلومات في جامعة جرش من خلال تجميع الموارد الأكاديمية في مكان واحد — ملخصات، امتحانات سابقة، سلايدات، وكتب — يرفعها الطلاب أنفسهم ويراجعها المشرفون لضمان جودة محتوى يعود بالنفع على الجميع.</p></Reveal>
-          <Reveal delay={240} y={16}><div className="mt-7 flex flex-wrap items-center justify-center gap-3"><button onClick={() => navigate('/')} className="btn-primary"><Icon name="BookOpen" className="h-4 w-4" /> تصفّح المواد</button><a href="#story" className="btn-ghost"><Icon name="ArrowLeft" className="h-4 w-4" /> قصتنا</a></div></Reveal>
+          <Reveal delay={160} y={20}><p className="mx-auto mt-4 max-w-2xl text-slate-400 md:text-lg">هذا الموقع يجمع الملفات الدراسية التي يشاركها طلاب كلية تكنولوجيا المعلومات في جامعة جرش. بدل البحث في مجموعات متعددة، تجد الملفات مرتبة داخل المادة.</p></Reveal>
+          <Reveal delay={240} y={16}><div className="mt-7 flex flex-wrap items-center justify-center gap-3"><button onClick={() => navigate('/')} className="btn-primary"><Icon name="BookOpen" className="h-4 w-4" /> تصفّح المواد</button><a href="#story" className="btn-ghost"><Icon name="ArrowLeft" className="h-4 w-4" /> كيف يعمل؟</a></div></Reveal>
         </div>
       </section>
       <section className="mb-16 grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard icon="BookOpen" value={80} label="مادة دراسية" delay={0} />
         <StatCard icon="FileText" value={4} label="أقسام لكل مادة" delay={100} />
         <StatCard icon="Users" value={2} label="تخصصين مدعومين" delay={200} />
-        <StatCard icon="ShieldCheck" value={100} suffix="%" label="محتوى مُراجَع" delay={300} />
+        <StatCard icon="ShieldCheck" value={100} suffix="%" label="محتوى مُراجع" delay={300} />
       </section>
       <section id="story" className="mb-16 scroll-mt-24">
-        <Reveal className="mb-10 text-center"><span className="badge mb-3 border border-white/5 bg-ink-800 text-brand-300"><Icon name="Quote" className="h-3.5 w-3.5" /> قصتنا</span><h2 className="text-2xl font-extrabold text-slate-100 md:text-4xl">من أين بدأنا؟</h2></Reveal>
-        <Reveal delay={80} y={28}><div className="card mx-auto max-w-3xl p-7 text-center md:p-10"><p className="text-base leading-loose text-slate-300 md:text-lg">انطلقت فكرة المنصة من حاجة بسيطة يعيشها كل طالب: البحث عن ملخص قبل الامتحان، أو سلايدات أستاذ معيّن، أو نموذج امتحان سابق — في ظلّ تشتّت المصادر بين مجموعات الواتساب ومحركات البحث. فكان <span className="font-bold text-brand-400">JPU-IT Hub</span>: مكانٌ واحد منظّم، يبنيه الطلاب بأنفسهم، وتُراجَع فيه الملفات قبل نشرها ليبقى المحتوى موثوقًا ونظيفًا. اليوم نغطّي تخصصي علم الحاسوب والأمن السيبراني، ونطمح لأكثر.</p></div></Reveal>
+        <Reveal className="mb-10 text-center"><span className="badge mb-3 border border-white/5 bg-ink-800 text-brand-300"><Icon name="Quote" className="h-3.5 w-3.5" /> طريقة الاستخدام</span><h2 className="text-2xl font-extrabold text-slate-100 md:text-4xl">أقل بحث، وملفات أوضح</h2></Reveal>
+        <Reveal delay={80} y={28}><div className="card mx-auto max-w-3xl p-7 text-center md:p-10"><p className="text-base leading-loose text-slate-300 md:text-lg">اختر التخصص ثم المادة. ستجد الملفات مقسمة إلى ملخصات، امتحانات، صور وسلايدات. يستطيع الطالب رفع ملف، ويظهر للمدير للمراجعة قبل أن يصبح متاحًا للجميع.</p></div></Reveal>
       </section>
       <section className="mb-16">
-        <Reveal className="mb-10 text-center"><span className="badge mb-3 border border-white/5 bg-ink-800 text-accent-400"><Icon name="Target" className="h-3.5 w-3.5" /> ركائزنا</span><h2 className="text-2xl font-extrabold text-slate-100 md:text-4xl">على ماذا نبني؟</h2></Reveal>
+        <Reveal className="mb-10 text-center"><span className="badge mb-3 border border-white/5 bg-ink-800 text-accent-400"><Icon name="Target" className="h-3.5 w-3.5" /> ما الموجود هنا</span><h2 className="text-2xl font-extrabold text-slate-100 md:text-4xl">أساسيات الموقع</h2></Reveal>
         <div className="grid gap-5 md:grid-cols-3">
-          <PillarCard icon="Telescope" title="رؤيتنا" accent="brand" delay={0}>أن نكون المرجع الأوّل لطلاب تكنولوجيا المعلومات في جامعة جرش — منصّة يثق بها الطالب ويجد فيها كل ما يحتاجه بضغطة زر، فيوفّر وقته ويركّز على تعلّمه.</PillarCard>
-          <PillarCard icon="Rocket" title="رسالتنا" accent="accent" delay={120}>تسهيل الوصول إلى الموارد الأكاديمية وتنظيمها، وتمكين الطلاب من المشاركة في بناء قاعدة معرفة جماعية مراجَعة، تخدم الجيل الحالي والأجيال القادمة من الطلاب.</PillarCard>
-          <PillarCard icon="Gift" title="ما نقدّمه للطلاب" accent="brand" delay={240}>أربعة أقسام لكل مادة: تلاخيص وشروحات، امتحانات وسنوات سابقة، صور ومسودات، وسلايدات وكتب — مع نظام رفع بسيط ومراجعة تضمن جودة المحتوى المنشور.</PillarCard>
+          <PillarCard icon="FolderOpen" title="ملفات مرتبة" accent="brand" delay={0}>لكل مادة أقسام واضحة حتى لا تختلط الملخصات بالامتحانات أو السلايدات.</PillarCard>
+          <PillarCard icon="Upload" title="مشاركة من الطلاب" accent="accent" delay={120}>يمكن للطلاب إضافة ملفاتهم، مع ظهور حالة الرفع بوضوح.</PillarCard>
+          <PillarCard icon="ShieldCheck" title="مراجعة قبل النشر" accent="brand" delay={240}>الملفات الجديدة تنتظر مراجعة المدير قبل أن تظهر في صفحة المادة.</PillarCard>
         </div>
       </section>
       <section className="mb-16">
-        <Reveal className="mb-8 text-center"><h2 className="text-2xl font-extrabold text-slate-100 md:text-3xl">مزايا تجدها فقط هنا</h2></Reveal>
+        <Reveal className="mb-8 text-center"><h2 className="text-2xl font-extrabold text-slate-100 md:text-3xl">أشياء تساعدك في الاستخدام</h2></Reveal>
         <div className="grid gap-5 sm:grid-cols-2">
           <FeatureRow icon="Layers" title="تنظيم حسب التخصص والمادة" desc="تصفّح حسب علم الحاسوب أو الأمن السيبراني، ثم ادخل المادة لتجد أقسامها الأربعة جاهزة." delay={0} />
-          <FeatureRow icon="ShieldCheck" title="محتوى مُراجَع وموثوق" desc="كل ملف يمرّ على فريق المراجعة قبل نشره، فلا تجد إلا محتوى مفيدًا ونظيفًا." delay={80} />
-          <FeatureRow icon="Users" title="مجتمع طلابي" desc="الطلاب هم من يبنون المنصة — ارفع ملخصك وساعد غيرك، واكسب ثقة المشرفين." delay={160} />
-          <FeatureRow icon="Zap" title="وصول سريع وبسيط" desc="بحث فوري، تصفية بالتخصص، ومعاينة مباشرة للملفات دون تحميل ما لا تحتاجه." delay={240} />
+          <FeatureRow icon="ShieldCheck" title="مراجعة الملفات" desc="الملف المرفوع لا ينشر مباشرة؛ يراجع قبل إضافته للقائمة العامة." delay={80} />
+          <FeatureRow icon="Users" title="محتوى من الطلاب" desc="إذا عندك ملف مفيد للمادة، يمكنك رفعه ليستخدمه زملاؤك بعد المراجعة." delay={160} />
+          <FeatureRow icon="Search" title="بحث وتصفية" desc="ابحث عن المادة أو بدّل التخصص للوصول إلى الملفات بسرعة." delay={240} />
         </div>
       </section>
       <section className="mb-14">
@@ -192,11 +192,11 @@ export function AboutPage() {
       )}
       <Reveal y={24}>
         <div className="card relative overflow-hidden p-8 text-center md:p-12">
-          <div className="absolute inset-0 bg-[radial-gradient(30rem_16rem_at_50%_50%,rgba(52,189,130,0.12),transparent_70%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(30rem_16rem_at_50%_50%,rgba(59,130,246,0.13),transparent_70%)]" />
           <div className="relative">
-            <h2 className="text-2xl font-extrabold text-slate-100 md:text-3xl">جاهز للبدء؟</h2>
-            <p className="mx-auto mt-2 max-w-lg text-slate-400">تصفّح المواد، ارفع ملخصك، وكن جزءًا من مجتمع يبني قاعدة المعرفة لطلاب الجامعة.</p>
-            <button onClick={() => navigate('/')} className="btn-primary mt-6"><Icon name="BookOpen" className="h-4 w-4" /> ابدأ التصفّح الآن</button>
+            <h2 className="text-2xl font-extrabold text-slate-100 md:text-3xl">ابدأ من المادة التي تدرسها</h2>
+            <p className="mx-auto mt-2 max-w-lg text-slate-400">تصفح المواد أولًا، وإذا وجدت ملفًا ناقصًا يمكنك إضافته لاحقًا.</p>
+            <button onClick={() => navigate('/')} className="btn-primary mt-6"><Icon name="BookOpen" className="h-4 w-4" /> عرض المواد</button>
           </div>
         </div>
       </Reveal>

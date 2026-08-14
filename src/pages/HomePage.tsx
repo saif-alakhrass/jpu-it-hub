@@ -92,20 +92,14 @@ export function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <section className="relative overflow-hidden card mb-10 p-8 md:p-12">
-        <div className="absolute -left-10 -top-10 h-40 w-40 rounded-full bg-brand-500/20 blur-3xl" />
-        <div className="absolute -right-10 -bottom-10 h-40 w-40 rounded-full bg-accent-500/10 blur-3xl" />
-        <div className="relative">
-          <span className="badge bg-brand-500/15 text-brand-300 border border-brand-500/30 mb-4">
-            <Icon name="Sparkles" className="h-3.5 w-3.5" />
-            منصة الطلاب الذكية
-          </span>
-          <h1 className="text-3xl font-extrabold text-slate-100 md:text-5xl leading-tight">
-            مركز <span className="text-brand-400">JPU-IT</span> للموارد الأكاديمية
+      <section className="mb-8 border-b border-ink-600 pb-8 pt-3 md:pb-10">
+        <div className="max-w-3xl">
+          <p className="mb-3 text-sm font-semibold text-brand-600">جامعة جرش · كلية تكنولوجيا المعلومات</p>
+          <h1 className="text-3xl font-bold text-slate-100 md:text-5xl leading-tight">
+            مكتبة <span className="text-brand-600">JPU-IT</span> الأكاديمية
           </h1>
           <p className="mt-3 max-w-2xl text-slate-400 md:text-lg">
-            ملخصات، امتحانات سابقة، سلايدات، وكتب لكل مواد كلية تكنولوجيا المعلومات في جامعة جرش —
-            يرفعها الطلاب، ويراجعها المشرفون لضمان الجودة.
+            مكان مرتب لملخصات المواد، الامتحانات السابقة، السلايدات والكتب. اختر المادة، ثم افتح القسم الذي تحتاجه.
           </p>
         </div>
       </section>
@@ -128,8 +122,8 @@ export function HomePage() {
               onClick={() => setMajor(m)}
               className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
                 major === m
-                  ? 'bg-brand-500 text-ink-950'
-                  : 'bg-ink-800 text-slate-300 hover:bg-ink-700 border border-white/5'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-white text-slate-300 hover:border-brand-300 hover:text-brand-700 border border-ink-600'
               }`}
             >
               {m}
@@ -173,15 +167,15 @@ export function HomePage() {
                 <button
                   key={s.id}
                   onClick={() => navigate(`/subject/${s.id}`)}
-                  className="card group p-5 text-right transition-all duration-200 hover:-translate-y-1 hover:border-brand-500/40 hover:shadow-glow"
+                  className="card group p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow"
                 >
                   <div className="mb-3 flex items-start justify-between">
-                    <span className="grid h-11 w-11 place-items-center rounded-xl bg-ink-700 text-brand-400 transition group-hover:bg-brand-500 group-hover:text-ink-950">
+                    <span className="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100">
                       <Icon name="BookOpen" className="h-5 w-5" />
                     </span>
                     <div className="flex flex-wrap justify-end gap-1">
                       {depts.map((d) => (
-                        <span key={d} className="badge bg-ink-700 text-slate-300 border border-white/5 text-[10px]">
+                        <span key={d} className="badge bg-ink-800 text-slate-300 border border-ink-600 text-[10px]">
                           {d}
                         </span>
                       ))}
@@ -197,14 +191,14 @@ export function HomePage() {
                     {s.name}
                   </h3>
                   {s.code && (
-                    <span className="mb-1 inline-block font-mono text-xs text-brand-400/80">{s.code}</span>
+                    <span className="mb-1 inline-block font-mono text-xs text-brand-600">{s.code}</span>
                   )}
                   <p className="text-sm text-slate-400 line-clamp-2 min-h-[2.5rem]">
                     {description}
                   </p>
                   <div className="mt-3 flex items-center justify-between">
                     <DifficultyBadge difficulty={difficulty} />
-                    <span className="flex items-center gap-1 text-xs text-brand-400 font-bold opacity-0 transition group-hover:opacity-100">
+                    <span className="flex items-center gap-1 text-xs text-brand-600 font-bold opacity-0 transition group-hover:opacity-100">
                       عرض الموارد
                       <Icon name="ChevronLeft" className="h-4 w-4" />
                     </span>
