@@ -111,13 +111,13 @@ export function AdminFileQueue({
               <Icon name="GraduationCap" className="h-3.5 w-3.5" />{file.uploader?.full_name || 'رافع غير مسمّى'}<span>·</span><span>{new Date(file.created_at).toLocaleDateString('ar')}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <label className={`grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-ink-900 text-slate-400 transition ${file.batch_id ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:border-brand-400/50'}`} title={file.batch_id ? 'الملف موجود داخل مجلد بالفعل' : 'اختيار للتجميع'}>
               <input type="checkbox" checked={selectedIds.has(file.id)} onChange={() => toggleSelected(file.id)} disabled={!!file.batch_id} className="h-4 w-4 accent-brand-500" />
             </label>
             <button onClick={() => openPreview(file)} className="btn-ghost" title="معاينة"><Icon name="Eye" className="h-4 w-4" /></button>
-            <button onClick={() => requestEdit(file)} className="btn-ghost" title="تعديل الاسم أو المكان" disabled={busyId === file.id}><Icon name="Pencil" className="h-4 w-4" /></button>
-            {file.batch && <button onClick={() => requestEditBatch(file.batch!)} className="btn-ghost" title="تعديل المجلد ومكانه" disabled={busyId === file.batch.id}><Icon name="FolderCog" className="h-4 w-4" /></button>}
+            <button onClick={() => requestEdit(file)} className="btn-ghost" title="تعديل الاسم أو المكان" disabled={busyId === file.id}><Icon name="Pencil" className="h-4 w-4" /> تعديل</button>
+            {file.batch && <button onClick={() => requestEditBatch(file.batch!)} className="btn-ghost" title="تعديل المجلد ومكانه" disabled={busyId === file.batch.id}><Icon name="FolderCog" className="h-4 w-4" /> تعديل المجلد</button>}
             <button onClick={() => approve(file.id)} className="btn-primary" disabled={busyId === file.id}>
               {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة
             </button>
