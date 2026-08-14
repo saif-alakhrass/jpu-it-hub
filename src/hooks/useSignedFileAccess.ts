@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
-import { downloadFile, downloadFileViaStorage, getSignedFileUrl, openFilePreview } from '@/lib/storage';
+import { downloadFile, downloadFileViaStorage, getSignedFileUrl } from '@/lib/storage';
 import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
 
-const CACHE_DURATION_MS = 55 * 60 * 1000;
+// R2 URLs currently expire after five minutes. Keep the cache shorter so a
+// preview never reuses a URL that the Worker has already expired.
+const CACHE_DURATION_MS = 4 * 60 * 1000;
 
 export function useSignedFileAccess(onError: (message: string) => void) {
   const cache = useRef(new Map<string, { url: string; expiresAt: number }>());
@@ -62,8 +64,8 @@ export function useSignedFileAccess(onError: (message: string) => void) {
         return;
       }
 
-      if (mode === 'preview') openFilePreview(url);
-      else await downloadFile(url, file.title);
+      if (mode === 'preview') return url;
+      await downloadFile(url, file.title);
     } catch {
       onError('حدث خطأ أثناء الوصول إلى الملف.');
     } finally {

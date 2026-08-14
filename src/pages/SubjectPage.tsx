@@ -37,6 +37,22 @@ interface DisplayGroup {
   files: FileRow[];
 }
 
+function isImageFile(file: FileRow): boolean {
+  return (file.mime_type ?? '').startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes((file.file_type ?? '').toLowerCase());
+}
+
+function isPdfFile(file: FileRow): boolean {
+  return file.mime_type === 'application/pdf' || file.file_type?.toLowerCase() === 'pdf';
+}
+
+function isOfficeFile(file: FileRow): boolean {
+  return ['doc', 'docx', 'ppt', 'pptx'].includes((file.file_type ?? '').toLowerCase());
+}
+
+function officePreviewUrl(fileUrl: string): string {
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+}
+
 export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
   const { navigate, goBack, route } = useRouter();
@@ -57,6 +73,7 @@ export function SubjectPage() {
     setToast({ message, type: 'error' });
   }, []);
   const { accessingFileId, accessFile } = useSignedFileAccess(reportFileAccessError);
+  const [preview, setPreview] = useState<{ file: FileRow; url: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
@@ -239,6 +256,11 @@ export function SubjectPage() {
     });
   }
 
+  async function handlePreview(file: FileRow) {
+    const url = await accessFile(file, 'preview');
+    if (url) setPreview({ file, url });
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-8">
@@ -372,7 +394,7 @@ export function SubjectPage() {
                 isAdmin={isAdmin}
                 bookmarkedIds={bookmarkedIds}
                 accessingFileId={accessingFileId}
-                onPreview={(file) => void accessFile(file, 'preview')}
+                onPreview={(file) => void handlePreview(file)}
                 onDownload={(file) => void accessFile(file, 'download')}
                 busyId={busyId}
                 onToggleBookmark={handleToggleBookmark}
@@ -390,7 +412,7 @@ export function SubjectPage() {
                 isAdmin={isAdmin}
                 bookmarkedIds={bookmarkedIds}
                 accessingFileId={accessingFileId}
-                onPreview={(file) => void accessFile(file, 'preview')}
+                onPreview={(file) => void handlePreview(file)}
                 onDownload={(file) => void accessFile(file, 'download')}
                 busyId={busyId}
                 onToggleBookmark={handleToggleBookmark}
@@ -444,6 +466,35 @@ export function SubjectPage() {
                 حذف
               </button>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!preview} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-5xl">
+        {preview && (
+          <div className="space-y-3">
+            <div>
+              <h4 className="font-bold text-slate-100">{preview.file.title}</h4>
+              <p className="mt-1 text-sm text-slate-400">وضع قراءة فقط — لا يتم تنزيل الملف عند العرض.</p>
+            </div>
+            {isImageFile(preview.file) ? (
+              <img src={preview.url} alt={preview.file.title} className="mx-auto max-h-[70vh] rounded-xl object-contain" />
+            ) : isPdfFile(preview.file) ? (
+              <iframe src={preview.url} title={preview.file.title} className="h-[70vh] w-full rounded-xl border border-white/10 bg-white" />
+            ) : isOfficeFile(preview.file) ? (
+              <iframe
+                src={officePreviewUrl(preview.url)}
+                title={preview.file.title}
+                className="h-[70vh] w-full rounded-xl border border-white/10 bg-white"
+                allowFullScreen
+              />
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-ink-800/50 p-6 text-center">
+                <Icon name="FileText" className="mx-auto mb-3 h-9 w-9 text-brand-400" />
+                <p className="font-bold text-slate-100">لا تتوفر معاينة لهذا النوع</p>
+                <p className="mt-1 text-sm text-slate-400">الأنواع المدعومة للمعاينة هي PDF والصور وملفات Word وPowerPoint.</p>
+              </div>
+            )}
           </div>
         )}
       </Modal>
