@@ -11,6 +11,7 @@ import {
   verifyJwt,
   extractToken,
   getCorsHeaders,
+  downloadContentDisposition,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
@@ -32,6 +33,7 @@ const mockEnv: Env = {
 function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
   return {
     id: 'f1',
+    title: 'محاضرة الشبكات',
     subject_id: 's1',
     uploader_id: 'user-uuid-1',
     status: 'approved',
@@ -214,6 +216,11 @@ describe('upload validation', () => {
 });
 
 describe('download access', () => {
+  it('preserves the stored upload name in the download response', () => {
+    const value = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pptx' }));
+    expect(value).toContain('filename="Lecture 1.pptx"');
+    expect(value).toContain("filename*=UTF-8''Lecture%201.pptx");
+  });
   it('approved accessible by all', () => {
     expect(canAccessFile(makeFile({ status: 'approved', uploader_id: 'other' }), 'me', false)).toBe(true);
   });
