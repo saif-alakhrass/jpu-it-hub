@@ -25,6 +25,9 @@ function makeFile(overrides: Partial<FileRow> = {}): FileRow {
     object_key: null,
     file_hash: null,
     mime_type: null,
+    rejection_reason: null,
+    moderated_at: null,
+    moderated_by: null,
     ...overrides,
   };
 }

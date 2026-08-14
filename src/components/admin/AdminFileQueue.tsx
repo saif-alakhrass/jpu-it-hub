@@ -11,6 +11,7 @@ interface AdminFileQueueProps {
   setPendingPage: (page: number) => void;
   approve: (id: string) => void;
   requestReject: (file: FileRow) => void;
+  requestEdit: (file: FileRow) => void;
   openPreview: (file: FileRow) => void;
   busyId: string | null;
   rejectedTotal: number;
@@ -23,7 +24,7 @@ interface AdminFileQueueProps {
 
 export function AdminFileQueue({
   pending, pendingTotal, pendingPage, setPendingPage,
-  approve, requestReject, openPreview, busyId,
+  approve, requestReject, requestEdit, openPreview, busyId,
   rejectedTotal, rejectedFiles, rejectedPage, setRejectedPage, restore, requestDeleteRejected,
 }: AdminFileQueueProps) {
   const [showRejected, setShowRejected] = useState(false);
@@ -66,7 +67,7 @@ export function AdminFileQueue({
                     <span className="text-xs text-slate-500">{file.subject?.name}</span>
                   </div>
                   <h3 className="mt-1.5 truncate font-bold text-slate-200">{file.title}</h3>
-                  <div className="mt-0.5 text-xs text-slate-500">{file.uploader?.full_name ?? 'مستخدم'}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">{file.uploader?.full_name || 'رافع غير مسمّى'}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => restore(file.id)} className="btn-primary" disabled={busyId === file.id}>
@@ -96,11 +97,12 @@ export function AdminFileQueue({
             </div>
             <h3 className="mt-1.5 truncate font-bold text-slate-100">{file.title}</h3>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-              <Icon name="GraduationCap" className="h-3.5 w-3.5" />{file.uploader?.full_name ?? 'مستخدم'}<span>·</span><span>{new Date(file.created_at).toLocaleDateString('ar')}</span>
+              <Icon name="GraduationCap" className="h-3.5 w-3.5" />{file.uploader?.full_name || 'رافع غير مسمّى'}<span>·</span><span>{new Date(file.created_at).toLocaleDateString('ar')}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => openPreview(file)} className="btn-ghost" title="معاينة"><Icon name="Eye" className="h-4 w-4" /></button>
+            <button onClick={() => requestEdit(file)} className="btn-ghost" title="تعديل الاسم أو المكان" disabled={busyId === file.id}><Icon name="Pencil" className="h-4 w-4" /></button>
             <button onClick={() => approve(file.id)} className="btn-primary" disabled={busyId === file.id}>
               {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة
             </button>

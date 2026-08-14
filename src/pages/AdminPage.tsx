@@ -3,7 +3,7 @@ import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
-import { type FileRow, type Profile, type Subject, type Role, type Difficulty } from '@/lib/types';
+import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, TABS } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
 import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
@@ -15,6 +15,7 @@ import {
   deleteFile,
   removeStorageObjects,
   setFileStatus,
+  updatePendingFile,
   type AdminStats,
 } from '@/services/files';
 import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
@@ -44,6 +45,8 @@ export function AdminPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [editPending, setEditPending] = useState<FileRow | null>(null);
   const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
 
@@ -95,8 +98,10 @@ export function AdminPage() {
   }
 
   async function performReject(file: FileRow) {
+    const reason = rejectionReason.trim();
+    if (reason.length < 3) { setToast({ message: 'اكتب سبب الرفض بثلاثة أحرف على الأقل', type: 'error' }); return; }
     setBusyId(file.id);
-    const ok = await setFileStatus(file.id, 'rejected');
+    const ok = await setFileStatus(file.id, 'rejected', reason);
     if (!ok) { setToast({ message: 'فشل رفض الملف', type: 'error' }); setBusyId(null); return; }
     setPending((prev) => prev.filter((f) => f.id !== file.id));
     await loadStats();
@@ -105,7 +110,18 @@ export function AdminPage() {
     setPreview(null);
     setSignedPreviewUrl(null);
     setConfirmReject(null);
+    setRejectionReason('');
     setBusyId(null);
+  }
+
+  async function handleEditPending(file: FileRow, changes: { title: string; subject_id: string; tab: FileTab }) {
+    setBusyId(file.id);
+    const ok = await updatePendingFile(file.id, changes);
+    setBusyId(null);
+    if (!ok) { setToast({ message: 'فشل حفظ تعديل الملف', type: 'error' }); return; }
+    setEditPending(null);
+    await loadPending();
+    setToast({ message: 'تم تعديل اسم الملف أو مكانه، ووصل إشعار للرافع', type: 'success' });
   }
 
   async function handleRestore(id: string) {
@@ -249,7 +265,8 @@ export function AdminPage() {
           pendingPage={pendingPage}
           setPendingPage={setPendingPage}
           approve={handleApprove}
-          requestReject={(f) => setConfirmReject(f)}
+          requestReject={(f) => { setRejectionReason(''); setConfirmReject(f); }}
+          requestEdit={setEditPending}
           openPreview={openPreview}
           busyId={busyId}
           rejectedTotal={rejectedTotal}
@@ -292,7 +309,7 @@ export function AdminPage() {
               <p className="text-sm text-slate-400">{preview.uploader?.full_name} · {preview.subject?.name} {preview.subject?.code && <span className="font-mono text-slate-500">({preview.subject.code})</span>}</p>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmReject(preview)} className="btn-danger" disabled={busyId === preview.id}>
+              <button onClick={() => { setRejectionReason(''); setConfirmReject(preview); }} className="btn-danger" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} رفض وحذف
               </button>
               <button onClick={() => handleApprove(preview.id)} className="btn-primary" disabled={busyId === preview.id}>
@@ -303,7 +320,7 @@ export function AdminPage() {
         )}
       </Modal>
 
-      <Modal open={!!confirmReject} onClose={() => setConfirmReject(null)} title="تأكيد رفض الملف">
+      <Modal open={!!confirmReject} onClose={() => { setConfirmReject(null); setRejectionReason(''); }} title="رفض الملف وإرسال السبب">
         {confirmReject && (
           <div className="space-y-4">
             <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
@@ -312,6 +329,11 @@ export function AdminPage() {
                 <p className="font-bold">سيتم رفض الملف وإخفاؤه</p>
                 <p className="mt-1 text-sm">سيبقى "{confirmReject.title}" محفوظاً ليتمكن المدير من مراجعته أو استعادته لاحقاً.</p>
               </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-bold text-slate-300">سبب الرفض</label>
+              <textarea value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} className="input min-h-24 resize-y" maxLength={500} placeholder="مثال: الملف ليس ملخصًا للمادة، يرجى رفعه في قسم السلايدات." autoFocus />
+              <p className="mt-1 text-xs text-slate-500">سيظهر السبب للرافع فقط داخل إشعاراته.</p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setConfirmReject(null)} className="btn-ghost" disabled={busyId === confirmReject.id}>إلغاء</button>
@@ -323,6 +345,8 @@ export function AdminPage() {
           </div>
         )}
       </Modal>
+
+      {editPending && <EditPendingFileModal file={editPending} subjects={subjects} saving={busyId === editPending.id} onClose={() => setEditPending(null)} onSave={(changes) => void handleEditPending(editPending, changes)} />}
 
       <Modal open={!!confirmDeleteRejected} onClose={() => setConfirmDeleteRejected(null)} title="حذف ملف مرفوض نهائيًا">
         {confirmDeleteRejected && (
@@ -375,6 +399,36 @@ const ROLE_LABELS_AR: Record<Role, string> = { admin: 'مدير', trusted: 'مو
 
 type ToastState = { message: string; type: 'success' | 'error' } | null;
 type SetToast = (t: ToastState) => void;
+
+function EditPendingFileModal({ file, subjects, saving, onClose, onSave }: {
+  file: FileRow;
+  subjects: Subject[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (changes: { title: string; subject_id: string; tab: FileTab }) => void;
+}) {
+  const [title, setTitle] = useState(file.title);
+  const [subjectId, setSubjectId] = useState(file.subject_id);
+  const [tab, setTab] = useState<FileTab>(file.tab);
+  const changesLocation = subjectId !== file.subject_id || tab !== file.tab;
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const trimmedTitle = title.trim();
+    if (trimmedTitle.length >= 2) onSave({ title: trimmedTitle, subject_id: subjectId, tab });
+  }
+
+  return <Modal open onClose={onClose} title="تنظيم الملف قبل المراجعة">
+    <form onSubmit={submit} className="space-y-4">
+      <p className="text-sm leading-6 text-slate-400">يمكنك تصحيح الاسم أو نقل الملف للقسم والمادة المناسبين بدل رفضه. سيصل للرافع إشعار بالتعديل.</p>
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">اسم الملف الظاهر</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="input" minLength={2} maxLength={180} required autoFocus /></div>
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">المادة</label><select value={subjectId} onChange={(event) => setSubjectId(event.target.value)} className="input" required>{subjects.map((subject) => <option className="bg-ink-900" key={subject.id} value={subject.id}>{subject.name}{subject.code ? ` (${subject.code})` : ''}</option>)}</select></div>
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">القسم</label><select value={tab} onChange={(event) => setTab(event.target.value as FileTab)} className="input">{TABS.map((option) => <option className="bg-ink-900" key={option.key} value={option.key}>{option.label}</option>)}</select></div>
+      {changesLocation && file.batch_id && <p className="rounded-xl border border-accent-500/25 bg-accent-500/10 px-3 py-2 text-xs leading-5 text-accent-300">نقل هذا الملف سيخرجه من مجموعته الحالية حتى لا تصبح المجموعة موزعة بين مواد أو أقسام مختلفة.</p>}
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ التعديل</button></div>
+    </form>
+  </Modal>;
+}
 
 function SubjectsTab({ subjects, setToast, onUpdated }: {
   subjects: Subject[];

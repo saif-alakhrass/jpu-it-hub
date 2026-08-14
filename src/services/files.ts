@@ -4,7 +4,7 @@ import { PAGE_SIZE } from '@/lib/constants';
 import { failService } from '@/lib/serviceError';
 
 const FILE_COLUMNS =
-  'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, storage_provider, object_key, file_hash, mime_type, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)';
+  'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, storage_provider, object_key, file_hash, mime_type, rejection_reason, moderated_at, moderated_by, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)';
 
 const BATCH_COLUMNS =
   'id, subject_id, tab, title, uploader_id, status, file_count, created_at';
@@ -74,8 +74,16 @@ export async function fetchRejectedFilesPaged(page: number): Promise<PaginatedFi
   };
 }
 
-export async function setFileStatus(id: string, status: FileStatus): Promise<boolean> {
-  const { error } = await supabase.from('files').update({ status }).eq('id', id);
+export async function setFileStatus(id: string, status: FileStatus, rejectionReason?: string): Promise<boolean> {
+  const update = { status, rejection_reason: status === 'rejected' ? rejectionReason?.trim() ?? null : null, moderated_at: new Date().toISOString() };
+  const { error } = await supabase.from('files').update(update).eq('id', id);
+  return !error;
+}
+
+export interface PendingFileUpdate { title: string; subject_id: string; tab: FileTab; }
+
+export async function updatePendingFile(id: string, changes: PendingFileUpdate): Promise<boolean> {
+  const { error } = await supabase.from('files').update({ ...changes, batch_id: null }).eq('id', id).eq('status', 'pending');
   return !error;
 }
 

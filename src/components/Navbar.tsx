@@ -3,6 +3,7 @@ import { Icon } from './Icon';
 import { scrollPageTo } from '@/lib/scroll';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
+import { NotificationBell } from '@/components/NotificationBell';
 
 function initials(name: string | null | undefined): string {
   if (!name) return '؟';
@@ -89,6 +90,8 @@ export function Navbar() {
         </nav>
         <div className="hidden items-center gap-3 md:flex">
           {session ? (
+            <>
+            <NotificationBell />
             <div className="relative" ref={menuRef}>
               <button onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2 rounded-xl border border-white/5 bg-ink-800 px-2 py-1.5 transition hover:bg-ink-700">
                 {avatar}
@@ -119,6 +122,7 @@ export function Navbar() {
                 </div>
               )}
             </div>
+            </>
           ) : (
             <button onClick={() => navigate('/auth')} className="btn-primary">
               <Icon name="Lock" className="h-4 w-4" /> تسجيل الدخول
@@ -152,6 +156,7 @@ export function Navbar() {
                 <button onClick={() => { navigate('/profile'); setOpen(false); }} className="btn-ghost justify-start">
                   <Icon name="User" className="h-4 w-4" /> الملف الشخصي
                 </button>
+                <div className="px-2 py-1"><NotificationBell /></div>
                 <button onClick={() => { signOut(); setOpen(false); }} className="btn-ghost justify-start text-danger-400">
                   <Icon name="LogOut" className="h-4 w-4" /> خروج
                 </button>
