@@ -82,6 +82,7 @@ interface JwtPayload {
 
 interface FileRecord {
   id: string;
+  title: string;
   subject_id: string;
   uploader_id: string;
   status: 'pending' | 'approved' | 'rejected';
@@ -315,7 +316,7 @@ async function authenticateWithProfile(env: Env, token: string): Promise<Profile
 }
 
 async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | null> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
+  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return null;
   const data = await res.json() as FileRecord[];
@@ -452,6 +453,20 @@ async function createPresignedUrl(
 
   const url = `https://${host}/${canonicalUriStr}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
   return url;
+}
+
+function downloadContentDisposition(file: FileRecord): string {
+  const extension = (file.file_type ?? '').toLowerCase();
+  const safeBaseName = (file.title || 'file')
+    .replace(/[\\/\r\n\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160) || 'file';
+  const filename = extension && !safeBaseName.toLowerCase().endsWith(`.${extension}`)
+    ? `${safeBaseName}.${extension}`
+    : safeBaseName;
+  const asciiFallback = filename.replace(/[\\"]/g, '_').replace(/[^\x20-\x7e]/g, '_') || 'download';
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -858,7 +873,7 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   }
 
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  const disposition = mode === 'download' ? 'attachment' : undefined;
+  const disposition = mode === 'download' ? downloadContentDisposition(file) : undefined;
   const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry, disposition);
 
   return corsResponse(env, request, 200, {
@@ -964,5 +979,6 @@ export {
   sha256,
   createPresignedUrl,
   getCorsHeaders,
+  downloadContentDisposition,
 };
 export type { FileRecord, Profile, JwtPayload };
