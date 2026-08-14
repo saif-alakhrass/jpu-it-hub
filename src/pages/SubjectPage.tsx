@@ -94,11 +94,11 @@ export function SubjectPage() {
 
   // The subject page is a content surface, not a moderation queue. Public
   // visitors see only approved files. Administrators can additionally inspect
-  // rejected files here, clearly labelled, while a student sees only their
-  // own pending upload.
+  // pending and rejected files here, clearly labelled, while a student sees
+  // only their own pending upload.
   const contentFiles = useMemo(() => files.filter((file) => (
     file.status === 'approved'
-    || (isAdmin && file.status === 'rejected')
+    || isAdmin
     || (file.status === 'pending' && file.uploader_id === profile?.id)
   )), [files, isAdmin, profile?.id]);
 
