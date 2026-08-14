@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUploadNow, formatFileSize, validateFile } from './storage';
+import { canUploadNow, formatFileSize, getFileIcon, validateFile } from './storage';
 import { MAX_FILE_SIZE_BYTES } from './constants';
 
 function fakeFile(name: string, type: string, size: number): File {
@@ -32,5 +32,13 @@ describe('storage helpers', () => {
     const now = Date.now();
     expect(canUploadNow([now, now, now, now])).toBe(true);
     expect(canUploadNow([now, now, now, now, now])).toBe(false);
+  });
+
+  it('selects an appropriate icon for every supported document family', () => {
+    expect(getFileIcon('PNG')).toBe('Image');
+    expect(getFileIcon('pdf')).toBe('FileText');
+    expect(getFileIcon('docx')).toBe('FileType');
+    expect(getFileIcon('ppt')).toBe('Presentation');
+    expect(getFileIcon('zip')).toBe('File');
   });
 });
