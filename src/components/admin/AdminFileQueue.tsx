@@ -10,6 +10,7 @@ interface AdminFileQueueProps {
   pendingPage: number;
   setPendingPage: (page: number) => void;
   approve: (id: string) => void;
+  approveBatch: (batchId: string) => void;
   requestReject: (file: FileRow) => void;
   requestEdit: (file: FileRow) => void;
   requestEditBatch: (batch: NonNullable<FileRow['batch']>) => void;
@@ -28,7 +29,7 @@ interface AdminFileQueueProps {
 
 export function AdminFileQueue({
   pending, pendingTotal, pendingPage, setPendingPage,
-  approve, requestReject, requestEdit, requestEditBatch, selectedIds, toggleSelected, requestGroupSelected, openPreview, busyId,
+  approve, approveBatch, requestReject, requestEdit, requestEditBatch, selectedIds, toggleSelected, requestGroupSelected, openPreview, busyId,
   rejectedTotal, rejectedFiles, rejectedPage, setRejectedPage, restore, requestDeleteRejected,
 }: AdminFileQueueProps) {
   const [showRejected, setShowRejected] = useState(false);
@@ -118,8 +119,8 @@ export function AdminFileQueue({
             <button onClick={() => openPreview(file)} className="btn-ghost" title="معاينة"><Icon name="Eye" className="h-4 w-4" /></button>
             <button onClick={() => requestEdit(file)} className="btn-ghost" title="تعديل الاسم أو المكان" disabled={busyId === file.id}><Icon name="Pencil" className="h-4 w-4" /> تعديل</button>
             {file.batch && <button onClick={() => requestEditBatch(file.batch!)} className="btn-ghost" title="تعديل المجلد ومكانه" disabled={busyId === file.batch.id}><Icon name="FolderCog" className="h-4 w-4" /> تعديل المجلد</button>}
-            <button onClick={() => approve(file.id)} className="btn-primary" disabled={busyId === file.id}>
-              {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} موافقة
+            <button onClick={() => file.batch ? approveBatch(file.batch.id) : approve(file.id)} className="btn-primary" disabled={busyId === file.id || busyId === file.batch?.id}>
+              {busyId === file.id || busyId === file.batch?.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} {file.batch ? 'موافقة على المجلد' : 'موافقة'}
             </button>
             <button onClick={() => requestReject(file)} className="btn-danger" disabled={busyId === file.id}>
               <Icon name="Trash2" className="h-4 w-4" /> رفض

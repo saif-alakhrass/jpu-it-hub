@@ -105,6 +105,15 @@ export async function groupPendingFiles(fileIds: string[], title: string): Promi
   return !error;
 }
 
+export async function moderatePendingBatch(id: string, status: Extract<FileStatus, 'approved' | 'rejected'>, rejectionReason?: string): Promise<boolean> {
+  const { error } = await supabase.rpc('admin_moderate_pending_batch', {
+    p_batch_id: id,
+    p_status: status,
+    p_rejection_reason: rejectionReason?.trim() ?? null,
+  });
+  return !error;
+}
+
 export async function deleteFile(id: string): Promise<boolean> {
   const { error } = await supabase.from('files').delete().eq('id', id);
   return !error;

@@ -18,6 +18,7 @@ import {
   updatePendingFile,
   updatePendingBatch,
   groupPendingFiles,
+  moderatePendingBatch,
   type AdminStats,
 } from '@/services/files';
 import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
@@ -116,6 +117,16 @@ export function AdminPage() {
     setSignedPreviewUrl(null);
     setConfirmReject(null);
     setRejectionReason('');
+    setBusyId(null);
+  }
+
+  async function handleApproveBatch(batchId: string) {
+    setBusyId(batchId);
+    const ok = await moderatePendingBatch(batchId, 'approved');
+    if (!ok) { setToast({ message: 'فشلت الموافقة على ملفات المجلد', type: 'error' }); setBusyId(null); return; }
+    setPending((prev) => prev.filter((file) => file.batch_id !== batchId));
+    await Promise.all([loadStats(), loadPending()]);
+    setToast({ message: 'تمت الموافقة على جميع ملفات المجلد ونشرها', type: 'success' });
     setBusyId(null);
   }
 
@@ -292,6 +303,7 @@ export function AdminPage() {
           pendingPage={pendingPage}
           setPendingPage={setPendingPage}
           approve={handleApprove}
+          approveBatch={handleApproveBatch}
           requestReject={(f) => { setRejectionReason(''); setConfirmReject(f); }}
           requestEdit={setEditPending}
           requestEditBatch={setEditBatch}
