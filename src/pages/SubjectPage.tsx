@@ -92,23 +92,32 @@ export function SubjectPage() {
     })();
   }, [session, files]);
 
+  // The subject page is a content surface, not a moderation queue. RLS allows
+  // administrators to read rejected files, but they must not look published
+  // here. Rejected files stay in the admin queue; a student's own pending
+  // upload remains visible only to that student.
+  const contentFiles = useMemo(() => files.filter((file) => (
+    file.status === 'approved'
+    || (file.status === 'pending' && file.uploader_id === profile?.id)
+  )), [files, profile?.id]);
+
   // Build display groups: batches first (with their files), then standalone files.
   // Files whose batch is invisible (hidden by RLS) fall back to standalone cards.
   const allGroups: DisplayGroup[] = useMemo(() => {
     const result: DisplayGroup[] = [];
     for (const batch of batches) {
-      const batchFiles = files.filter((f) => f.tab === batch.tab && f.batch_id === batch.id);
+      const batchFiles = contentFiles.filter((f) => f.tab === batch.tab && f.batch_id === batch.id);
       if (batchFiles.length > 0) {
         result.push({ key: `batch-${batch.id}`, tab: batch.tab, batch, files: batchFiles });
       }
     }
     const visibleBatchIds = new Set(batches.map((b) => b.id));
-    const standalone = files.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
+    const standalone = contentFiles.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
     for (const f of standalone) {
       result.push({ key: `file-${f.id}`, tab: f.tab, batch: null, files: [f] });
     }
     return result;
-  }, [files, batches]);
+  }, [contentFiles, batches]);
 
   const activeGroups = useMemo(() => allGroups.filter((group) => group.tab === activeTab), [allGroups, activeTab]);
   const hasContent = activeGroups.length > 0;
