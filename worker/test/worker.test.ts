@@ -12,6 +12,7 @@ import {
   extractToken,
   getCorsHeaders,
   downloadContentDisposition,
+  getUploadLimit,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
@@ -25,7 +26,6 @@ const mockEnv: Env = {
   R2_ACCOUNT_ID: 'test-account-id',
   CORS_ALLOWED_ORIGINS: 'http://localhost:5173,https://jpu-it-hub.vercel.app',
   MAX_FILE_SIZE_BYTES: '20971520',
-  UPLOAD_MAX_PER_WINDOW: '5',
   UPLOAD_WINDOW_MINUTES: '10',
   SIGNED_URL_EXPIRY_SECONDS: '300',
 };
@@ -150,6 +150,12 @@ describe('access control', () => {
 });
 
 describe('rate limiting', () => {
+  it('uses role-specific limits', () => {
+    expect(getUploadLimit('student')).toBe(10);
+    expect(getUploadLimit('trusted')).toBe(20);
+    expect(getUploadLimit('admin')).toBe(50);
+  });
+
   it('allows within limit', () => {
     const id = 'rl-1';
     for (let i = 0; i < 5; i++) expect(checkInMemoryRateLimit(id, 5, 600000)).toBe(true);

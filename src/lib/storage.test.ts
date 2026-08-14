@@ -30,8 +30,10 @@ describe('storage helpers', () => {
 
   it('enforces the client-side upload window', () => {
     const now = Date.now();
-    expect(canUploadNow([now, now, now, now])).toBe(true);
-    expect(canUploadNow([now, now, now, now, now])).toBe(false);
+    expect(canUploadNow(Array(9).fill(now), 10)).toBe(true);
+    expect(canUploadNow(Array(10).fill(now), 10)).toBe(false);
+    expect(canUploadNow(Array(19).fill(now), 20)).toBe(true);
+    expect(canUploadNow(Array(50).fill(now), 50)).toBe(false);
   });
 
   it('selects an appropriate icon for every supported document family', () => {

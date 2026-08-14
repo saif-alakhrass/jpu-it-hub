@@ -2,9 +2,9 @@ import { useState, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { formatFileSize, getFileIcon, canUploadNow } from '@/lib/storage';
-import { UPLOAD_MAX_PER_WINDOW, MAX_FILE_SIZE_MB } from '@/lib/constants';
+import { getUploadLimit, MAX_FILE_SIZE_MB } from '@/lib/constants';
 import { useUpload, type QueuedFile } from '@/hooks/useUpload';
-import type { FileTab } from '@/lib/types';
+import type { FileTab, Role } from '@/lib/types';
 
 function buildBatchTitle(tabLabel: string, count: number): string {
   const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -17,6 +17,7 @@ interface MultiFileUploadProps {
   subjectId: string;
   activeTab: FileTab;
   userId: string;
+  role: Role;
   canPublishDirectly: boolean;
   tabLabel: string;
   onUploaded: () => void;
@@ -29,6 +30,7 @@ export function MultiFileUpload({
   subjectId,
   activeTab,
   userId,
+  role,
   canPublishDirectly,
   tabLabel,
   onUploaded,
@@ -42,6 +44,7 @@ export function MultiFileUpload({
   const [showValidation, setShowValidation] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { uploading, uploadTimes, uploadBatch, validateQueue } = useUpload();
+  const uploadLimit = getUploadLimit(role);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
     const newItems = validateQueue(fileList);
@@ -95,9 +98,9 @@ export function MultiFileUpload({
     setTitleErrors(new Set());
     setBatchTitleError(false);
 
-    if (!canUploadNow([...uploadTimes, ...Array(toUpload.length).fill(Date.now())])) {
+    if (!canUploadNow([...uploadTimes, ...Array(toUpload.length).fill(Date.now())], uploadLimit)) {
       onToast({
-        message: `لقد تجاوزت الحد المسموح: ${UPLOAD_MAX_PER_WINDOW} ملفات كل 10 دقائق. حاول لاحقًا.`,
+        message: `لقد تجاوزت الحد المسموح: ${uploadLimit} ملفات كل 10 دقائق. حاول لاحقًا.`,
         type: 'error',
       });
       return;
