@@ -33,6 +33,7 @@ type DeleteTarget =
 
 interface DisplayGroup {
   key: string;
+  tab: FileTab;
   batch: FileBatch | null;
   files: FileRow[];
 }
@@ -94,31 +95,32 @@ export function SubjectPage() {
 
   // Build display groups: batches first (with their files), then standalone files.
   // Files whose batch is invisible (hidden by RLS) fall back to standalone cards.
-  const groups: DisplayGroup[] = useMemo(() => {
-    const tabFiles = files.filter((f) => f.tab === activeTab);
-    const tabBatches = batches.filter((b) => b.tab === activeTab);
+  const allGroups: DisplayGroup[] = useMemo(() => {
     const result: DisplayGroup[] = [];
-    for (const batch of tabBatches) {
-      const batchFiles = tabFiles.filter((f) => f.batch_id === batch.id);
+    for (const batch of batches) {
+      const batchFiles = files.filter((f) => f.tab === batch.tab && f.batch_id === batch.id);
       if (batchFiles.length > 0) {
-        result.push({ key: `batch-${batch.id}`, batch, files: batchFiles });
+        result.push({ key: `batch-${batch.id}`, tab: batch.tab, batch, files: batchFiles });
       }
     }
-    const visibleBatchIds = new Set(tabBatches.map((b) => b.id));
-    const standalone = tabFiles.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
+    const visibleBatchIds = new Set(batches.map((b) => b.id));
+    const standalone = files.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
     for (const f of standalone) {
-      result.push({ key: `file-${f.id}`, batch: null, files: [f] });
+      result.push({ key: `file-${f.id}`, tab: f.tab, batch: null, files: [f] });
     }
     return result;
-  }, [files, batches, activeTab]);
+  }, [files, batches]);
 
-  const hasContent = groups.length > 0;
+  const activeGroups = useMemo(() => allGroups.filter((group) => group.tab === activeTab), [allGroups, activeTab]);
+  const hasContent = activeGroups.length > 0;
+  const hasAnyContent = allGroups.length > 0;
+  const isSearching = Boolean(deferredSearchQuery.trim());
 
   const filteredGroups: DisplayGroup[] = useMemo(() => {
-    if (!deferredSearchQuery.trim()) return groups;
+    if (!deferredSearchQuery.trim()) return activeGroups;
     const q = deferredSearchQuery.trim();
     const result: DisplayGroup[] = [];
-    for (const group of groups) {
+    for (const group of allGroups) {
       if (group.batch) {
         const batchMatches = smartMatch(group.batch.title, q);
         const matchingFiles = group.files.filter((f) => smartMatch(f.title, q));
@@ -134,7 +136,7 @@ export function SubjectPage() {
       }
     }
     return result;
-  }, [groups, deferredSearchQuery]);
+  }, [activeGroups, allGroups, deferredSearchQuery]);
 
   const hasSearchResults = filteredGroups.length > 0;
 
@@ -142,7 +144,7 @@ export function SubjectPage() {
     if (!deferredSearchQuery.trim()) return;
     const q = deferredSearchQuery.trim();
     const toExpand = new Set<string>();
-    for (const group of groups) {
+    for (const group of allGroups) {
       if (group.batch && !smartMatch(group.batch.title, q)) {
         if (group.files.some((f) => smartMatch(f.title, q))) {
           toExpand.add(group.batch.id);
@@ -152,7 +154,7 @@ export function SubjectPage() {
     if (toExpand.size > 0) {
       setExpandedBatches((prev) => new Set([...prev, ...toExpand]));
     }
-  }, [groups, deferredSearchQuery]);
+  }, [allGroups, deferredSearchQuery]);
 
   async function handleConfirmDelete() {
     if (!deleteTarget) return;
@@ -341,7 +343,7 @@ export function SubjectPage() {
         ))}
       </div>
 
-      {hasContent && (
+      {hasAnyContent && (
         <div className="relative mb-5 max-w-md">
           <Icon name="Search" className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
           <input
@@ -362,7 +364,7 @@ export function SubjectPage() {
         </div>
       )}
 
-      {!hasContent ? (
+      {!isSearching && !hasContent ? (
         <EmptyState
           icon="FolderOpen"
           title="لا توجد ملفات بعد"
@@ -383,9 +385,9 @@ export function SubjectPage() {
           {filteredGroups.map((group) => {
             const batch = group.batch;
             const standalone = group.files[0] ?? null;
-            return batch ? (
+            const tabLabel = TABS.find((tab) => tab.key === group.tab)?.label;
+            const card = batch ? (
               <BatchFolderCard
-                key={group.key}
                 batch={batch}
                 files={group.files}
                 expanded={expandedBatches.has(batch.id)}
@@ -406,7 +408,6 @@ export function SubjectPage() {
               />
             ) : standalone ? (
               <FileRowCard
-                key={group.key}
                 file={standalone}
                 profile={profile}
                 isAdmin={isAdmin}
@@ -421,6 +422,16 @@ export function SubjectPage() {
                 setBookmarkForEditor={setBookmarkForEditor}
                 setToast={setToast}
               />
+            ) : null;
+            return card ? (
+              <div key={group.key} className="space-y-2">
+                {isSearching && (
+                  <span className="inline-flex rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-bold text-brand-700">
+                    {tabLabel}
+                  </span>
+                )}
+                {card}
+              </div>
             ) : null;
           })}
         </div>
