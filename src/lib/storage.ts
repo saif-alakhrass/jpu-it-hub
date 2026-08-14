@@ -54,9 +54,9 @@ function saveBlob(blob: Blob, fallbackName: string): void {
   URL.revokeObjectURL(objectUrl);
 }
 
-export function canUploadNow(recentTimestamps: number[]): boolean {
+export function canUploadNow(recentTimestamps: number[], maxUploads = UPLOAD_MAX_PER_WINDOW): boolean {
   const cutoff = Date.now() - UPLOAD_WINDOW_MS;
-  return recentTimestamps.filter((t) => t > cutoff).length < UPLOAD_MAX_PER_WINDOW;
+  return recentTimestamps.filter((t) => t > cutoff).length < maxUploads;
 }
 
 export function formatFileSize(bytes: number): string {

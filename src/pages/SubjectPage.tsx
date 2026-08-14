@@ -471,6 +471,7 @@ export function SubjectPage() {
           subjectId={subjectId}
           activeTab={activeTab}
           userId={profile.id}
+          role={profile.role}
           canPublishDirectly={canPublishDirectly}
           tabLabel={TABS.find((t) => t.key === activeTab)?.label ?? ''}
           onUploaded={() => { void reloadFiles(); }}
