@@ -4,10 +4,10 @@ import { PAGE_SIZE } from '@/lib/constants';
 import { failService } from '@/lib/serviceError';
 
 const FILE_COLUMNS =
-  'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, storage_provider, object_key, file_hash, mime_type, rejection_reason, moderated_at, moderated_by, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code)';
+  'id, subject_id, tab, title, storage_path, file_url, file_type, file_size, uploader_id, status, created_at, batch_id, box_name, storage_provider, object_key, file_hash, mime_type, rejection_reason, moderated_at, moderated_by, uploader:profiles!files_uploader_id_fkey(id, full_name, role), subject:subjects!files_subject_id_fkey(id, name, code), batch:file_batches!files_batch_id_fkey(id, subject_id, tab, title, box_name, status, file_count)';
 
 const BATCH_COLUMNS =
-  'id, subject_id, tab, title, uploader_id, status, file_count, created_at';
+  'id, subject_id, tab, title, uploader_id, status, file_count, box_name, created_at';
 
 export interface PaginatedFiles {
   items: FileRow[];
@@ -84,6 +84,24 @@ export interface PendingFileUpdate { title: string; subject_id: string; tab: Fil
 
 export async function updatePendingFile(id: string, changes: PendingFileUpdate): Promise<boolean> {
   const { error } = await supabase.from('files').update({ ...changes, batch_id: null }).eq('id', id).eq('status', 'pending');
+  return !error;
+}
+
+export async function updatePendingBatch(id: string, changes: PendingFileUpdate): Promise<boolean> {
+  const { error } = await supabase.rpc('admin_update_pending_batch', {
+    p_batch_id: id,
+    p_title: changes.title,
+    p_subject_id: changes.subject_id,
+    p_tab: changes.tab,
+  });
+  return !error;
+}
+
+export async function groupPendingFiles(fileIds: string[], title: string): Promise<boolean> {
+  const { error } = await supabase.rpc('admin_group_pending_files', {
+    p_file_ids: fileIds,
+    p_title: title.trim(),
+  });
   return !error;
 }
 

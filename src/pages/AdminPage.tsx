@@ -16,6 +16,8 @@ import {
   removeStorageObjects,
   setFileStatus,
   updatePendingFile,
+  updatePendingBatch,
+  groupPendingFiles,
   type AdminStats,
 } from '@/services/files';
 import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
@@ -47,6 +49,9 @@ export function AdminPage() {
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [editPending, setEditPending] = useState<FileRow | null>(null);
+  const [editBatch, setEditBatch] = useState<NonNullable<FileRow['batch']> | null>(null);
+  const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
+  const [groupPending, setGroupPending] = useState<FileRow[] | null>(null);
   const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
 
@@ -122,6 +127,28 @@ export function AdminPage() {
     setEditPending(null);
     await loadPending();
     setToast({ message: 'تم تعديل اسم الملف أو مكانه، ووصل إشعار للرافع', type: 'success' });
+  }
+
+  async function handleEditBatch(batch: NonNullable<FileRow['batch']>, changes: { title: string; subject_id: string; tab: FileTab }) {
+    setBusyId(batch.id);
+    const ok = await updatePendingBatch(batch.id, changes);
+    setBusyId(null);
+    if (!ok) { setToast({ message: 'فشل حفظ تعديل المجلد', type: 'error' }); return; }
+    setEditBatch(null);
+    await loadPending();
+    setToast({ message: 'تم تعديل المجلد وكل ملفاته المعلّقة', type: 'success' });
+  }
+
+  async function handleGroupPending(title: string) {
+    if (!groupPending) return;
+    setBusyId('group-pending');
+    const ok = await groupPendingFiles(groupPending.map((file) => file.id), title);
+    setBusyId(null);
+    if (!ok) { setToast({ message: 'تعذر تجميع الملفات. اختر ملفات معلقة من المادة والقسم نفسيهما.', type: 'error' }); return; }
+    setGroupPending(null);
+    setSelectedPendingIds(new Set());
+    await loadPending();
+    setToast({ message: 'تم تجميع الملفات في مجلد واحد للمراجعة', type: 'success' });
   }
 
   async function handleRestore(id: string) {
@@ -267,6 +294,10 @@ export function AdminPage() {
           approve={handleApprove}
           requestReject={(f) => { setRejectionReason(''); setConfirmReject(f); }}
           requestEdit={setEditPending}
+          requestEditBatch={setEditBatch}
+          selectedIds={selectedPendingIds}
+          toggleSelected={(id) => setSelectedPendingIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
+          requestGroupSelected={() => setGroupPending(pending.filter((file) => selectedPendingIds.has(file.id)))}
           openPreview={openPreview}
           busyId={busyId}
           rejectedTotal={rejectedTotal}
@@ -348,6 +379,10 @@ export function AdminPage() {
 
       {editPending && <EditPendingFileModal file={editPending} subjects={subjects} saving={busyId === editPending.id} onClose={() => setEditPending(null)} onSave={(changes) => void handleEditPending(editPending, changes)} />}
 
+      {editBatch && <EditPendingBatchModal batch={editBatch} subjects={subjects} saving={busyId === editBatch.id} onClose={() => setEditBatch(null)} onSave={(changes) => void handleEditBatch(editBatch, changes)} />}
+
+      {groupPending && <GroupPendingFilesModal files={groupPending} saving={busyId === 'group-pending'} onClose={() => setGroupPending(null)} onSave={(title) => void handleGroupPending(title)} />}
+
       <Modal open={!!confirmDeleteRejected} onClose={() => setConfirmDeleteRejected(null)} title="حذف ملف مرفوض نهائيًا">
         {confirmDeleteRejected && (
           <div className="space-y-4">
@@ -426,6 +461,46 @@ function EditPendingFileModal({ file, subjects, saving, onClose, onSave }: {
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">القسم</label><select value={tab} onChange={(event) => setTab(event.target.value as FileTab)} className="input">{TABS.map((option) => <option className="bg-ink-900" key={option.key} value={option.key}>{option.label}</option>)}</select></div>
       {changesLocation && file.batch_id && <p className="rounded-xl border border-accent-500/25 bg-accent-500/10 px-3 py-2 text-xs leading-5 text-accent-300">نقل هذا الملف سيخرجه من مجموعته الحالية حتى لا تصبح المجموعة موزعة بين مواد أو أقسام مختلفة.</p>}
       <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ التعديل</button></div>
+    </form>
+  </Modal>;
+}
+
+function EditPendingBatchModal({ batch, subjects, saving, onClose, onSave }: {
+  batch: NonNullable<FileRow['batch']>;
+  subjects: Subject[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (changes: { title: string; subject_id: string; tab: FileTab }) => void;
+}) {
+  const [title, setTitle] = useState(batch.box_name || batch.title);
+  const [subjectId, setSubjectId] = useState(batch.subject_id);
+  const [tab, setTab] = useState<FileTab>(batch.tab);
+  return <Modal open onClose={onClose} title="تعديل المجلد">
+    <form onSubmit={(event) => { event.preventDefault(); if (title.trim().length >= 2) onSave({ title: title.trim(), subject_id: subjectId, tab }); }} className="space-y-4">
+      <p className="text-sm leading-6 text-slate-400">سيُحدّث الاسم والمادة والقسم لكل الملفات المعلّقة داخل هذا المجلد، من دون نشرها.</p>
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">اسم المجلد</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="input" minLength={2} maxLength={180} required autoFocus /></div>
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">المادة</label><select value={subjectId} onChange={(event) => setSubjectId(event.target.value)} className="input">{subjects.map((subject) => <option className="bg-ink-900" key={subject.id} value={subject.id}>{subject.name}{subject.code ? ` (${subject.code})` : ''}</option>)}</select></div>
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">القسم</label><select value={tab} onChange={(event) => setTab(event.target.value as FileTab)} className="input">{TABS.map((option) => <option className="bg-ink-900" key={option.key} value={option.key}>{option.label}</option>)}</select></div>
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ المجلد</button></div>
+    </form>
+  </Modal>;
+}
+
+function GroupPendingFilesModal({ files, saving, onClose, onSave }: {
+  files: FileRow[];
+  saving: boolean;
+  onClose: () => void;
+  onSave: (title: string) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const sameLocation = files.length > 0 && files.every((file) => file.subject_id === files[0]?.subject_id && file.tab === files[0]?.tab && !file.batch_id);
+  return <Modal open onClose={onClose} title="تجميع ملفات في مجلد">
+    <form onSubmit={(event) => { event.preventDefault(); if (sameLocation && title.trim().length >= 2) onSave(title.trim()); }} className="space-y-4">
+      <p className="text-sm leading-6 text-slate-400">سيبقى كل ملف معلقًا حتى توافق عليه. التجميع متاح للملفات المنفصلة من المادة والقسم نفسيهما.</p>
+      <div className="rounded-xl border border-white/10 bg-ink-900/50 p-3 text-sm text-slate-300">{files.map((file) => <p key={file.id} className="truncate">• {file.title}</p>)}</div>
+      {!sameLocation && <p className="rounded-xl border border-danger-500/30 bg-danger-500/10 p-3 text-sm text-danger-300">اختر ملفات منفصلة من نفس المادة والقسم فقط.</p>}
+      <div><label className="mb-1.5 block text-sm font-bold text-slate-300">اسم المجلد</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="input" minLength={2} maxLength={180} required autoFocus /></div>
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || !sameLocation || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="FolderPlus" className="h-4 w-4" />} إنشاء المجلد</button></div>
     </form>
   </Modal>;
 }
