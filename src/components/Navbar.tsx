@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icon';
-import { scrollPageTo } from './ScrollRestoration';
+import { scrollPageTo } from '@/lib/scroll';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 

@@ -395,6 +395,7 @@ async function createPresignedUrl(
   objectKey: string,
   method: 'GET' | 'PUT',
   expirySeconds: number,
+  responseContentDisposition?: string,
 ): Promise<string> {
   const accountId = env.R2_ACCOUNT_ID;
   const bucketName = 'jpu-it-hub-files';
@@ -412,13 +413,17 @@ async function createPresignedUrl(
   const credential = `${env.R2_ACCESS_KEY_ID}/${credentialScope}`;
 
   const canonicalUriStr = `${bucketName}/${canonicalUri(objectKey)}`;
-  const canonicalQueryString = [
+  const queryParts = [
     `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     `X-Amz-Credential=${encodeURIComponent(credential)}`,
     `X-Amz-Date=${amzDate}`,
     `X-Amz-Expires=${expiry}`,
     `X-Amz-SignedHeaders=host`,
-  ].join('&');
+  ];
+  if (responseContentDisposition) {
+    queryParts.push(`response-content-disposition=${encodeURIComponent(responseContentDisposition)}`);
+  }
+  const canonicalQueryString = queryParts.sort().join('&');
 
   const canonicalHeaders = `host:${host}\n`;
   const signedHeaders = 'host';
@@ -810,11 +815,12 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
 
 interface DownloadPresignRequest {
   file_id: string;
+  mode?: 'preview' | 'download';
 }
 
 async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean): Promise<Response> {
   const body = await request.json() as DownloadPresignRequest;
-  const { file_id } = body;
+  const { file_id, mode } = body;
 
   if (!file_id) {
     return corsError(env, request, 400, 'Missing file_id');
@@ -852,7 +858,8 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   }
 
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
+  const disposition = mode === 'download' ? 'attachment' : undefined;
+  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry, disposition);
 
   return corsResponse(env, request, 200, {
     download_url: presignedUrl,

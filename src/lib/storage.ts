@@ -22,9 +22,9 @@ export async function getSignedFileUrl(storagePath: string): Promise<string | nu
 }
 
 export async function downloadFileViaStorage(storagePath: string, fallbackName: string): Promise<void> {
-  const url = await getSignedFileUrl(storagePath);
-  if (!url) return;
-  await downloadFile(url, fallbackName);
+  const { data, error } = await supabase.storage.from('files').download(storagePath);
+  if (error || !data) throw error ?? new Error('Download failed');
+  saveBlob(data, fallbackName);
 }
 
 export function openFilePreview(url: string): void {
@@ -35,18 +35,23 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
   if (!url) return;
   try {
     const res = await fetch(url);
+    if (!res.ok) throw new Error(`Download failed (${res.status})`);
     const blob = await res.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = fallbackName || 'file';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(objectUrl);
+    saveBlob(blob, fallbackName);
   } catch {
-    window.open(url, '_blank');
+    window.location.assign(url);
   }
+}
+
+function saveBlob(blob: Blob, fallbackName: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = fallbackName || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export function canUploadNow(recentTimestamps: number[]): boolean {

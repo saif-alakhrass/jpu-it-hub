@@ -1,30 +1,9 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { pageScroller, pageScrollTop, scrollPageTo } from '@/lib/scroll';
 
 function keyFor(pathname: string, search: string, hash: string) {
   return `jpu-it-hub:scroll:${pathname}${search}${hash}`;
-}
-
-/**
- * The app deliberately makes body the scroll container (to prevent horizontal
- * overflow on mobile). In that layout window.scrollY remains zero, so using
- * the window APIs loses every saved position.
- */
-function pageScroller(): HTMLElement {
-  const body = document.body;
-  const bodyOverflow = window.getComputedStyle(body).overflowY;
-  if (body.scrollHeight > body.clientHeight && /auto|scroll/.test(bodyOverflow)) {
-    return body;
-  }
-  return (document.scrollingElement as HTMLElement | null) ?? document.documentElement;
-}
-
-function pageScrollTop() {
-  return pageScroller().scrollTop;
-}
-
-export function scrollPageTo(top: number) {
-  pageScroller().scrollTo({ top, behavior: 'auto' });
 }
 
 /**
