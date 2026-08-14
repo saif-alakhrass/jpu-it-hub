@@ -46,8 +46,28 @@ export interface FileRow {
   object_key: string | null;
   file_hash: string | null;
   mime_type: string | null;
+  box_name?: string | null;
+  rejection_reason: string | null;
+  moderated_at: string | null;
+  moderated_by: string | null;
   uploader?: Profile | null;
   subject?: Subject | null;
+  batch?: Pick<FileBatch, 'id' | 'subject_id' | 'tab' | 'title' | 'box_name' | 'status' | 'file_count'> | null;
+}
+
+export type NotificationType = 'file_approved' | 'file_rejected' | 'file_updated' | 'new_summary';
+
+export interface AppNotification {
+  id: string;
+  recipient_id: string | null;
+  type: NotificationType;
+  title: string;
+  message: string;
+  subject_id: string | null;
+  file_id: string | null;
+  read_at: string | null;
+  created_at: string;
+  subject?: Pick<Subject, 'id' | 'name' | 'code'> | null;
 }
 
 export interface FileBatch {
@@ -58,6 +78,7 @@ export interface FileBatch {
   uploader_id: string;
   status: FileStatus;
   file_count: number;
+  box_name?: string | null;
   created_at: string;
   files?: FileRow[];
   uploader?: Profile | null;
