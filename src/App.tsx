@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
 import { Navbar } from '@/components/Navbar';
 import { Icon } from '@/components/Icon';
 import { ScrollRestoration } from '@/components/ScrollRestoration';
@@ -24,7 +25,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/subject/:id" element={<SubjectPage />} />
-              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/admin" element={<AdminRoute />} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/profile" element={<ProfilePage />} />
@@ -38,6 +39,15 @@ export default function App() {
       </div>
     </AuthProvider>
   );
+}
+
+function AdminRoute() {
+  const { loading, isAdmin } = useAuth();
+  if (loading) return <PageLoading />;
+
+  // Do not render the lazy component for anyone else. This keeps the admin
+  // chunk and its dashboard queries out of the network path for public users.
+  return isAdmin ? <AdminPage /> : <Navigate to="/" replace />;
 }
 
 function PageLoading() {

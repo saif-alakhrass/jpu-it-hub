@@ -11,15 +11,14 @@ import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmark
 import { getBookmarkedIds } from '@/services/bookmarks';
 import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
+import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
 import {
   deleteFile,
-  deleteBatch,
   removeStorageObjects,
 } from '@/services/files';
-import { supabase } from '@/lib/supabase';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
@@ -93,23 +92,33 @@ export function SubjectPage() {
     })();
   }, [session, files]);
 
+  // The subject page is a content surface, not a moderation queue. Public
+  // visitors see only approved files. Administrators can additionally inspect
+  // pending and rejected files here, clearly labelled, while a student sees
+  // only their own pending upload.
+  const contentFiles = useMemo(() => files.filter((file) => (
+    file.status === 'approved'
+    || isAdmin
+    || (file.status === 'pending' && file.uploader_id === profile?.id)
+  )), [files, isAdmin, profile?.id]);
+
   // Build display groups: batches first (with their files), then standalone files.
   // Files whose batch is invisible (hidden by RLS) fall back to standalone cards.
   const allGroups: DisplayGroup[] = useMemo(() => {
     const result: DisplayGroup[] = [];
     for (const batch of batches) {
-      const batchFiles = files.filter((f) => f.tab === batch.tab && f.batch_id === batch.id);
+      const batchFiles = contentFiles.filter((f) => f.tab === batch.tab && f.batch_id === batch.id);
       if (batchFiles.length > 0) {
         result.push({ key: `batch-${batch.id}`, tab: batch.tab, batch, files: batchFiles });
       }
     }
     const visibleBatchIds = new Set(batches.map((b) => b.id));
-    const standalone = files.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
+    const standalone = contentFiles.filter((f) => !f.batch_id || !visibleBatchIds.has(f.batch_id));
     for (const f of standalone) {
       result.push({ key: `file-${f.id}`, tab: f.tab, batch: null, files: [f] });
     }
     return result;
-  }, [files, batches]);
+  }, [contentFiles, batches]);
 
   const activeGroups = useMemo(() => allGroups.filter((group) => group.tab === activeTab), [allGroups, activeTab]);
   const hasContent = activeGroups.length > 0;
@@ -161,21 +170,19 @@ export function SubjectPage() {
     if (deleteTarget.kind === 'file') {
       const file = deleteTarget.file;
       setBusyId(file.id);
-      const ok = await deleteFile(file.id);
-      if (!ok) {
+      const result = await deleteStoredFile(file);
+      if (!result.ok) {
         setBusyId(null);
         setDeleteTarget(null);
-        setToast({ message: 'فشل حذف الملف', type: 'error' });
+        setToast({ message: result.message ?? 'فشل حذف الملف', type: 'error' });
         return;
       }
-      const storageOk = file.storage_path ? await removeStorageObjects([file.storage_path]) : true;
       setBusyId(null);
       setDeleteTarget(null);
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
       if (deleteTarget.batchId) {
         const remaining = files.filter((f) => f.batch_id === deleteTarget.batchId && f.id !== file.id);
         if (remaining.length === 0) {
-          await deleteBatch(deleteTarget.batchId);
           setBatches((prev) => prev.filter((b) => b.id !== deleteTarget.batchId));
         } else {
           setBatches((prev) =>
@@ -186,41 +193,61 @@ export function SubjectPage() {
         }
       }
       setToast({
-        message: storageOk
+        message: result.cleanupQueued
+          ? `حُذف سجل "${file.title}" وتمت جدولة تنظيف النسخة المخزنة في R2.`
+          : result.storageOk
           ? `تم حذف الملف "${file.title}" نهائياً`
           : `تم حذف سجل "${file.title}"، لكن ملف التخزين يحتاج تنظيفًا يدويًا`,
-        type: storageOk ? 'success' : 'error',
+        type: result.storageOk || result.cleanupQueued ? 'success' : 'error',
       });
       return;
     }
-    // batch hard delete: storage objects → child file rows → batch row
+    // Each R2 object is deleted through the Worker before we update the UI.
     const batch = deleteTarget.batch;
     setBusyId(batch.id);
     const batchFiles = files.filter((f) => f.batch_id === batch.id);
-    const paths = batchFiles.map((f) => f.storage_path).filter(Boolean);
-    const { error: filesErr } = await supabase.from('files').delete().eq('batch_id', batch.id);
-    if (filesErr) {
+    const results = await Promise.all(batchFiles.map((file) => deleteStoredFile(file)));
+    const failed = results.find((result) => !result.ok);
+    if (failed) {
       setBusyId(null);
       setDeleteTarget(null);
-      setToast({ message: 'فشل حذف سجلات الملفات: ' + filesErr.message, type: 'error' });
+      await reloadFiles();
+      setToast({ message: failed.message ?? 'تعذر حذف أحد ملفات المجموعة. لم يُخفَ أي خطأ.', type: 'error' });
       return;
     }
-    const storageOk = paths.length === 0 || await removeStorageObjects(paths);
-    const batchOk = await deleteBatch(batch.id);
     setBusyId(null);
     setDeleteTarget(null);
-    if (!batchOk) {
-      setToast({ message: 'فشل حذف المجموعة', type: 'error' });
-      return;
-    }
     setFiles((prev) => prev.filter((f) => f.batch_id !== batch.id));
     setBatches((prev) => prev.filter((b) => b.id !== batch.id));
+    const cleanupQueued = results.some((result) => result.cleanupQueued);
     setToast({
-      message: storageOk
+      message: cleanupQueued
+        ? `حُذفت المجموعة "${batch.title}" وتمت جدولة تنظيف بعض النسخ المخزنة في R2.`
+        : results.every((result) => result.storageOk)
         ? `تم حذف المجموعة "${batch.title}" وكل ملفاتها نهائياً`
         : `تم حذف المجموعة "${batch.title}"، لكن بعض ملفات التخزين تحتاج تنظيفًا يدويًا`,
-      type: storageOk ? 'success' : 'error',
+      type: cleanupQueued || results.every((result) => result.storageOk) ? 'success' : 'error',
     });
+  }
+
+  async function deleteStoredFile(file: FileRow): Promise<{ ok: boolean; storageOk: boolean; cleanupQueued?: boolean; message?: string }> {
+    if (file.storage_provider === 'r2') {
+      const token = session?.access_token;
+      if (!token || !isR2Configured()) {
+        return { ok: false, storageOk: false, message: 'خدمة حذف الملفات الآمنة غير متاحة الآن.' };
+      }
+      const result = await deleteFileViaWorker(token, file.id);
+      if (!result) return { ok: false, storageOk: false, message: 'تعذر الاتصال بخدمة حذف الملفات.' };
+      if (!result.success) {
+        return { ok: true, storageOk: false, cleanupQueued: result.cleanup_queued, message: result.message };
+      }
+      return { ok: true, storageOk: true };
+    }
+
+    const storageOk = file.storage_path ? await removeStorageObjects([file.storage_path]) : true;
+    if (!storageOk) return { ok: false, storageOk: false, message: 'تعذر حذف النسخة المخزنة؛ لم يُحذف سجل الملف.' };
+    const recordDeleted = await deleteFile(file.id);
+    return { ok: recordDeleted, storageOk, message: recordDeleted ? undefined : 'تعذر حذف سجل الملف.' };
   }
 
   async function handleToggleBookmark(file: FileRow) {
@@ -537,8 +564,9 @@ function FileRowCard({
 }: ProfileCardProps & { file: FileRow; onDelete: () => void }) {
   const isOwn = profile?.id === file.uploader_id;
   const pending = file.status === 'pending';
+  const rejected = file.status === 'rejected';
   return (
-    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''}`}>
+    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''} ${rejected ? 'border-danger-500/30' : ''}`}>
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink-700 text-brand-400">
         <Icon name="File" className="h-5 w-5" />
       </span>
@@ -549,6 +577,12 @@ function FileRowCard({
             <span className="badge bg-accent-500/15 text-accent-400 border border-accent-500/30">
               <Icon name="Clock" className="h-3 w-3" />
               قيد المراجعة
+            </span>
+          )}
+          {rejected && (
+            <span className="badge border border-danger-500/30 bg-danger-500/10 text-danger-300">
+              <Icon name="FileWarning" className="h-3 w-3" />
+              مرفوض
             </span>
           )}
         </div>
