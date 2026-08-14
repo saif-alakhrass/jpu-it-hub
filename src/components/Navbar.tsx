@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icon';
+import { scrollPageTo } from './ScrollRestoration';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 
@@ -32,6 +33,17 @@ export function Navbar() {
     if (menuOpen) document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen]);
+
+  function openAbout() {
+    // Keep the source-page position, but always start the standalone About
+    // page at its beginning.
+    sessionStorage.removeItem('jpu-it-hub:scroll:/about');
+    sessionStorage.setItem('jpu-it-hub:scroll-reset', '/about');
+    navigate('/about');
+    // React Router can ignore navigation to the same URL. In that case there
+    // is no route effect to reset the page, so reset it on the next frame too.
+    requestAnimationFrame(() => scrollPageTo(0));
+  }
 
   const roleBadge = (() => {
     if (!profile) return null;
@@ -66,7 +78,7 @@ export function Navbar() {
           <button onClick={() => navigate('/')} className={`btn-ghost ${route.path === '/' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Home" className="h-4 w-4" /> الرئيسية
           </button>
-          <button onClick={() => navigate('/about')} className={`btn-ghost ${route.path === '/about' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
+          <button onClick={openAbout} className={`btn-ghost ${route.path === '/about' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Info" className="h-4 w-4" /> من نحن
           </button>
           {isAdmin && (
@@ -123,7 +135,7 @@ export function Navbar() {
             <button onClick={() => { navigate('/'); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Home" className="h-4 w-4" /> الرئيسية
             </button>
-            <button onClick={() => { navigate('/about'); setOpen(false); }} className="btn-ghost justify-start">
+            <button onClick={() => { openAbout(); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Info" className="h-4 w-4" /> من نحن
             </button>
             {isAdmin && (
