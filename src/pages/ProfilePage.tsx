@@ -6,7 +6,6 @@ import { useRouter } from '@/lib/router';
 import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
 import { updateProfile } from '@/services/auth';
 import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
-import { getLocalFileUrl, downloadLocalFile } from '@/lib/localFileStore';
 
 const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
   admin: { label: 'مدير', cls: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
@@ -309,47 +308,23 @@ function SavedItemsTab({ onToast }: { onToast: (t: { message: string; type: 'suc
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {file.storage_provider === 'local' ? (
-                          <>
-                            <button
-                              onClick={() => void (async () => {
-                                const url = await getLocalFileUrl(file.id);
-                                if (url) window.open(url, '_blank');
-                              })()}
-                              className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
-                              title="معاينة"
-                            >
-                              <Icon name="Eye" className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => void downloadLocalFile(file.id, file.title)}
-                              className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
-                              title="تنزيل"
-                            >
-                              <Icon name="Download" className="h-4 w-4" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <a
-                              href={file.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
-                              title="معاينة"
-                            >
-                              <Icon name="Eye" className="h-4 w-4" />
-                            </a>
-                            <a
-                              href={file.file_url}
-                              download
-                              className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
-                              title="تنزيل"
-                            >
-                              <Icon name="Download" className="h-4 w-4" />
-                            </a>
-                          </>
-                        )}
+                        <a
+                          href={file.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
+                          title="معاينة"
+                        >
+                          <Icon name="Eye" className="h-4 w-4" />
+                        </a>
+                        <a
+                          href={file.file_url}
+                          download
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
+                          title="تنزيل"
+                        >
+                          <Icon name="Download" className="h-4 w-4" />
+                        </a>
                         <button
                           onClick={() => handleDelete(b.id)}
                           className="rounded-lg p-2 text-slate-400 hover:bg-danger-500/10 hover:text-danger-400"

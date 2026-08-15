@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileTab } from '@/lib/types';
 import { validateFile } from '@/lib/storage';
-import { saveLocalFile } from '@/lib/localFileStore';
 import {
   isR2Configured,
   requestUploadPresign,
@@ -96,8 +95,8 @@ export function useUpload() {
           onProgress?.(item, 'error', result.error);
         }
       } else {
-        // ---- Local storage path (no remote backend configured) ----
-        const result = await uploadViaLocal(item, ext, opts, batchId);
+        // ---- Supabase Storage upload path ----
+        const result = await uploadViaSupabase(item, ext, opts, batchId);
         if (result.success) {
           successCount++;
           setUploadTimes((prev) => [...prev, Date.now()]);
@@ -200,7 +199,7 @@ export function useUpload() {
     }
   }
 
-  async function uploadViaLocal(
+  async function uploadViaSupabase(
     item: QueuedFile,
     ext: string,
     opts: {
@@ -213,31 +212,36 @@ export function useUpload() {
     batchId: string | null,
   ): Promise<{ success: boolean; error: string }> {
     try {
-      const { data: fileRecord, error: insErr } = await supabase
+      const filePath = `${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('files')
+        .upload(filePath, item.file);
+
+      if (uploadErr) {
+        let msg = 'فشل رفع الملف إلى التخزين';
+        if (uploadErr.message.includes('not allowed') || uploadErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+        return { success: false, error: msg };
+      }
+
+      const { error: insErr } = await supabase
         .from('files')
         .insert({
           subject_id: opts.subjectId,
           tab: opts.tab,
           title: item.title.trim() || item.file.name,
-          storage_path: `local/${item.id}`,
-          file_url: `local/${item.id}`,
+          storage_path: filePath,
+          file_url: filePath,
           file_type: ext,
           file_size: item.file.size,
           batch_id: batchId,
-          storage_provider: 'local',
-          object_key: item.id,
-        })
-        .select('id')
-        .maybeSingle();
+        });
 
-      if (insErr || !fileRecord) {
-        let msg = 'فشل حفظ الملف';
-        if (insErr?.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
-        else if (insErr?.message.includes('not allowed') || insErr?.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+      if (insErr) {
+        let msg = 'فشل حفظ سجل الملف';
+        if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
         return { success: false, error: msg };
       }
 
-      await saveLocalFile(fileRecord.id, item.file);
       return { success: true, error: '' };
     } catch (error) {
       return {
