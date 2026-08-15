@@ -886,8 +886,11 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   }
 
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  const disposition = mode === 'download' ? downloadContentDisposition(file) : undefined;
-  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry, disposition);
+  // Do not pass response-content-disposition to the presigned URL. The `filename*`
+  // parameter contains an asterisk that encodeURIComponent turns into %2A, but
+  // R2's S3 canonical request leaves `*` unencoded — causing SignatureDoesNotMatch.
+  // The frontend already sets the download filename client-side via blob download.
+  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
 
   return corsResponse(env, request, 200, {
     download_url: presignedUrl,
