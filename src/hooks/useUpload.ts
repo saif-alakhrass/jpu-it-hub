@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileTab } from '@/lib/types';
 import { validateFile } from '@/lib/storage';
+import { saveLocalFile } from '@/lib/localFileStore';
 import {
   isR2Configured,
   requestUploadPresign,
@@ -95,8 +96,8 @@ export function useUpload() {
           onProgress?.(item, 'error', result.error);
         }
       } else {
-        // ---- Legacy Supabase Storage upload path (backward compatible) ----
-        const result = await uploadViaSupabase(item, ext, opts, batchId);
+        // ---- Local storage path (no remote backend configured) ----
+        const result = await uploadViaLocal(item, ext, opts, batchId);
         if (result.success) {
           successCount++;
           setUploadTimes((prev) => [...prev, Date.now()]);
@@ -199,7 +200,7 @@ export function useUpload() {
     }
   }
 
-  async function uploadViaSupabase(
+  async function uploadViaLocal(
     item: QueuedFile,
     ext: string,
     opts: {
@@ -211,35 +212,39 @@ export function useUpload() {
     },
     batchId: string | null,
   ): Promise<{ success: boolean; error: string }> {
-    const path = `${opts.userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    try {
+      const { data: fileRecord, error: insErr } = await supabase
+        .from('files')
+        .insert({
+          subject_id: opts.subjectId,
+          tab: opts.tab,
+          title: item.title.trim() || item.file.name,
+          storage_path: `local/${item.id}`,
+          file_url: `local/${item.id}`,
+          file_type: ext,
+          file_size: item.file.size,
+          batch_id: batchId,
+          storage_provider: 'local',
+          object_key: item.id,
+        })
+        .select('id')
+        .maybeSingle();
 
-    const { error: upErr } = await supabase.storage.from('files').upload(path, item.file, { upsert: false });
-    if (upErr) {
-      return { success: false, error: 'فشل رفع الملف' };
+      if (insErr || !fileRecord) {
+        let msg = 'فشل حفظ الملف';
+        if (insErr?.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
+        else if (insErr?.message.includes('not allowed') || insErr?.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
+        return { success: false, error: msg };
+      }
+
+      await saveLocalFile(fileRecord.id, item.file);
+      return { success: true, error: '' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء الرفع',
+      };
     }
-
-    const { error: insErr } = await supabase.from('files').insert({
-      subject_id: opts.subjectId,
-      tab: opts.tab,
-      title: item.title.trim() || item.file.name,
-      storage_path: path,
-      file_url: path,
-      file_type: ext,
-      file_size: item.file.size,
-      batch_id: batchId,
-      storage_provider: 'supabase',
-      status: opts.canPublishDirectly ? 'approved' : 'pending',
-    });
-
-    if (insErr) {
-      await supabase.storage.from('files').remove([path]);
-      let msg = 'فشل حفظ الملف';
-      if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
-      else if (insErr.message.includes('not allowed') || insErr.message.includes('too large')) msg = 'صيغة غير مدعومة أو حجم كبير';
-      return { success: false, error: msg };
-    }
-
-    return { success: true, error: '' };
   }
 
   function validateQueue(fileList: FileList | File[]): QueuedFile[] {

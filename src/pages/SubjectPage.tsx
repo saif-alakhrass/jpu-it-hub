@@ -12,6 +12,7 @@ import { getBookmarkedIds } from '@/services/bookmarks';
 import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
 import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
+import { deleteLocalFile } from '@/lib/localFileStore';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
@@ -231,6 +232,11 @@ export function SubjectPage() {
   }
 
   async function deleteStoredFile(file: FileRow): Promise<{ ok: boolean; storageOk: boolean; cleanupQueued?: boolean; message?: string }> {
+    if (file.storage_provider === 'local') {
+      await deleteLocalFile(file.id);
+      const recordDeleted = await deleteFile(file.id);
+      return { ok: recordDeleted, storageOk: true, message: recordDeleted ? undefined : 'تعذر حذف سجل الملف.' };
+    }
     if (file.storage_provider === 'r2') {
       const token = session?.access_token;
       if (!token || !isR2Configured()) {

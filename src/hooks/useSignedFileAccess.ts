@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
 import { downloadFile, downloadFileViaStorage, getSignedFileUrl } from '@/lib/storage';
 import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { getLocalFileUrl, downloadLocalFile } from '@/lib/localFileStore';
 
 // R2 URLs currently expire after five minutes. Keep the cache shorter so a
 // preview never reuses a URL that the Worker has already expired.
@@ -20,10 +21,22 @@ export function useSignedFileAccess(onError: (message: string) => void) {
       let url = cached && cached.expiresAt > Date.now() ? cached.url : null;
 
       if (!url) {
-        // Determine storage provider: R2 for new files, Supabase for legacy
+        // Determine storage provider: local, R2, or legacy Supabase
+        const isLocalFile = file.storage_provider === 'local';
         const isR2File = file.storage_provider === 'r2' && file.object_key;
 
-        if (isR2File && isR2Configured()) {
+        if (isLocalFile) {
+          const localUrl = await getLocalFileUrl(file.id);
+          if (!localUrl) {
+            onError('الملف محفوظ محليًا في متصفح آخر أو تم مسحه. أعد رفعه من نفس الجهاز.');
+            return;
+          }
+          if (mode === 'download') {
+            await downloadLocalFile(file.id, file.title);
+            return;
+          }
+          url = localUrl;
+        } else if (isR2File && isR2Configured()) {
           // Get presigned URL from the Cloudflare Worker
           const { data: sessionData } = await supabase.auth.getSession();
           const accessToken = sessionData?.session?.access_token;
