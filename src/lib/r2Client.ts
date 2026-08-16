@@ -6,6 +6,8 @@
  * the Worker holds R2 credentials, not the frontend).
  */
 
+import type { UserFacingError } from '@/lib/serviceError';
+
 const WORKER_URL = (import.meta.env.VITE_R2_WORKER_URL as string) || '';
 
 export function isR2Configured(): boolean {
@@ -43,10 +45,16 @@ export interface DeleteResult {
   message?: string;
 }
 
-export class WorkerRequestError extends Error {
-  constructor(message: string) {
+export class WorkerRequestError extends Error implements UserFacingError {
+  readonly status: number;
+  /** Worker errors are already written for end users, so they can be shown as-is. */
+  readonly userMessage: string;
+
+  constructor(message: string, status = 0) {
     super(message);
     this.name = 'WorkerRequestError';
+    this.status = status;
+    this.userMessage = message;
   }
 }
 
@@ -58,7 +66,7 @@ async function throwWorkerError(response: Response): Promise<never> {
   } catch {
     // Keep the safe status-based error when the response is not JSON.
   }
-  throw new WorkerRequestError(message);
+  throw new WorkerRequestError(message, response.status);
 }
 
 /**
@@ -74,7 +82,7 @@ export async function requestUploadPresign(
     tab: string;
     batch_id?: string | null;
   },
-): Promise<UploadPresignResult | null> {
+): Promise<UploadPresignResult> {
   const res = await fetch(`${WORKER_URL}/upload-presign`, {
     method: 'POST',
     headers: getAuthHeaders(accessToken),
@@ -94,7 +102,7 @@ export async function uploadToR2(
   mimeType: string,
   accessToken: string,
   objectKey: string,
-): Promise<boolean> {
+): Promise<void> {
   // Direct browser PUTs to private R2 can fail after the object is accepted
   // due to browser-level CORS handling. Use the authenticated Worker path as
   // the reliable upload transport; it writes only the generated object key.
@@ -107,7 +115,7 @@ export async function uploadToR2(
     },
     body: file,
   });
-  return fallback.ok;
+  if (!fallback.ok) return throwWorkerError(fallback);
 }
 
 /**
@@ -132,7 +140,7 @@ export async function checkHashDuplicate(
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify({ file_hash: fileHash, subject_id: subjectId }),
   });
-  if (!res.ok) return false;
+  if (!res.ok) return throwWorkerError(res);
   const data = await res.json() as { is_duplicate: boolean };
   return data.is_duplicate;
 }
@@ -155,13 +163,13 @@ export async function confirmUpload(
     tab: string;
     batch_id?: string | null;
   },
-): Promise<{ success: boolean; file?: unknown } | null> {
+): Promise<{ success: boolean; file?: unknown }> {
   const res = await fetch(`${WORKER_URL}/confirm-upload`, {
     method: 'POST',
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify(params),
   });
-  if (!res.ok) return null;
+  if (!res.ok) return throwWorkerError(res);
   return res.json() as Promise<{ success: boolean; file?: unknown }>;
 }
 
@@ -174,13 +182,13 @@ export async function requestDownloadPresign(
   accessToken: string,
   fileId: string,
   mode: 'preview' | 'download' = 'preview',
-): Promise<DownloadPresignResult | null> {
+): Promise<DownloadPresignResult> {
   const res = await fetch(`${WORKER_URL}/download-presign`, {
     method: 'POST',
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify({ file_id: fileId, mode }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) return throwWorkerError(res);
   return res.json() as Promise<DownloadPresignResult>;
 }
 
@@ -191,13 +199,13 @@ export async function requestDownloadPresign(
 export async function deleteFileViaWorker(
   accessToken: string,
   fileId: string,
-): Promise<DeleteResult | null> {
+): Promise<DeleteResult> {
   const res = await fetch(`${WORKER_URL}/delete`, {
     method: 'POST',
     headers: getAuthHeaders(accessToken),
     body: JSON.stringify({ file_id: fileId }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) return throwWorkerError(res);
   return res.json() as Promise<DeleteResult>;
 }
 

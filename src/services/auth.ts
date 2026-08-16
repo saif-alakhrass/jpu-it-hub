@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { Profile, Role } from '@/lib/types';
 import { mapAuthError } from '@/lib/authErrors';
+import { failService } from '@/lib/serviceError';
 
 export interface AuthResult {
   error: string | null;
@@ -38,15 +39,18 @@ export async function signUpWithEmail(email: string, password: string, fullName:
   }
 }
 
-export async function signInWithGoogle(): Promise<void> {
-  await supabase.auth.signInWithOAuth({
+export async function signInWithGoogle(): Promise<AuthResult> {
+  const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: window.location.origin },
   });
+  if (error) return { error: mapAuthError(error, 'تعذر تسجيل الدخول عبر Google') };
+  return { error: null };
 }
 
 export async function signOutUser(): Promise<void> {
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+  if (error) failService('sign out', error);
 }
 
 export async function loadProfile(uid: string): Promise<Profile | null> {
@@ -55,21 +59,21 @@ export async function loadProfile(uid: string): Promise<Profile | null> {
     .select('id, full_name, role, created_at, academic_year, department, credit_hours, bio')
     .eq('id', uid)
     .maybeSingle();
-  if (error) return null;
+  if (error) failService('load profile', error);
   return data as Profile | null;
 }
 
 export async function updateProfile(
   id: string,
   updates: Partial<Pick<Profile, 'full_name' | 'academic_year' | 'department' | 'credit_hours' | 'bio'>>,
-): Promise<boolean> {
+): Promise<void> {
   const { error } = await supabase.from('profiles').update(updates).eq('id', id);
-  return !error;
+  if (error) failService('update profile', error);
 }
 
-export async function updateUserRole(id: string, role: Role): Promise<boolean> {
+export async function updateUserRole(id: string, role: Role): Promise<void> {
   const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
-  return !error;
+  if (error) failService('update user role', error);
 }
 
 export async function fetchProfiles(): Promise<Profile[]> {
@@ -78,6 +82,6 @@ export async function fetchProfiles(): Promise<Profile[]> {
     .select('id, full_name, role, created_at')
     .order('created_at', { ascending: false })
     .limit(100);
-  if (error) return [];
+  if (error) failService('fetch profiles', error);
   return (data ?? []) as Profile[];
 }

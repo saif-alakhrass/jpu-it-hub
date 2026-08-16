@@ -12,7 +12,7 @@ export interface AuthState {
   canPublishDirectly: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null; notice?: string | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null; notice?: string | null }>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }

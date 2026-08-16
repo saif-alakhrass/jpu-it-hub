@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { updateBookmark } from '@/services/bookmarks';
+import { getUserErrorMessage } from '@/lib/serviceError';
 import type { Bookmark } from '@/lib/types';
 
 interface BookmarkEditorProps {
@@ -16,6 +17,7 @@ export function BookmarkEditor({ bookmark, existingFolders, onClose, onSaved }: 
   const [saving, setSaving] = useState(false);
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [newFolder, setNewFolder] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,12 +35,17 @@ export function BookmarkEditor({ bookmark, existingFolders, onClose, onSaved }: 
 
   async function handleSave() {
     setSaving(true);
+    setError(null);
     const folder = showFolderInput && newFolder.trim() ? newFolder.trim() : folderName;
-    const ok = await updateBookmark(bookmark.id, { folder_name: folder, note: note.trim() || null });
-    setSaving(false);
-    if (!ok) return;
-    onSaved();
-    onClose();
+    try {
+      await updateBookmark(bookmark.id, { folder_name: folder, note: note.trim() || null });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(getUserErrorMessage(err, 'تعذر حفظ التعديلات. حاول مجددًا.'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -102,9 +109,15 @@ export function BookmarkEditor({ bookmark, existingFolders, onClose, onSaved }: 
             />
           </div>
 
+          {error && (
+            <p className="flex items-center gap-1 text-xs text-danger-400">
+              <Icon name="AlertCircle" className="h-3 w-3 shrink-0" /> {error}
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={onClose} className="btn-ghost text-sm">إلغاء</button>
-            <button onClick={handleSave} disabled={saving} className="btn-primary text-sm">
+            <button onClick={() => { void handleSave(); }} disabled={saving} className="btn-primary text-sm">
               {saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />}
               حفظ
             </button>

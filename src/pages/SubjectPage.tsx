@@ -86,10 +86,17 @@ export function SubjectPage() {
 
   useEffect(() => {
     if (!session || files.length === 0) return;
+    let active = true;
     (async () => {
-      const ids = await getBookmarkedIds(files.map((f) => f.id));
-      setBookmarkedIds(ids);
+      try {
+        const ids = await getBookmarkedIds(files.map((f) => f.id));
+        if (active) setBookmarkedIds(ids);
+      } catch (err) {
+        // Bookmark markers are supplementary: keep the file list usable.
+        console.error('Failed to load bookmark markers', err);
+      }
     })();
+    return () => { active = false; };
   }, [session, files]);
 
   // The subject page is a content surface, not a moderation queue. Public
@@ -231,23 +238,27 @@ export function SubjectPage() {
   }
 
   async function deleteStoredFile(file: FileRow): Promise<{ ok: boolean; storageOk: boolean; cleanupQueued?: boolean; message?: string }> {
-    if (file.storage_provider === 'r2') {
-      const token = session?.access_token;
-      if (!token || !isR2Configured()) {
-        return { ok: false, storageOk: false, message: 'خدمة حذف الملفات الآمنة غير متاحة الآن.' };
+    try {
+      if (file.storage_provider === 'r2') {
+        const token = session?.access_token;
+        if (!token || !isR2Configured()) {
+          return { ok: false, storageOk: false, message: 'خدمة حذف الملفات الآمنة غير متاحة الآن.' };
+        }
+        const result = await deleteFileViaWorker(token, file.id);
+        if (!result.success) {
+          return { ok: true, storageOk: false, cleanupQueued: result.cleanup_queued, message: result.message };
+        }
+        return { ok: true, storageOk: true };
       }
-      const result = await deleteFileViaWorker(token, file.id);
-      if (!result) return { ok: false, storageOk: false, message: 'تعذر الاتصال بخدمة حذف الملفات.' };
-      if (!result.success) {
-        return { ok: true, storageOk: false, cleanupQueued: result.cleanup_queued, message: result.message };
-      }
-      return { ok: true, storageOk: true };
-    }
 
-    const storageOk = file.storage_path ? await removeStorageObjects([file.storage_path]) : true;
-    if (!storageOk) return { ok: false, storageOk: false, message: 'تعذر حذف النسخة المخزنة؛ لم يُحذف سجل الملف.' };
-    const recordDeleted = await deleteFile(file.id);
-    return { ok: recordDeleted, storageOk, message: recordDeleted ? undefined : 'تعذر حذف سجل الملف.' };
+      const storageOk = file.storage_path ? await removeStorageObjects([file.storage_path]) : true;
+      if (!storageOk) return { ok: false, storageOk: false, message: 'تعذر حذف النسخة المخزنة؛ لم يُحذف سجل الملف.' };
+      await deleteFile(file.id);
+      return { ok: true, storageOk };
+    } catch (err) {
+      console.error('Failed to delete a stored file', err);
+      return { ok: false, storageOk: false, message: getUserErrorMessage(err, 'تعذر حذف سجل الملف.') };
+    }
   }
 
   async function handleToggleBookmark(file: FileRow) {
@@ -256,13 +267,17 @@ export function SubjectPage() {
       return;
     }
     if (bookmarkedIds.has(file.id)) {
-      const ok = await removeBookmark(file.id);
-      if (ok) setBookmarkedIds((prev) => { const n = new Set(prev); n.delete(file.id); return n; });
+      try {
+        await removeBookmark(file.id);
+        setBookmarkedIds((prev) => { const n = new Set(prev); n.delete(file.id); return n; });
+      } catch (err) {
+        setToast({ message: getUserErrorMessage(err, 'تعذر إلغاء الحفظ'), type: 'error' });
+      }
       return;
     }
     const folderName = subject?.name ?? 'عام';
-    const created = await addBookmark(file.id, folderName);
-    if (created) {
+    try {
+      const created = await addBookmark(file.id, folderName);
       setBookmarkedIds((prev) => new Set(prev).add(file.id));
       const folders = await getUserFolders();
       setToast({
@@ -271,8 +286,8 @@ export function SubjectPage() {
         actionLabel: 'تغيير المجلد / أضف ملاحظة',
         onAction: () => setBookmarkForEditor({ bookmark: created, folders }),
       });
-    } else {
-      setToast({ message: 'فشل حفظ العنصر', type: 'error' });
+    } catch (err) {
+      setToast({ message: getUserErrorMessage(err, 'فشل حفظ العنصر'), type: 'error' });
     }
   }
 

@@ -6,6 +6,7 @@ import { useRouter } from '@/lib/router';
 import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
 import { updateProfile } from '@/services/auth';
 import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
+import { getUserErrorMessage } from '@/lib/serviceError';
 
 const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
   admin: { label: 'مدير', cls: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
@@ -66,18 +67,22 @@ export function ProfilePage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    const ok = await updateProfile(profile!.id, {
-      full_name: fullName.trim() || null,
-      academic_year: academicYear || null,
-      department: department || null,
-      credit_hours: creditHours ? parseInt(creditHours, 10) : null,
-      bio: bio.trim() || null,
-    });
-    setSaving(false);
-    if (!ok) { setToast({ message: 'فشل حفظ التغييرات', type: 'error' }); return; }
-    await refreshProfile();
-    setEditing(false);
-    setToast({ message: 'تم حفظ الملف الشخصي بنجاح', type: 'success' });
+    try {
+      await updateProfile(profile!.id, {
+        full_name: fullName.trim() || null,
+        academic_year: academicYear || null,
+        department: department || null,
+        credit_hours: creditHours ? parseInt(creditHours, 10) : null,
+        bio: bio.trim() || null,
+      });
+      await refreshProfile();
+      setEditing(false);
+      setToast({ message: 'تم حفظ الملف الشخصي بنجاح', type: 'success' });
+    } catch (err) {
+      setToast({ message: getUserErrorMessage(err, 'فشل حفظ التغييرات'), type: 'error' });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -178,7 +183,14 @@ export function ProfilePage() {
               <h3 className="font-bold text-slate-200">إدارة الحساب</h3>
               <p className="text-sm text-slate-400">تسجيل الخروج من المنصة</p>
             </div>
-            <button onClick={() => signOut().then(() => navigate('/'))} className="btn-ghost text-danger-400 hover:bg-danger-500/10">
+            <button
+              onClick={() => {
+                signOut()
+                  .then(() => navigate('/'))
+                  .catch((err: unknown) => setToast({ message: getUserErrorMessage(err, 'فشل تسجيل الخروج'), type: 'error' }));
+              }}
+              className="btn-ghost text-danger-400 hover:bg-danger-500/10"
+            >
               <Icon name="LogOut" className="h-4 w-4" /> خروج
             </button>
           </div>
@@ -195,16 +207,26 @@ export function ProfilePage() {
 function SavedItemsTab({ onToast }: { onToast: (t: { message: string; type: 'success' | 'error' }) => void }) {
   const [bookmarks, setBookmarks] = useState<BookmarkWithFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedFolder, setExpandedFolder] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       setLoading(true);
-      const data = await getUserBookmarks();
-      setBookmarks(data);
-      if (data.length > 0) setExpandedFolder(Object.keys(groupByFolder(data))[0] ?? null);
-      setLoading(false);
+      setLoadError(null);
+      try {
+        const data = await getUserBookmarks();
+        if (!active) return;
+        setBookmarks(data);
+        if (data.length > 0) setExpandedFolder(Object.keys(groupByFolder(data))[0] ?? null);
+      } catch (err) {
+        if (active) setLoadError(getUserErrorMessage(err, 'تعذر تحميل المحفوطات. حاول مجددًا.'));
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
+    return () => { active = false; };
   }, []);
 
   function groupByFolder(items: BookmarkWithFile[]): Record<string, BookmarkWithFile[]> {
@@ -217,17 +239,26 @@ function SavedItemsTab({ onToast }: { onToast: (t: { message: string; type: 'suc
   }
 
   async function handleDelete(id: string) {
-    const ok = await removeBookmarkById(id);
-    if (ok) {
+    try {
+      await removeBookmarkById(id);
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
       onToast({ message: 'تم حذف العنصر من المحفوظات', type: 'success' });
-    } else {
-      onToast({ message: 'فشل حذف العنصر', type: 'error' });
+    } catch (err) {
+      onToast({ message: getUserErrorMessage(err, 'فشل حذف العنصر'), type: 'error' });
     }
   }
 
   if (loading) {
     return <div className="card p-12 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>;
+  }
+
+  if (loadError) {
+    return (
+      <div className="card p-12 text-center">
+        <Icon name="AlertCircle" className="mx-auto mb-4 h-12 w-12 text-danger-400" />
+        <h3 className="text-lg font-bold text-slate-300">{loadError}</h3>
+      </div>
+    );
   }
 
   if (bookmarks.length === 0) {

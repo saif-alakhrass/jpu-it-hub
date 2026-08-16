@@ -69,7 +69,7 @@ export async function createSubject(input: {
   code?: string | null;
   difficulty?: Difficulty | null;
   course_description?: string | null;
-}): Promise<Subject | null> {
+}): Promise<Subject> {
   const { data, error } = await supabase
     .from('subjects')
     .insert({
@@ -82,21 +82,21 @@ export async function createSubject(input: {
       course_description: input.course_description ?? null,
     })
     .select(SUBJECT_COLUMNS)
-    .maybeSingle();
-  if (error) return null;
-  return data as Subject | null;
+    .single();
+  if (error) failService('create subject', error);
+  return data as Subject;
 }
 
 export async function updateSubject(
   id: string,
   updates: Partial<Pick<Subject, 'name' | 'code' | 'description' | 'major' | 'departments' | 'difficulty' | 'course_description'>>,
-): Promise<boolean> {
+): Promise<void> {
   const { error } = await supabase.from('subjects').update(updates).eq('id', id);
-  return !error;
+  if (error) failService('update subject', error);
 }
 
 export interface DeleteSubjectResult {
-  ok: boolean;
+  /** The subject row is gone, but some stored files were left behind. */
   storageCleanupFailed: boolean;
 }
 
@@ -105,14 +105,17 @@ export async function deleteSubject(id: string): Promise<DeleteSubjectResult> {
     .from('files')
     .select('storage_path')
     .eq('subject_id', id);
-  if (filesError) return { ok: false, storageCleanupFailed: false };
+  if (filesError) failService('fetch subject files for deletion', filesError);
 
   const { error } = await supabase.from('subjects').delete().eq('id', id);
-  if (error) return { ok: false, storageCleanupFailed: false };
+  if (error) failService('delete subject', error);
 
   const paths = (files ?? []).map((file) => file.storage_path).filter(Boolean);
-  if (paths.length === 0) return { ok: true, storageCleanupFailed: false };
+  if (paths.length === 0) return { storageCleanupFailed: false };
 
   const { error: storageError } = await supabase.storage.from('files').remove(paths);
-  return { ok: true, storageCleanupFailed: Boolean(storageError) };
+  if (storageError) {
+    console.error('Subject deleted but storage cleanup failed', storageError);
+  }
+  return { storageCleanupFailed: Boolean(storageError) };
 }

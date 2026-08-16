@@ -3,7 +3,8 @@ import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { formatFileSize, getFileIcon, canUploadNow } from '@/lib/storage';
 import { getUploadLimit, MAX_FILE_SIZE_MB } from '@/lib/constants';
-import { useUpload, type QueuedFile } from '@/hooks/useUpload';
+import { useUpload, type QueuedFile, type UploadResult } from '@/hooks/useUpload';
+import { getUserErrorMessage } from '@/lib/serviceError';
 import type { FileTab, Role } from '@/lib/types';
 
 function buildBatchTitle(tabLabel: string, count: number): string {
@@ -106,24 +107,43 @@ export function MultiFileUpload({
       return;
     }
 
-    await uploadBatch(
-      toUpload,
-      { subjectId, tab: activeTab, userId, canPublishDirectly, batchTitle, tabLabel },
-      (item, status) => {
-        // Keep low-level storage/network failures out of the student-facing
-        // upload UI. The backend still records and validates actual uploads.
-        const displayStatus = status === 'error' ? 'done' : status;
-        setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: displayStatus, error: undefined } : q)));
-      },
-    );
+    let result: UploadResult;
+    try {
+      result = await uploadBatch(
+        toUpload,
+        { subjectId, tab: activeTab, userId, canPublishDirectly, batchTitle, tabLabel },
+        (item, status, error) => {
+          setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status, error } : q)));
+        },
+      );
+    } catch (err) {
+      console.error('Batch upload failed', err);
+      setQueue((prev) => prev.map((q) => (
+        toUpload.some((t) => t.id === q.id) && q.status === 'uploading'
+          ? { ...q, status: 'error', error: 'توقف الرفع بشكل غير متوقع' }
+          : q
+      )));
+      onToast({ message: getUserErrorMessage(err, 'فشل رفع الملفات. حاول مجددًا.'), type: 'error' });
+      return;
+    }
 
-    const displayCount = toUpload.length;
-    onToast({
-      message: canPublishDirectly ? `تم نشر ${displayCount} ملف بنجاح` : `تم رفع ${displayCount} ملف وهم قيد المراجعة`,
-      type: 'success',
-    });
-    onUploaded();
-    setTimeout(() => resetAndClose(), 800);
+    const { successCount, failCount, error } = result;
+
+    if (successCount > 0) {
+      onToast({
+        message: canPublishDirectly
+          ? `تم نشر ${successCount} ملف بنجاح${failCount > 0 ? ` · فشل ${failCount}` : ''}`
+          : `تم رفع ${successCount} ملف وهم قيد المراجعة${failCount > 0 ? ` · فشل ${failCount}` : ''}`,
+        type: failCount > 0 ? 'error' : 'success',
+      });
+      onUploaded();
+    } else {
+      onToast({ message: error ?? 'فشل رفع الملفات. حاول مجددًا.', type: 'error' });
+    }
+
+    // Keep the dialog open when something failed so the user can see which
+    // files need a retry.
+    if (failCount === 0) setTimeout(() => resetAndClose(), 800);
   }
 
   const validWaiting = validQueue.filter((q) => q.status === 'waiting').length;

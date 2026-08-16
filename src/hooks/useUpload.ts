@@ -11,6 +11,7 @@ import {
   checkHashDuplicate,
   requestDownloadPresign,
 } from '@/lib/r2Client';
+import { getUserErrorMessage } from '@/lib/serviceError';
 
 export interface QueuedFile {
   id: string;
@@ -46,6 +47,25 @@ export function useUpload() {
     if (toUpload.length === 0) return { successCount: 0, failCount: 0, error: null };
 
     setUploading(true);
+    try {
+      return await runBatch(toUpload, opts, onProgress);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function runBatch(
+    toUpload: QueuedFile[],
+    opts: {
+      subjectId: string;
+      tab: FileTab;
+      userId: string;
+      canPublishDirectly: boolean;
+      batchTitle?: string;
+      tabLabel: string;
+    },
+    onProgress?: (item: QueuedFile, status: QueuedFile['status'], error?: string) => void,
+  ): Promise<UploadResult> {
     let successCount = 0;
     let failCount = 0;
     let firstError: string | null = null;
@@ -67,8 +87,12 @@ export function useUpload() {
         .select('id')
         .maybeSingle();
       if (batchErr || !batch) {
-        setUploading(false);
-        return { successCount: 0, failCount: 0, error: 'فشل إنشاء المجموعة: ' + (batchErr?.message ?? 'خطأ غير معروف') };
+        console.error('Failed to create batch record', batchErr);
+        return {
+          successCount: 0,
+          failCount: toUpload.length,
+          error: getUserErrorMessage(batchErr, 'فشل إنشاء المجموعة'),
+        };
       }
       batchId = batch.id;
     }
@@ -111,10 +135,10 @@ export function useUpload() {
 
     // Clean up empty batch
     if (isBatch && batchId && successCount === 0) {
-      await supabase.from('file_batches').delete().eq('id', batchId);
+      const { error: cleanupErr } = await supabase.from('file_batches').delete().eq('id', batchId);
+      if (cleanupErr) console.error('Failed to remove empty batch record', cleanupErr);
     }
 
-    setUploading(false);
     return { successCount, failCount, error: firstError };
   }
 
@@ -141,21 +165,15 @@ export function useUpload() {
         tab: opts.tab,
         batch_id: batchId,
       });
-      if (!presign) {
-        return { success: false, error: 'فشل الحصول على رابط الرفع' };
-      }
 
       // 2. Upload file binary to R2 via presigned URL
-      const uploaded = await uploadToR2(
+      await uploadToR2(
         presign.upload_url,
         item.file,
         presign.mime_type,
         accessToken,
         presign.object_key,
       );
-      if (!uploaded) {
-        return { success: false, error: 'فشل رفع الملف إلى التخزين' };
-      }
 
       // 3. Compute SHA-256 hash for dedup
       const fileHash = await computeFileHash(item.file);
@@ -169,32 +187,44 @@ export function useUpload() {
       }
 
       // 5. Confirm upload via Worker (saves DB record, verifies R2 object exists)
-      const confirmed = await confirmUpload(accessToken, {
-        object_key: presign.object_key,
-        file_id: presign.file_id,
-        file_name: item.title.trim() || item.file.name,
-        file_type: ext,
-        file_size: item.file.size,
-        file_hash: fileHash,
-        mime_type: presign.mime_type,
-        subject_id: opts.subjectId,
-        tab: opts.tab,
-        batch_id: batchId,
-      });
-      if (!confirmed || !confirmed.success) {
-        // The Worker may have saved the record even if a browser-side CORS
-        // error hid its response. Verify the exact new file before reporting
-        // failure; this does not expose a URL or bypass authorization.
-        const recovered = await requestDownloadPresign(accessToken, presign.file_id);
-        if (recovered) return { success: true, error: '' };
-        return { success: false, error: 'فشل حفظ سجل الملف' };
+      let confirmError: unknown = null;
+      try {
+        const confirmed = await confirmUpload(accessToken, {
+          object_key: presign.object_key,
+          file_id: presign.file_id,
+          file_name: item.title.trim() || item.file.name,
+          file_type: ext,
+          file_size: item.file.size,
+          file_hash: fileHash,
+          mime_type: presign.mime_type,
+          subject_id: opts.subjectId,
+          tab: opts.tab,
+          batch_id: batchId,
+        });
+        if (confirmed.success) return { success: true, error: '' };
+        confirmError = new Error('Worker reported an unsuccessful confirmation');
+      } catch (error) {
+        confirmError = error;
       }
 
-      return { success: true, error: '' };
+      // The Worker may have saved the record even if a browser-side CORS error
+      // hid its response. Verify the exact new file before reporting failure;
+      // this does not expose a URL or bypass authorization.
+      try {
+        await requestDownloadPresign(accessToken, presign.file_id);
+        return { success: true, error: '' };
+      } catch (verifyError) {
+        console.error('Upload confirmation failed', { confirmError, verifyError });
+        return {
+          success: false,
+          error: getUserErrorMessage(confirmError, 'فشل حفظ سجل الملف'),
+        };
+      }
     } catch (error) {
+      console.error('R2 upload failed', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء الرفع',
+        error: getUserErrorMessage(error, 'حدث خطأ غير متوقع أثناء الرفع'),
       };
     }
   }
@@ -244,9 +274,10 @@ export function useUpload() {
 
       return { success: true, error: '' };
     } catch (error) {
+      console.error('Supabase Storage upload failed', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء الرفع',
+        error: getUserErrorMessage(error, 'حدث خطأ غير متوقع أثناء الرفع'),
       };
     }
   }

@@ -82,11 +82,13 @@ export function HomePage() {
       return;
     }
     setSubmitting(true);
-    const created = await createSubject({ name, description: desc || null, major: newMajor, departments: [newMajor] });
-    setSubmitting(false);
-    if (!created) {
-      setToast({ message: 'فشل إنشاء المادة', type: 'error' });
+    try {
+      await createSubject({ name, description: desc || null, major: newMajor, departments: [newMajor] });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل إنشاء المادة'), type: 'error' });
       return;
+    } finally {
+      setSubmitting(false);
     }
     setCreateOpen(false);
     setName(''); setDesc('');
