@@ -13,6 +13,8 @@ import {
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,
+  isAllowedTab,
+  supabaseRestUrl,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
@@ -204,6 +206,38 @@ describe('CORS', () => {
   });
   it('handles null', () => {
     expect(getCorsHeaders(mockEnv, null).get('Access-Control-Allow-Origin')).toBe(null);
+  });
+});
+
+describe('Supabase REST query building', () => {
+  it('percent-encodes filter values so client input cannot inject query params', () => {
+    const url = supabaseRestUrl(mockEnv, 'files', {
+      id: 'eq.00000000-0000-0000-0000-000000000000&status=eq.approved',
+      select: 'id',
+    });
+    expect(url.startsWith('https://test.supabase.co/rest/v1/files?')).toBe(true);
+    expect(url).not.toContain('&status=eq.approved');
+    expect(url).toContain('%26status%3Deq.approved');
+  });
+
+  it('builds a plain collection URL when no filters are given', () => {
+    expect(supabaseRestUrl(mockEnv, 'r2_cleanup_queue', {})).toBe(
+      'https://test.supabase.co/rest/v1/r2_cleanup_queue',
+    );
+  });
+});
+
+describe('tab validation', () => {
+  it('accepts only the four known tabs', () => {
+    for (const tab of ['summaries', 'exams', 'images', 'slides']) {
+      expect(isAllowedTab(tab)).toBe(true);
+    }
+  });
+  it('rejects unknown or non-string tabs', () => {
+    expect(isAllowedTab('admin')).toBe(false);
+    expect(isAllowedTab('')).toBe(false);
+    expect(isAllowedTab(null)).toBe(false);
+    expect(isAllowedTab(42)).toBe(false);
   });
 });
 
