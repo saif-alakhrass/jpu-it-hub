@@ -87,18 +87,39 @@ export async function requestUploadPresign(
 /**
  * Upload the file binary to R2 using the presigned PUT URL.
  * The Content-Type header must match what was specified during presigning.
+ * 
+ * Primary method: Direct browser upload to presigned URL (simpler, more standard)
+ * Fallback method: Upload through worker proxy if direct upload fails due to CORS
  */
 export async function uploadToR2(
-  _presignUrl: string,
+  presignUrl: string,
   file: File,
   mimeType: string,
   accessToken: string,
   objectKey: string,
 ): Promise<boolean> {
-  // Direct browser PUTs to private R2 can fail after the object is accepted
-  // due to browser-level CORS handling. Use the authenticated Worker path as
-  // the reliable upload transport; it writes only the generated object key.
-  const fallback = await fetch(`${WORKER_URL}/upload-proxy`, {
+  // Try direct upload to presigned URL first (primary method)
+  try {
+    const directUpload = await fetch(presignUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': mimeType,
+      },
+      body: file,
+    });
+    
+    if (directUpload.ok) {
+      return true;
+    }
+    
+    // If direct upload fails, try worker proxy as fallback
+    console.warn('Direct upload failed, trying worker proxy:', directUpload.status);
+  } catch (error) {
+    console.warn('Direct upload error, trying worker proxy:', error);
+  }
+  
+  // Fallback: Upload through worker proxy (secondary method)
+  const proxyUpload = await fetch(`${WORKER_URL}/upload-proxy`, {
     method: 'PUT',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -107,7 +128,8 @@ export async function uploadToR2(
     },
     body: file,
   });
-  return fallback.ok;
+  
+  return proxyUpload.ok;
 }
 
 /**
