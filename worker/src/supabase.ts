@@ -74,11 +74,19 @@ export async function checkDuplicateHash(env: Env, userId: string, subjectId: st
   return data.length > 0;
 }
 
-export async function insertCleanupRecord(env: Env, objectKey: string, reason: string): Promise<void> {
+export async function insertCleanupRecord(env: Env, objectKey: string, reason: string, userId?: string): Promise<void> {
   const url = `${env.SUPABASE_URL}/rest/v1/r2_cleanup_queue`;
+  const body: Record<string, unknown> = { 
+    object_key: objectKey, 
+    reason, 
+    status: 'pending' 
+  };
+  if (userId) {
+    body.user_id = userId;
+  }
   await fetch(url, {
     method: 'POST',
     headers: supabaseHeaders(env),
-    body: JSON.stringify({ object_key: objectKey, reason, status: 'pending' }),
+    body: JSON.stringify(body),
   }).catch(() => {});
 }

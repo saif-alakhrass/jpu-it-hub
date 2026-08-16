@@ -59,7 +59,7 @@ export async function handleUploadPresign(
   const mimeType = ALLOWED_MIME_TYPES[ext] || 'application/octet-stream';
 
   // Track this upload to prevent orphan files
-  trackPendingUpload(objectKey, userId);
+  await trackPendingUpload(env, objectKey, userId);
 
   // Create presigned PUT URL
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
@@ -119,7 +119,7 @@ export async function handleConfirmUpload(env: Env, request: Request, userId: st
   // Verify the R2 object actually exists
   const r2Object = await env.FILES_BUCKET.head(object_key);
   if (!r2Object) {
-    removePendingUpload(object_key);
+    await removePendingUpload(env, object_key);
     return corsError(env, request, 404, 'Object not found in R2 — upload may have failed');
   }
 
@@ -127,7 +127,7 @@ export async function handleConfirmUpload(env: Env, request: Request, userId: st
   if (r2Object.size !== file_size) {
     // Size mismatch — delete the orphaned R2 object
     await env.FILES_BUCKET.delete(object_key);
-    removePendingUpload(object_key);
+    await removePendingUpload(env, object_key);
     return corsError(env, request, 400, 'File size mismatch — object deleted');
   }
 
@@ -136,7 +136,7 @@ export async function handleConfirmUpload(env: Env, request: Request, userId: st
   if (isDuplicate) {
     // Delete the duplicate R2 object
     await env.FILES_BUCKET.delete(object_key);
-    removePendingUpload(object_key);
+    await removePendingUpload(env, object_key);
     return corsError(env, request, 409, 'Duplicate file: a file with this hash already exists in this subject');
   }
 
@@ -162,12 +162,12 @@ export async function handleConfirmUpload(env: Env, request: Request, userId: st
   if (!inserted) {
     // DB save failed — delete the R2 object to avoid orphaned storage
     await env.FILES_BUCKET.delete(object_key);
-    removePendingUpload(object_key);
+    await removePendingUpload(env, object_key);
     return corsError(env, request, 500, 'Failed to save file record — R2 object cleaned up');
   }
 
   // Successfully saved, remove from pending uploads
-  removePendingUpload(object_key);
+  await removePendingUpload(env, object_key);
 
   return corsResponse(env, request, 200, {
     success: true,
@@ -258,7 +258,7 @@ export async function handleDelete(env: Env, request: Request, userId: string, i
     try {
       await env.FILES_BUCKET.delete(objectKey);
       // Also remove from pending uploads if somehow still there
-      removePendingUpload(objectKey);
+      await removePendingUpload(env, objectKey);
     } catch {
       r2Deleted = false;
       await insertCleanupRecord(env, objectKey, 'delete_failed');
