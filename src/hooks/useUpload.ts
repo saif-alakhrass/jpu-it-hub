@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileTab } from '@/lib/types';
 import { validateFile } from '@/lib/storage';
+import { buildBatchTitle } from '@/lib/format';
 import {
   isR2Configured,
   requestUploadPresign,
@@ -55,8 +56,7 @@ export function useUpload() {
 
     // Create batch record if multiple files
     if (isBatch) {
-      const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
-      const title = opts.batchTitle?.trim() || `${opts.tabLabel} - مجموعة (${toUpload.length} ملفات) - ${d}`;
+      const title = opts.batchTitle?.trim() || buildBatchTitle(opts.tabLabel, toUpload.length);
       const { data: batch, error: batchErr } = await supabase
         .from('file_batches')
         .insert({

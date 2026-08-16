@@ -3,19 +3,18 @@ import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
-import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, type FileStatus, TABS } from '@/lib/types';
+import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, type FileStatus, type ToastMessage, TABS } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
-import { getSignedFileUrl } from '@/lib/storage';
-import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
-import { supabase } from '@/lib/supabase';
+import { ROLE_LABELS } from '@/lib/constants';
+import { isImageType, isPdfType } from '@/lib/fileTypes';
+import { toggleInSet, toggleInList } from '@/lib/collections';
+import { deleteStoredFile, getFilePreviewUrl } from '@/services/fileAccess';
 import {
   fetchPendingFilesPaged,
   fetchRejectedFilesPaged,
   fetchAdminFilesPaged,
   fetchFilesForBatch,
   fetchAdminStats,
-  deleteFile,
-  removeStorageObjects,
   setFileStatus,
   updateManagedFile,
   updateManagedBatch,
@@ -26,6 +25,9 @@ import {
 import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
 import { fetchProfiles, updateUserRole } from '@/services/auth';
 import { getUserErrorMessage } from '@/lib/serviceError';
+import { BusyIcon } from '@/components/BusyIcon';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { TabButton } from '@/components/TabButton';
 import { AdminOverview } from '@/components/admin/AdminOverview';
 import { AdminFileQueue } from '@/components/admin/AdminFileQueue';
 import { AdminFileLibrary } from '@/components/admin/AdminFileLibrary';
@@ -52,7 +54,7 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>('overview');
   const [preview, setPreview] = useState<FileRow | null>(null);
   const [signedPreviewUrl, setSignedPreviewUrl] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -202,34 +204,20 @@ export function AdminPage() {
   async function performDeleteRejected(file: FileRow) {
     setBusyId(file.id);
     try {
-      if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
-        const { data } = await supabase.auth.getSession();
-        const accessToken = data.session?.access_token;
-        if (!accessToken) throw new Error('Missing authenticated session');
+      const result = await deleteStoredFile(file);
+      if (!result.ok) throw new Error(result.message ?? 'permanent delete failed');
 
-        const result = await deleteFileViaWorker(accessToken, file.id);
-        if (!result) throw new Error('Worker delete request failed');
-
-        if (!result.success) {
-          await loadRejected();
-          await loadStats();
-          setConfirmDeleteRejected(null);
-          setToast({
-            message: result.cleanup_queued
-              ? 'تم حذف سجل الملف، لكن تعذر حذف النسخة المخزنة. أُضيفت عملية تنظيف لإعادة المحاولة.'
-              : 'تعذر حذف الملف نهائيًا.',
-            type: 'error',
-          });
-          return;
-        }
-      } else {
-        const storageDeleted = file.storage_path
-          ? await removeStorageObjects([file.storage_path])
-          : true;
-        if (!storageDeleted) throw new Error('Legacy storage delete failed');
-
-        const recordDeleted = await deleteFile(file.id);
-        if (!recordDeleted) throw new Error('Database record delete failed');
+      if (!result.storageOk) {
+        await loadRejected();
+        await loadStats();
+        setConfirmDeleteRejected(null);
+        setToast({
+          message: result.cleanupQueued
+            ? 'تم حذف سجل الملف، لكن تعذر حذف النسخة المخزنة. أُضيفت عملية تنظيف لإعادة المحاولة.'
+            : 'تعذر حذف الملف نهائيًا.',
+          type: 'error',
+        });
+        return;
       }
 
       setRejectedFiles((files) => files.filter((item) => item.id !== file.id));
@@ -250,8 +238,7 @@ export function AdminPage() {
     setBusyId(null);
     setConfirmRole(null);
     if (!ok) { setToast({ message: 'فشل تحديث الدور', type: 'error' }); return; }
-    const labels: Record<Role, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
-    setToast({ message: `تم تحديث دور ${user.full_name ?? 'المستخدم'} إلى: ${labels[toRole]}`, type: 'success' });
+    setToast({ message: `تم تحديث دور ${user.full_name ?? 'المستخدم'} إلى: ${ROLE_LABELS[toRole]}`, type: 'success' });
     await loadUsers();
     await loadStats();
   }
@@ -260,18 +247,7 @@ export function AdminPage() {
     setPreview(file);
     setSignedPreviewUrl(null);
     try {
-      let url: string | null = null;
-      if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
-        if (token) {
-          const result = await requestDownloadPresign(token, file.id);
-          if (result?.download_url) url = result.download_url;
-          else if (result?.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
-        }
-      } else {
-        url = await getSignedFileUrl(file.storage_path);
-      }
+      const url = await getFilePreviewUrl(file);
       if (!url) throw new Error('preview URL unavailable');
       setSignedPreviewUrl(url);
     } catch {
@@ -305,21 +281,11 @@ export function AdminPage() {
       </header>
 
       <div className="mb-5 flex gap-2 overflow-x-auto border-b border-white/5">
-        <button onClick={() => setTab('overview')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'overview' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="BarChart3" className="h-4 w-4" /> نظرة عامة
-        </button>
-        <button onClick={() => setTab('pending')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'pending' ? 'border-accent-500 text-accent-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="Clock" className="h-4 w-4" /> قيد المراجعة ({pendingTotal})
-        </button>
-        <button onClick={() => setTab('files')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'files' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="FolderCog" className="h-4 w-4" /> إدارة الملفات ({stats?.totalFiles ?? 0})
-        </button>
-        <button onClick={() => setTab('subjects')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'subjects' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="BookOpen" className="h-4 w-4" /> المواد ({subjects.length})
-        </button>
-        <button onClick={() => setTab('users')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'users' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
-          <Icon name="Users" className="h-4 w-4" /> المستخدمون
-        </button>
+        <TabButton active={tab === 'overview'} icon="BarChart3" label="نظرة عامة" onClick={() => setTab('overview')} />
+        <TabButton active={tab === 'pending'} icon="Clock" activeClassName="border-accent-500 text-accent-400" onClick={() => setTab('pending')} label={`قيد المراجعة (${pendingTotal})`} />
+        <TabButton active={tab === 'files'} icon="FolderCog" onClick={() => setTab('files')} label={`إدارة الملفات (${stats?.totalFiles ?? 0})`} />
+        <TabButton active={tab === 'subjects'} icon="BookOpen" onClick={() => setTab('subjects')} label={`المواد (${subjects.length})`} />
+        <TabButton active={tab === 'users'} icon="Users" label="المستخدمون" onClick={() => setTab('users')} />
       </div>
 
       {loading ? (
@@ -338,7 +304,7 @@ export function AdminPage() {
           requestEdit={setEditFile}
           requestEditBatch={setEditBatch}
           selectedIds={selectedPendingIds}
-          toggleSelected={(id) => setSelectedPendingIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
+          toggleSelected={(id) => setSelectedPendingIds((current) => toggleInSet(current, id))}
           requestGroupSelected={() => setGroupPending(pending.filter((file) => selectedPendingIds.has(file.id)))}
           openPreview={openPreview}
           busyId={busyId}
@@ -358,7 +324,7 @@ export function AdminPage() {
           status={managedStatus}
           setStatus={setManagedStatus}
           selectedIds={selectedManagedIds}
-          toggleSelected={(id) => setSelectedManagedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
+          toggleSelected={(id) => setSelectedManagedIds((current) => toggleInSet(current, id))}
           requestGroupSelected={() => setGroupManaged(managedFiles.filter((file) => selectedManagedIds.has(file.id)))}
           openPreview={openPreview}
           requestEdit={setEditFile}
@@ -377,9 +343,9 @@ export function AdminPage() {
           <div className="space-y-4">
             <div className="rounded-xl border border-white/10 bg-ink-900 p-3">
               {signedPreviewUrl ? (
-                isImageFile(preview.file_type) ? (
+                isImageType(preview.file_type) ? (
                   <img src={signedPreviewUrl} alt={preview.title} className="max-h-[60vh] mx-auto rounded-lg" />
-                ) : isPdfFile(preview.file_type) ? (
+                ) : isPdfType(preview.file_type) ? (
                   <iframe src={signedPreviewUrl} title={preview.title} className="h-[60vh] w-full rounded-lg" />
                 ) : (
                   <div className="py-12 text-center">
@@ -400,41 +366,35 @@ export function AdminPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button onClick={() => { setRejectionReason(''); setConfirmReject(preview); }} className="btn-danger" disabled={busyId === preview.id}>
-                {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} رفض وحذف
+                <BusyIcon busy={busyId === preview.id} name="Trash2" /> رفض وحذف
               </button>
               <button onClick={() => preview.batch ? handleApproveBatch(preview.batch.id) : handleApprove(preview.id)} className="btn-primary" disabled={busyId === preview.id || busyId === preview.batch?.id}>
-                {busyId === preview.id || busyId === preview.batch?.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} {preview.batch ? 'موافقة على المجلد' : 'موافقة ونشر'}
+                <BusyIcon busy={busyId === preview.id || busyId === preview.batch?.id} name="Check" /> {preview.batch ? 'موافقة على المجلد' : 'موافقة ونشر'}
               </button>
             </div>
           </div>
         )}
       </Modal>
 
-      <Modal open={!!confirmReject} onClose={() => { setConfirmReject(null); setRejectionReason(''); }} title="رفض الملف وإرسال السبب">
-        {confirmReject && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
-              <Icon name="FileWarning" className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-bold">سيتم رفض الملف وإخفاؤه</p>
-                <p className="mt-1 text-sm">سيبقى "{confirmReject.title}" محفوظاً ليتمكن المدير من مراجعته أو استعادته لاحقاً.</p>
-              </div>
-            </div>
-            <div>
+      {confirmReject && (
+        <ConfirmDialog
+          open
+          title="رفض الملف وإرسال السبب"
+          icon="FileWarning"
+          heading="سيتم رفض الملف وإخفاؤه"
+          description={<>سيبقى "{confirmReject.title}" محفوظاً ليتمكن المدير من مراجعته أو استعادته لاحقاً.</>}
+          confirmLabel="تأكيد الرفض"
+          busy={busyId === confirmReject.id}
+          onConfirm={() => void performReject(confirmReject)}
+          onClose={() => { setConfirmReject(null); setRejectionReason(''); }}
+        >
+          <div>
               <label className="mb-1.5 block text-sm font-bold text-slate-300">سبب الرفض</label>
               <textarea value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} className="input min-h-24 resize-y" maxLength={500} placeholder="مثال: الملف ليس ملخصًا للمادة، يرجى رفعه في قسم السلايدات." autoFocus />
               <p className="mt-1 text-xs text-slate-500">سيظهر السبب للرافع فقط داخل إشعاراته.</p>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setConfirmReject(null)} className="btn-ghost" disabled={busyId === confirmReject.id}>إلغاء</button>
-              <button onClick={() => performReject(confirmReject)} className="btn-danger" disabled={busyId === confirmReject.id}>
-                {busyId === confirmReject.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-                تأكيد الرفض
-              </button>
-            </div>
           </div>
-        )}
-      </Modal>
+        </ConfirmDialog>
+      )}
 
       {editFile && <EditFileModal file={editFile} subjects={subjects} saving={busyId === editFile.id} onClose={() => setEditFile(null)} onSave={(changes) => void handleEditFile(editFile, changes)} />}
 
@@ -443,57 +403,42 @@ export function AdminPage() {
       {groupPending && <GroupPendingFilesModal files={groupPending} saving={busyId === 'group-pending'} onClose={() => setGroupPending(null)} onSave={(title) => void handleGroupPending(title)} />}
       {groupManaged && <GroupPendingFilesModal files={groupManaged} saving={busyId === 'group-managed'} onClose={() => setGroupManaged(null)} onSave={(title) => void handleGroupManaged(title)} />}
 
-      <Modal open={!!confirmDeleteRejected} onClose={() => setConfirmDeleteRejected(null)} title="حذف ملف مرفوض نهائيًا">
-        {confirmDeleteRejected && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
-              <Icon name="Trash2" className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-bold">هذا الإجراء لا يمكن التراجع عنه</p>
-                <p className="mt-1 text-sm">سيُحذف &quot;{confirmDeleteRejected.title}&quot; من التخزين ومن قاعدة البيانات نهائيًا.</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setConfirmDeleteRejected(null)} className="btn-ghost" disabled={busyId === confirmDeleteRejected.id}>إلغاء</button>
-              <button onClick={() => performDeleteRejected(confirmDeleteRejected)} className="btn-danger" disabled={busyId === confirmDeleteRejected.id}>
-                {busyId === confirmDeleteRejected.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-                حذف نهائي
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      {confirmDeleteRejected && (
+        <ConfirmDialog
+          open
+          title="حذف ملف مرفوض نهائيًا"
+          icon="Trash2"
+          heading="هذا الإجراء لا يمكن التراجع عنه"
+          description={<>سيُحذف &quot;{confirmDeleteRejected.title}&quot; من التخزين ومن قاعدة البيانات نهائيًا.</>}
+          confirmLabel="حذف نهائي"
+          busy={busyId === confirmDeleteRejected.id}
+          onConfirm={() => void performDeleteRejected(confirmDeleteRejected)}
+          onClose={() => setConfirmDeleteRejected(null)}
+        />
+      )}
 
-      <Modal open={!!confirmRole} onClose={() => setConfirmRole(null)} title="تأكيد تغيير الدور">
-        {confirmRole && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-accent-500/30 bg-accent-500/10 p-4 text-accent-400">
-              <Icon name="ShieldCheck" className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-bold">تأكيد تغيير الدور</p>
-                <p className="mt-1 text-sm">سيتم تغيير دور "{confirmRole.user.full_name ?? 'المستخدم'}" إلى "{ROLE_LABELS_AR[confirmRole.toRole]}".</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setConfirmRole(null)} className="btn-ghost" disabled={busyId === confirmRole.user.id}>إلغاء</button>
-              <button onClick={() => performRoleChange(confirmRole.user, confirmRole.toRole)} className="btn-primary" disabled={busyId === confirmRole.user.id}>
-                {busyId === confirmRole.user.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="ShieldCheck" className="h-4 w-4" />}
-                تأكيد
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      {confirmRole && (
+        <ConfirmDialog
+          open
+          tone="accent"
+          title="تأكيد تغيير الدور"
+          icon="ShieldCheck"
+          heading="تأكيد تغيير الدور"
+          description={<>سيتم تغيير دور "{confirmRole.user.full_name ?? 'المستخدم'}" إلى "{ROLE_LABELS[confirmRole.toRole]}".</>}
+          confirmLabel="تأكيد"
+          confirmIcon="ShieldCheck"
+          busy={busyId === confirmRole.user.id}
+          onConfirm={() => void performRoleChange(confirmRole.user, confirmRole.toRole)}
+          onClose={() => setConfirmRole(null)}
+        />
+      )}
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
 
-const ROLE_LABELS_AR: Record<Role, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
-
-type ToastState = { message: string; type: 'success' | 'error' } | null;
-type SetToast = (t: ToastState) => void;
+type SetToast = (toast: ToastMessage | null) => void;
 
 function EditFileModal({ file, subjects, saving, onClose, onSave }: {
   file: FileRow;
@@ -522,7 +467,7 @@ function EditFileModal({ file, subjects, saving, onClose, onSave }: {
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">القسم</label><select value={tab} onChange={(event) => setTab(event.target.value as FileTab)} className="input">{TABS.map((option) => <option className="bg-ink-900" key={option.key} value={option.key}>{option.label}</option>)}</select></div>
       {file.batch_id && changesLocation && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-accent-500/25 bg-accent-500/10 p-3 text-sm text-accent-200"><input type="checkbox" checked={detachFromBatch} onChange={(event) => setDetachFromBatch(event.target.checked)} className="mt-1 h-4 w-4 accent-brand-500" /><span><strong>انقل الملف بشكل مستقل خارج المجلد</strong><br /><span className="text-xs">لتغيير مكان المجلد كله، أغلق هذه النافذة واختر «تعديل المجلد».</span></span></label>}
       {file.batch_id && changesLocation && !detachFromBatch && <p className="text-xs text-accent-300">اختر نقل الملف بشكل مستقل أو عدّل المجلد كاملًا. لا يمكن وضع أعضاء المجلد في أماكن مختلفة بالخطأ.</p>}
-      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2 || (!!file.batch_id && changesLocation && !detachFromBatch)}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ التعديل</button></div>
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2 || (!!file.batch_id && changesLocation && !detachFromBatch)}><BusyIcon busy={saving} name="Save" /> حفظ التعديل</button></div>
     </form>
   </Modal>;
 }
@@ -543,7 +488,7 @@ function EditPendingBatchModal({ batch, subjects, saving, onClose, onSave }: {
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">اسم المجلد</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="input" minLength={2} maxLength={180} required autoFocus /></div>
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">المادة</label><select value={subjectId} onChange={(event) => setSubjectId(event.target.value)} className="input">{subjects.map((subject) => <option className="bg-ink-900" key={subject.id} value={subject.id}>{subject.name}{subject.code ? ` (${subject.code})` : ''}</option>)}</select></div>
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">القسم</label><select value={tab} onChange={(event) => setTab(event.target.value as FileTab)} className="input">{TABS.map((option) => <option className="bg-ink-900" key={option.key} value={option.key}>{option.label}</option>)}</select></div>
-      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ المجلد</button></div>
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || title.trim().length < 2}><BusyIcon busy={saving} name="Save" /> حفظ المجلد</button></div>
     </form>
   </Modal>;
 }
@@ -562,7 +507,7 @@ function GroupPendingFilesModal({ files, saving, onClose, onSave }: {
       <div className="rounded-xl border border-white/10 bg-ink-900/50 p-3 text-sm text-slate-300">{files.map((file) => <p key={file.id} className="truncate">• {file.title}</p>)}</div>
       {!sameLocation && <p className="rounded-xl border border-danger-500/30 bg-danger-500/10 p-3 text-sm text-danger-300">اختر ملفات منفصلة من نفس المادة والقسم فقط.</p>}
       <div><label className="mb-1.5 block text-sm font-bold text-slate-300">اسم المجلد</label><input value={title} onChange={(event) => setTitle(event.target.value)} className="input" minLength={2} maxLength={180} required autoFocus /></div>
-      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || !sameLocation || title.trim().length < 2}>{saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="FolderPlus" className="h-4 w-4" />} إنشاء المجلد</button></div>
+      <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="btn-ghost" disabled={saving}>إلغاء</button><button type="submit" className="btn-primary" disabled={saving || !sameLocation || title.trim().length < 2}><BusyIcon busy={saving} name="FolderPlus" /> إنشاء المجلد</button></div>
     </form>
   </Modal>;
 }
@@ -641,24 +586,16 @@ function SubjectsTab({ subjects, setToast, onUpdated }: {
       )}
 
       {deleteSubject && (
-        <Modal open={!!deleteSubject} onClose={() => setDeleteSubject(null)} title="تأكيد حذف المادة">
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
-              <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-bold">سيتم حذف المادة نهائياً</p>
-                <p className="mt-1 text-sm">سيُحذف "{deleteSubject.name}" وكل الملفات المرتبطة بها من قاعدة البيانات والتخزين. لا يمكن التراجع عن هذا الإجراء.</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setDeleteSubject(null)} className="btn-ghost" disabled={deleting}>إلغاء</button>
-              <button onClick={() => handleDelete(deleteSubject)} className="btn-danger" disabled={deleting}>
-                {deleting ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-                حذف نهائي
-              </button>
-            </div>
-          </div>
-        </Modal>
+        <ConfirmDialog
+          open
+          title="تأكيد حذف المادة"
+          heading="سيتم حذف المادة نهائياً"
+          description={<>سيُحذف "{deleteSubject.name}" وكل الملفات المرتبطة بها من قاعدة البيانات والتخزين. لا يمكن التراجع عن هذا الإجراء.</>}
+          confirmLabel="حذف نهائي"
+          busy={deleting}
+          onConfirm={() => void handleDelete(deleteSubject)}
+          onClose={() => setDeleteSubject(null)}
+        />
       )}
     </div>
   );
@@ -680,7 +617,7 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
   const [saving, setSaving] = useState(false);
 
   function toggleDept(d: string) {
-    setDepartments((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+    setDepartments((prev) => toggleInList(prev, d));
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -770,7 +707,7 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-ghost">إلغاء</button>
           <button type="submit" disabled={saving} className="btn-primary">
-            {saving ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Save" className="h-4 w-4" />} حفظ
+            <BusyIcon busy={saving} name="Save" /> حفظ
           </button>
         </div>
       </form>
@@ -778,9 +715,3 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
   );
 }
 
-function isImageFile(type?: string | null) {
-  return !!type && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(type.toLowerCase());
-}
-function isPdfFile(type?: string | null) {
-  return !!type && type.toLowerCase() === 'pdf';
-}

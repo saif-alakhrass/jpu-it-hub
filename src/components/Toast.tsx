@@ -1,12 +1,10 @@
 import { Icon } from './Icon';
+import type { ToastMessage, ToastType } from '@/lib/types';
 
-interface ToastProps {
-  message: string;
-  type?: 'success' | 'error' | 'info';
+type ToastProps = Omit<ToastMessage, 'type'> & {
+  type?: ToastType;
   onClose: () => void;
-  actionLabel?: string;
-  onAction?: () => void;
-}
+};
 
 export function Toast({ message, type = 'success', onClose, actionLabel, onAction }: ToastProps) {
   const styles = {

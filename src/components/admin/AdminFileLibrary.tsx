@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Pagination } from '@/components/Pagination';
-import { PAGE_SIZE } from '@/lib/constants';
+import { countTotalPages } from '@/lib/pagination';
 import { TABS, type FileRow, type FileStatus } from '@/lib/types';
 
 interface AdminFileLibraryProps {
@@ -108,7 +108,7 @@ export function AdminFileLibrary({
       ) : (
         <FileCard key={entry.file.id} file={entry.file} selected={selectedIds.has(entry.file.id)} toggleSelected={toggleSelected} openPreview={openPreview} requestEdit={requestEdit} busyId={busyId} />
       ))}
-      <Pagination page={page} totalPages={Math.max(1, Math.ceil(total / PAGE_SIZE))} onPageChange={setPage} />
+      <Pagination page={page} totalPages={countTotalPages(total)} onPageChange={setPage} />
     </div>
   );
 }

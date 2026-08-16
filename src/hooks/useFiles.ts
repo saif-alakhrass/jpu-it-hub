@@ -7,6 +7,7 @@ import {
   fetchRejectedFilesPaged,
   type PaginatedFiles,
 } from '@/services/files';
+import { emptyPage } from '@/lib/pagination';
 import type { FileBatch, FileRow, FileTab } from '@/lib/types';
 
 export function useSubjectFiles(subjectId: string, tab?: FileTab) {
@@ -48,13 +49,8 @@ export function useSubjectFiles(subjectId: string, tab?: FileTab) {
   };
 }
 
-export function usePendingFiles() {
-  const [data, setData] = useState<PaginatedFiles>({
-    items: [],
-    total: 0,
-    page: 0,
-    totalPages: 1,
-  });
+function usePagedFiles(fetchPage: (page: number) => Promise<PaginatedFiles>) {
+  const [data, setData] = useState<PaginatedFiles>(() => emptyPage<FileRow>());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [page, setPage] = useState(0);
@@ -63,13 +59,13 @@ export function usePendingFiles() {
     setLoading(true);
     setError(null);
     try {
-      setData(await fetchPendingFilesPaged(page));
+      setData(await fetchPage(page));
     } catch (nextError) {
       setError(nextError);
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [fetchPage, page]);
 
   useEffect(() => {
     void reload();
@@ -78,32 +74,10 @@ export function usePendingFiles() {
   return { data, loading, error, page, setPage, reload };
 }
 
+export function usePendingFiles() {
+  return usePagedFiles(fetchPendingFilesPaged);
+}
+
 export function useRejectedFiles() {
-  const [data, setData] = useState<PaginatedFiles>({
-    items: [],
-    total: 0,
-    page: 0,
-    totalPages: 1,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<unknown>(null);
-  const [page, setPage] = useState(0);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await fetchRejectedFilesPaged(page));
-    } catch (nextError) {
-      setError(nextError);
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  return { data, loading, error, page, setPage, reload };
+  return usePagedFiles(fetchRejectedFilesPaged);
 }

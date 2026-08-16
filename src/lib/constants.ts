@@ -25,6 +25,12 @@ export const ROLE_LABELS: Record<Role, string> = {
   student: 'طالب',
 };
 
+export const ROLE_BADGES: Record<Role, { label: string; className: string; icon: string }> = {
+  admin: { label: ROLE_LABELS.admin, className: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
+  trusted: { label: ROLE_LABELS.trusted, className: 'bg-brand-500/20 text-brand-300 border-brand-500/40', icon: 'Shield' },
+  student: { label: ROLE_LABELS.student, className: 'bg-ink-700 text-slate-300 border-white/10', icon: 'GraduationCap' },
+};
+
 export const UPLOAD_MAX_PER_WINDOW_BY_ROLE: Record<Role, number> = {
   student: 10,
   trusted: 20,

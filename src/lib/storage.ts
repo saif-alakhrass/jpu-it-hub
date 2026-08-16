@@ -65,15 +65,6 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function getFileIcon(ext: string): string {
-  const e = ext.toLowerCase();
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(e)) return 'Image';
-  if (e === 'pdf') return 'FileText';
-  if (['doc', 'docx'].includes(e)) return 'FileType';
-  if (['ppt', 'pptx'].includes(e)) return 'Presentation';
-  return 'File';
-}
-
 export function validateFile(file: File): { ok: true } | { ok: false; message: string } {
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return { ok: false, message: `حجم الملف يتجاوز الحد الأقصى (${MAX_FILE_SIZE_MB} ميجابايت)` };

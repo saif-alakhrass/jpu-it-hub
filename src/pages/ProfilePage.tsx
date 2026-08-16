@@ -3,15 +3,10 @@ import { Icon } from '@/components/Icon';
 import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
-import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
+import { ACADEMIC_YEARS, MAJORS, type BookmarkWithFile } from '@/lib/types';
 import { updateProfile } from '@/services/auth';
 import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
-
-const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
-  admin: { label: 'مدير', cls: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
-  trusted: { label: 'موثوق', cls: 'bg-brand-500/20 text-brand-300 border-brand-500/40', icon: 'Shield' },
-  student: { label: 'طالب', cls: 'bg-ink-700 text-slate-300 border-white/10', icon: 'GraduationCap' },
-};
+import { RoleBadge } from '@/components/RoleBadge';
 
 type Tab = 'profile' | 'saved';
 
@@ -61,8 +56,6 @@ export function ProfilePage() {
     return <div className="mx-auto max-w-4xl px-4 py-20 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>;
   }
 
-  const roleInfo = ROLE_LABEL[profile.role] ?? ROLE_LABEL.student;
-
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -98,7 +91,7 @@ export function ProfilePage() {
               <h1 className="text-xl font-extrabold text-slate-100">{profile.full_name ?? 'مستخدم'}</h1>
               <p className="mt-0.5 text-sm text-slate-400" dir="ltr">{session.user.email}</p>
             </div>
-            <span className={`badge border self-start ${roleInfo.cls}`}><Icon name={roleInfo.icon} className="h-3.5 w-3.5" />{roleInfo.label}</span>
+            <RoleBadge role={profile.role} className="self-start" iconClassName="h-3.5 w-3.5" />
           </div>
         </div>
       </div>
