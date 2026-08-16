@@ -395,8 +395,20 @@ async function getSigningKey(env: Env, date: string): Promise<ArrayBuffer> {
   return hmacSha256(kService, 'aws4_request');
 }
 
+/*
+ * SigV4 requires RFC 3986 encoding, which also escapes !'()* — characters
+ * encodeURIComponent leaves untouched. R2 re-encodes them when it rebuilds the
+ * canonical request, so leaving them literal yields SignatureDoesNotMatch.
+ */
+function rfc3986Encode(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
 function canonicalUri(key: string): string {
-  return key.split('/').map(encodeURIComponent).join('/');
+  return key.split('/').map(rfc3986Encode).join('/');
 }
 
 async function createPresignedUrl(
@@ -424,13 +436,13 @@ async function createPresignedUrl(
   const canonicalUriStr = `${bucketName}/${canonicalUri(objectKey)}`;
   const queryParts = [
     `X-Amz-Algorithm=AWS4-HMAC-SHA256`,
-    `X-Amz-Credential=${encodeURIComponent(credential)}`,
+    `X-Amz-Credential=${rfc3986Encode(credential)}`,
     `X-Amz-Date=${amzDate}`,
     `X-Amz-Expires=${expiry}`,
     `X-Amz-SignedHeaders=host`,
   ];
   if (responseContentDisposition) {
-    queryParts.push(`response-content-disposition=${encodeURIComponent(responseContentDisposition)}`);
+    queryParts.push(`response-content-disposition=${rfc3986Encode(responseContentDisposition)}`);
   }
   const canonicalQueryString = queryParts.sort().join('&');
 
@@ -474,7 +486,7 @@ function downloadContentDisposition(file: FileRecord): string {
     ? `${safeBaseName}.${extension}`
     : safeBaseName;
   const asciiFallback = filename.replace(/[\\"]/g, '_').replace(/[^\x20-\x7e]/g, '_') || 'download';
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${rfc3986Encode(filename)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -886,10 +898,9 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   }
 
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  // Do not pass response-content-disposition to the presigned URL. The `filename*`
-  // parameter contains an asterisk that encodeURIComponent turns into %2A, but
-  // R2's S3 canonical request leaves `*` unencoded — causing SignatureDoesNotMatch.
-  // The frontend already sets the download filename client-side via blob download.
+  // response-content-disposition is intentionally left out: the frontend names the
+  // file client-side via a blob download, so signing it only adds a way for the
+  // canonical query encoding to drift from what R2 recomputes.
   const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
 
   return corsResponse(env, request, 200, {
@@ -994,6 +1005,7 @@ export {
   checkInMemoryRateLimit,
   sha256,
   createPresignedUrl,
+  rfc3986Encode,
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,

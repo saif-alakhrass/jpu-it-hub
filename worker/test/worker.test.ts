@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  createPresignedUrl,
+  rfc3986Encode,
   getExtension,
   isAllowedExtension,
   checkMagicBytes,
@@ -218,6 +220,86 @@ describe('upload validation', () => {
     expect(isAllowedExtension('exe')).toBe(false);
     expect(isAllowedExtension('sh')).toBe(false);
     expect(isAllowedExtension('svg')).toBe(false);
+  });
+});
+
+/*
+ * Recomputes the SigV4 signature the way R2 does: it re-encodes every query
+ * parameter with strict RFC 3986 rules before hashing the canonical request,
+ * so a presigned URL only verifies when the Worker signed the same encoding.
+ */
+function toHex(buffer: ArrayBuffer): string {
+  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function hmac(key: ArrayBuffer | string, message: string): Promise<ArrayBuffer> {
+  const rawKey = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+  const cryptoKey = await crypto.subtle.importKey('raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(message));
+}
+
+async function recomputeSignature(url: URL, method: 'GET' | 'PUT'): Promise<string> {
+  const params = [...url.searchParams.entries()].filter(([key]) => key !== 'X-Amz-Signature');
+  const canonicalQueryString = params
+    .map(([key, value]) => `${rfc3986Encode(key)}=${rfc3986Encode(value)}`)
+    .sort()
+    .join('&');
+  const canonicalRequest = [
+    method,
+    url.pathname,
+    canonicalQueryString,
+    `host:${url.host}\n`,
+    'host',
+    'UNSIGNED-PAYLOAD',
+  ].join('\n');
+
+  const amzDate = url.searchParams.get('X-Amz-Date') ?? '';
+  const credentialScope = (url.searchParams.get('X-Amz-Credential') ?? '').split('/').slice(1).join('/');
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    amzDate,
+    credentialScope,
+    toHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalRequest))),
+  ].join('\n');
+
+  const kDate = await hmac(`AWS4${mockEnv.R2_SECRET_ACCESS_KEY}`, amzDate.slice(0, 8));
+  const kRegion = await hmac(kDate, 'auto');
+  const kService = await hmac(kRegion, 's3');
+  const kSigning = await hmac(kService, 'aws4_request');
+  return toHex(await hmac(kSigning, stringToSign));
+}
+
+describe('presigned URL encoding', () => {
+  it('escapes the characters encodeURIComponent leaves alone', () => {
+    expect(rfc3986Encode("UTF-8''name*(1)!.png")).toBe('UTF-8%27%27name%2A%281%29%21.png');
+    expect(rfc3986Encode('a b;c="d"')).toBe('a%20b%3Bc%3D%22d%22');
+  });
+
+  it('signs a download URL that R2 can verify, disposition included', async () => {
+    const disposition = downloadContentDisposition(makeFile({ title: 'IMG_4572', file_type: 'png' }));
+    const url = new URL(await createPresignedUrl(mockEnv, 'user-uuid-1/f1.png', 'GET', 300, disposition));
+
+    expect(url.searchParams.get('response-content-disposition')).toBe(disposition);
+    expect(url.search).not.toMatch(/[!'()*]/);
+    expect(url.searchParams.get('X-Amz-Signature')).toBe(await recomputeSignature(url, 'GET'));
+  });
+
+  it('signs a download URL for an Arabic title', async () => {
+    const disposition = downloadContentDisposition(makeFile({ title: 'محاضرة (1)', file_type: 'pdf' }));
+    const url = new URL(await createPresignedUrl(mockEnv, 'user-uuid-1/f1.pdf', 'GET', 300, disposition));
+
+    expect(url.searchParams.get('response-content-disposition')).toBe(disposition);
+    expect(url.searchParams.get('X-Amz-Signature')).toBe(await recomputeSignature(url, 'GET'));
+  });
+
+  it('signs an upload URL and caps the expiry at seven days', async () => {
+    const url = new URL(await createPresignedUrl(mockEnv, 'user-uuid-1/f1.pdf', 'PUT', 999999999));
+
+    expect(url.searchParams.get('X-Amz-Expires')).toBe('604800');
+    expect(url.searchParams.has('response-content-disposition')).toBe(false);
+    expect(url.host).toBe(`${mockEnv.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`);
+    expect(url.pathname).toBe('/jpu-it-hub-files/user-uuid-1/f1.pdf');
+    expect(url.searchParams.get('X-Amz-Signature')).toBe(await recomputeSignature(url, 'PUT'));
   });
 });
 
