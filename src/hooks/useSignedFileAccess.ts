@@ -64,7 +64,10 @@ export function useSignedFileAccess(onError: (message: string) => void) {
       }
 
       if (mode === 'preview') return url;
-      await downloadFile(url, file.title);
+      const result = await downloadFile(url, file.title);
+      if (!result.success) {
+        onError('فشل تحميل الملف. حاول مجددًا.');
+      }
     } catch {
       onError('حدث خطأ أثناء الوصول إلى الملف.');
     } finally {

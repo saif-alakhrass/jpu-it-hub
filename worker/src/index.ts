@@ -31,6 +31,89 @@ export interface Env {
   SIGNED_URL_EXPIRY_SECONDS: string;
 }
 
+function validateEnvironment(env: Env): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  // Required R2 credentials
+  if (!env.R2_ACCESS_KEY_ID) errors.push('R2_ACCESS_KEY_ID is required');
+  if (!env.R2_SECRET_ACCESS_KEY) errors.push('R2_SECRET_ACCESS_KEY is required');
+  if (!env.R2_ACCOUNT_ID) errors.push('R2_ACCOUNT_ID is required');
+  
+  // Required Supabase credentials
+  if (!env.SUPABASE_URL) errors.push('SUPABASE_URL is required');
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) errors.push('SUPABASE_SERVICE_ROLE_KEY is required');
+  
+  // Optional but recommended
+  if (!env.JWT_SECRET) errors.push('JWT_SECRET is recommended for HS256 fallback');
+  
+  // Validate numeric values
+  const maxSize = parseInt(env.MAX_FILE_SIZE_BYTES || String(DEFAULT_MAX_SIZE), 10);
+  if (isNaN(maxSize) || maxSize <= 0) errors.push('MAX_FILE_SIZE_BYTES must be a positive number');
+  
+  const uploadWindow = parseInt(env.UPLOAD_WINDOW_MINUTES || String(DEFAULT_UPLOAD_WINDOW_MIN), 10);
+  if (isNaN(uploadWindow) || uploadWindow <= 0) errors.push('UPLOAD_WINDOW_MINUTES must be a positive number');
+  
+  const signedExpiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
+  if (isNaN(signedExpiry) || signedExpiry <= 0) errors.push('SIGNED_URL_EXPIRY_SECONDS must be a positive number');
+  
+  // Validate CORS origins format
+  if (env.CORS_ALLOWED_ORIGINS) {
+    const origins = env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim());
+    const invalidOrigins = origins.filter(o => {
+      try {
+        new URL(o);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    if (invalidOrigins.length > 0) {
+      errors.push(`Invalid CORS origins: ${invalidOrigins.join(', ')}`);
+    }
+  }
+  
+  return { valid: errors.length === 0, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+interface LogContext {
+  userId?: string;
+  requestId?: string;
+  endpoint?: string;
+  method?: string;
+  statusCode?: number;
+  error?: string;
+  duration?: number;
+}
+
+function log(level: 'info' | 'warn' | 'error', message: string, context?: LogContext): void {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    level,
+    message,
+    ...context,
+  };
+  
+  switch (level) {
+    case 'error':
+      console.error(JSON.stringify(logEntry));
+      break;
+    case 'warn':
+      console.warn(JSON.stringify(logEntry));
+      break;
+    default:
+      console.log(JSON.stringify(logEntry));
+  }
+}
+
+function generateRequestId(): string {
+  return crypto.randomUUID();
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -220,26 +303,16 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
   const payload = decodeJson<JwtPayload>(payloadB64);
   if (!header || !payload) return null;
 
+  // Verify signature based on algorithm
+  let signatureValid = false;
+  
   if (header.alg === 'ES256') {
     try {
-      const locallyValid = await verifyEs256(header, headerB64, payloadB64, signatureB64, env);
-      if (!locallyValid) {
-        // Supabase is the authoritative JWT verifier. This fallback supports
-        // current asymmetric signing-key formats while keeping every request
-        // authenticated server-to-server.
-        const user = await verifyWithSupabase(token, env);
-        if (!user || user.id !== payload.sub) return null;
-      }
+      signatureValid = await verifyEs256(header, headerB64, payloadB64, signatureB64, env);
     } catch {
-      return null;
+      signatureValid = false;
     }
-  } else if (header.alg !== 'HS256') {
-    return null;
-  }
-
-  // Verify legacy HS256 signatures.
-  if (header.alg === 'HS256') {
-    let locallyValid = false;
+  } else if (header.alg === 'HS256') {
     try {
       if (env.JWT_SECRET) {
         const key = await crypto.subtle.importKey(
@@ -249,7 +322,7 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
           false,
           ['verify'],
         );
-        locallyValid = await crypto.subtle.verify(
+        signatureValid = await crypto.subtle.verify(
           'HMAC',
           key,
           decodeBase64Url(signatureB64),
@@ -257,22 +330,21 @@ async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
         );
       }
     } catch {
-      locallyValid = false;
+      signatureValid = false;
     }
-    if (!locallyValid) {
-      const user = await verifyWithSupabase(token, env);
-      if (!user || user.id !== payload.sub) return null;
-    }
+  } else {
+    return null; // Unsupported algorithm
   }
 
-  // Check expiry
+  // Fallback to Supabase verification if local verification fails
+  if (!signatureValid) {
+    const user = await verifyWithSupabase(token, env);
+    if (!user || user.id !== payload.sub) return null;
+  }
+
+  // Validate payload
   const now = Math.floor(Date.now() / 1000);
   if (!payload.exp || payload.exp < now) return null;
-
-  // Check issuer (should be the Supabase URL)
-  if (env.SUPABASE_URL && payload.iss && !payload.iss.startsWith(env.SUPABASE_URL.replace(/\/$/, ''))) {
-    // Allow if issuer matches — don't reject if SUPABASE_URL is not set (for testing)
-  }
 
   const expectedIssuer = `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
   if (payload.iss !== expectedIssuer || payload.aud !== 'authenticated' || !payload.sub) return null;
@@ -437,7 +509,7 @@ async function createPresignedUrl(
   const canonicalHeaders = `host:${host}\n`;
   const signedHeaders = 'host';
 
-  const payloadHash = method === 'PUT' ? 'UNSIGNED-PAYLOAD' : 'UNSIGNED-PAYLOAD';
+  const payloadHash = 'UNSIGNED-PAYLOAD';
 
   const canonicalRequest = [
     method,
@@ -473,8 +545,9 @@ function downloadContentDisposition(file: FileRecord): string {
   const filename = extension && !safeBaseName.toLowerCase().endsWith(`.${extension}`)
     ? `${safeBaseName}.${extension}`
     : safeBaseName;
-  const asciiFallback = filename.replace(/[\\"]/g, '_').replace(/[^\x20-\x7e]/g, '_') || 'download';
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  // Use percent-encoding for non-ASCII characters without problematic filename* parameter
+  const encodedFilename = encodeURIComponent(filename).replace(/'/g, '%27');
+  return `attachment; filename="${encodedFilename}"`;
 }
 
 // ---------------------------------------------------------------------------
@@ -592,23 +665,39 @@ function checkInMemoryRateLimit(userId: string, max: number, windowMs: number): 
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const requestId = generateRequestId();
+    const startTime = Date.now();
+    const url = new URL(request.url);
+    const path = url.pathname;
+    
+    // Validate environment on startup
+    const envValidation = validateEnvironment(env);
+    if (!envValidation.valid) {
+      log('error', 'Environment validation failed', { requestId, errors: envValidation.errors });
+      return new Response(JSON.stringify({ error: 'Server configuration error' }), { 
+        status: 500, 
+        headers: { 'Content-Type': 'application/json' } 
+      });
+    }
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return corsResponse(env, request, 200);
     }
 
-    const url = new URL(request.url);
-    const path = url.pathname;
-
     try {
       // Health check (no auth)
       if (path === '/health') {
+        const duration = Date.now() - startTime;
+        log('info', 'Health check', { requestId, duration });
         return corsResponse(env, request, 200, { status: 'ok' });
       }
 
       // All other routes require authentication
       const token = extractToken(request);
       if (!token) {
+        const duration = Date.now() - startTime;
+        log('warn', 'Missing authorization token', { requestId, path, method: request.method, duration, statusCode: 401 });
         return corsError(env, request, 401, 'Missing authorization token');
       }
 
@@ -616,11 +705,15 @@ export default {
       // request, then returns only the caller's own profile.
       const profile = await authenticateWithProfile(env, token);
       if (!profile) {
+        const duration = Date.now() - startTime;
+        log('warn', 'Invalid or expired token', { requestId, path, method: request.method, duration, statusCode: 401 });
         return corsError(env, request, 401, 'Invalid or expired token');
       }
 
       const userId = profile.id;
       if (!userId) {
+        const duration = Date.now() - startTime;
+        log('warn', 'Invalid token: missing subject', { requestId, path, method: request.method, duration, statusCode: 401 });
         return corsError(env, request, 401, 'Invalid token: missing subject');
       }
 
@@ -628,38 +721,42 @@ export default {
 
       // Route: POST /upload-presign — get a presigned PUT URL for uploading
       if (path === '/upload-presign' && request.method === 'POST') {
-        return handleUploadPresign(env, request, userId, profile.role);
+        return handleUploadPresign(env, request, userId, profile.role, requestId);
       }
 
       // Route: PUT /upload-proxy — CORS-safe fallback if a browser cannot
       // complete a direct presigned R2 upload.
       if (path === '/upload-proxy' && request.method === 'PUT') {
-        return handleUploadProxy(env, request, userId);
+        return handleUploadProxy(env, request, userId, requestId);
       }
 
       // Route: POST /download-presign — get a presigned GET URL for downloading
       if (path === '/download-presign' && request.method === 'POST') {
-        return handleDownloadPresign(env, request, userId, isAdmin);
+        return handleDownloadPresign(env, request, userId, isAdmin, requestId);
       }
 
       // Route: POST /delete — delete an R2 object + DB record
       if (path === '/delete' && request.method === 'POST') {
-        return handleDelete(env, request, userId, isAdmin);
+        return handleDelete(env, request, userId, isAdmin, requestId);
       }
 
       // Route: POST /confirm-upload — confirm upload and save DB record
       if (path === '/confirm-upload' && request.method === 'POST') {
-        return handleConfirmUpload(env, request, userId);
+        return handleConfirmUpload(env, request, userId, requestId);
       }
 
       // Route: POST /verify-hash — check file hash for deduplication
       if (path === '/verify-hash' && request.method === 'POST') {
-        return handleVerifyHash(env, request, userId);
+        return handleVerifyHash(env, request, userId, requestId);
       }
 
+      const duration = Date.now() - startTime;
+      log('warn', 'Route not found', { requestId, path, method: request.method, duration, statusCode: 404 });
       return corsError(env, request, 404, 'Not found');
     } catch (err) {
-      console.error('Worker error:', err);
+      const duration = Date.now() - startTime;
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      log('error', 'Worker error', { requestId, path, method: request.method, error: errorMessage, duration, statusCode: 500 });
       return corsError(env, request, 500, 'Internal server error');
     }
   },
@@ -683,82 +780,126 @@ async function handleUploadPresign(
   request: Request,
   userId: string,
   role: Profile['role'],
+  requestId: string,
 ): Promise<Response> {
-  const body = await request.json() as UploadPresignRequest;
-  const { file_name, file_size, file_type, subject_id, tab } = body;
+  const startTime = Date.now();
+  
+  try {
+    const body = await request.json() as UploadPresignRequest;
+    const { file_name, file_size, file_type, subject_id, tab } = body;
 
-  // Validate required fields
-  if (!file_name || !file_size || !file_type || !subject_id || !tab) {
-    return corsError(env, request, 400, 'Missing required fields');
+    // Validate required fields
+    if (!file_name || !file_size || !file_type || !subject_id || !tab) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Missing required fields in upload presign', { requestId, userId, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'Missing required fields');
+    }
+
+    // Validate tab
+    if (!['summaries', 'exams', 'images', 'slides'].includes(tab)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Invalid tab in upload presign', { requestId, userId, tab, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'Invalid tab');
+    }
+
+    // Validate file extension
+    const ext = getExtension(file_name);
+    if (!isAllowedExtension(ext)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File type not allowed', { requestId, userId, file_name, ext, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'File type not allowed');
+    }
+
+    // Validate file size
+    const maxSize = getMaxSize(env);
+    if (file_size > maxSize) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File too large', { requestId, userId, file_size, maxSize, duration, statusCode: 413 });
+      return corsError(env, request, 413, `File too large: maximum ${maxSize / (1024 * 1024)} MB`);
+    }
+
+    // Rate limit check
+    const maxUploads = getUploadLimit(role);
+    const windowMs = parseInt(env.UPLOAD_WINDOW_MINUTES || String(DEFAULT_UPLOAD_WINDOW_MIN), 10) * 60 * 1000;
+    if (!checkInMemoryRateLimit(userId, maxUploads, windowMs)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Rate limit exceeded', { requestId, userId, maxUploads, duration, statusCode: 429 });
+      return corsError(env, request, 429, `Rate limit exceeded: maximum ${maxUploads} uploads per 10 minutes`);
+    }
+
+    // Generate a file ID (UUID) for the object key
+    const fileId = crypto.randomUUID();
+    const objectKey = sanitizeObjectKey(userId, fileId, ext);
+    const mimeType = ALLOWED_MIME_TYPES[ext] || 'application/octet-stream';
+
+    // Create presigned PUT URL
+    const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
+    const presignedUrl = await createPresignedUrl(env, objectKey, 'PUT', expiry);
+
+    const duration = Date.now() - startTime;
+    log('info', 'Upload presign successful', { requestId, userId, fileId, objectKey, duration, statusCode: 200 });
+    
+    return corsResponse(env, request, 200, {
+      upload_url: presignedUrl,
+      object_key: objectKey,
+      file_id: fileId,
+      mime_type: mimeType,
+      expires_in: expiry,
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    log('error', 'Upload presign failed', { requestId, userId, error: errorMessage, duration, statusCode: 500 });
+    return corsError(env, request, 500, 'Internal server error');
   }
-
-  // Validate tab
-  if (!['summaries', 'exams', 'images', 'slides'].includes(tab)) {
-    return corsError(env, request, 400, 'Invalid tab');
-  }
-
-  // Validate file extension
-  const ext = getExtension(file_name);
-  if (!isAllowedExtension(ext)) {
-    return corsError(env, request, 400, 'File type not allowed');
-  }
-
-  // Validate file size
-  const maxSize = getMaxSize(env);
-  if (file_size > maxSize) {
-    return corsError(env, request, 413, `File too large: maximum ${maxSize / (1024 * 1024)} MB`);
-  }
-
-  // Rate limit check
-  const maxUploads = getUploadLimit(role);
-  const windowMs = parseInt(env.UPLOAD_WINDOW_MINUTES || String(DEFAULT_UPLOAD_WINDOW_MIN), 10) * 60 * 1000;
-  if (!checkInMemoryRateLimit(userId, maxUploads, windowMs)) {
-    return corsError(env, request, 429, `Rate limit exceeded: maximum ${maxUploads} uploads per 10 minutes`);
-  }
-
-  // Generate a file ID (UUID) for the object key
-  const fileId = crypto.randomUUID();
-  const objectKey = sanitizeObjectKey(userId, fileId, ext);
-  const mimeType = ALLOWED_MIME_TYPES[ext] || 'application/octet-stream';
-
-  // Create presigned PUT URL
-  const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  const presignedUrl = await createPresignedUrl(env, objectKey, 'PUT', expiry);
-
-  return corsResponse(env, request, 200, {
-    upload_url: presignedUrl,
-    object_key: objectKey,
-    file_id: fileId,
-    mime_type: mimeType,
-    expires_in: expiry,
-  });
 }
 
-async function handleUploadProxy(env: Env, request: Request, userId: string): Promise<Response> {
-  const objectKey = request.headers.get('X-Object-Key') || '';
-  if (!validateObjectKey(objectKey) || objectKey.split('/')[0] !== userId) {
-    return corsError(env, request, 403, 'Invalid object key');
-  }
+async function handleUploadProxy(env: Env, request: Request, userId: string, requestId: string): Promise<Response> {
+  const startTime = Date.now();
+  
+  try {
+    const objectKey = request.headers.get('X-Object-Key') || '';
+    if (!validateObjectKey(objectKey) || objectKey.split('/')[0] !== userId) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Invalid object key in upload proxy', { requestId, userId, objectKey, duration, statusCode: 403 });
+      return corsError(env, request, 403, 'Invalid object key');
+    }
 
-  const declaredSize = Number(request.headers.get('Content-Length') || 0);
-  if (declaredSize > getMaxSize(env)) {
-    return corsError(env, request, 413, 'File too large');
-  }
+    const declaredSize = Number(request.headers.get('Content-Length') || 0);
+    if (declaredSize > getMaxSize(env)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File too large in upload proxy', { requestId, userId, declaredSize, duration, statusCode: 413 });
+      return corsError(env, request, 413, 'File too large');
+    }
 
-  const bytes = await request.arrayBuffer();
-  if (bytes.byteLength === 0 || bytes.byteLength > getMaxSize(env)) {
-    return corsError(env, request, 413, 'File too large or empty');
-  }
+    const bytes = await request.arrayBuffer();
+    if (bytes.byteLength === 0 || bytes.byteLength > getMaxSize(env)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File size mismatch in upload proxy', { requestId, userId, actualSize: bytes.byteLength, duration, statusCode: 413 });
+      return corsError(env, request, 413, 'File too large or empty');
+    }
 
-  const ext = getExtension(objectKey);
-  if (!isAllowedExtension(ext) || !checkMagicBytes(new Uint8Array(bytes.slice(0, 16)), ext)) {
-    return corsError(env, request, 400, 'File content does not match its type');
-  }
+    const ext = getExtension(objectKey);
+    if (!isAllowedExtension(ext) || !checkMagicBytes(new Uint8Array(bytes.slice(0, 16)), ext)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File content does not match type', { requestId, userId, ext, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'File content does not match its type');
+    }
 
-  await env.FILES_BUCKET.put(objectKey, bytes, {
-    httpMetadata: { contentType: ALLOWED_MIME_TYPES[ext] || 'application/octet-stream' },
-  });
-  return corsResponse(env, request, 200, { success: true });
+    await env.FILES_BUCKET.put(objectKey, bytes, {
+      httpMetadata: { contentType: ALLOWED_MIME_TYPES[ext] || 'application/octet-stream' },
+    });
+    
+    const duration = Date.now() - startTime;
+    log('info', 'Upload proxy successful', { requestId, userId, objectKey, size: bytes.byteLength, duration, statusCode: 200 });
+    
+    return corsResponse(env, request, 200, { success: true });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    log('error', 'Upload proxy failed', { requestId, userId, error: errorMessage, duration, statusCode: 500 });
+    return corsError(env, request, 500, 'Internal server error');
+  }
 }
 
 interface ConfirmUploadRequest {
@@ -774,71 +915,95 @@ interface ConfirmUploadRequest {
   batch_id?: string | null;
 }
 
-async function handleConfirmUpload(env: Env, request: Request, userId: string): Promise<Response> {
-  const body = await request.json() as ConfirmUploadRequest;
-  const { object_key, file_id, file_name, file_type, file_size, file_hash, mime_type, subject_id, tab, batch_id } = body;
+async function handleConfirmUpload(env: Env, request: Request, userId: string, requestId: string): Promise<Response> {
+  const startTime = Date.now();
+  
+  try {
+    const body = await request.json() as ConfirmUploadRequest;
+    const { object_key, file_id, file_name, file_type, file_size, file_hash, mime_type, subject_id, tab, batch_id } = body;
 
-  // Validate object key
-  if (!validateObjectKey(object_key)) {
-    return corsError(env, request, 400, 'Invalid object key');
+    // Validate object key
+    if (!validateObjectKey(object_key)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Invalid object key in confirm upload', { requestId, userId, object_key, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'Invalid object key');
+    }
+
+    // Verify the object key belongs to this user
+    const keyParts = object_key.split('/');
+    if (keyParts[0] !== userId) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Object key does not belong to user', { requestId, userId, object_key, duration, statusCode: 403 });
+      return corsError(env, request, 403, 'Object key does not belong to this user');
+    }
+
+    // Verify the R2 object actually exists
+    const r2Object = await env.FILES_BUCKET.head(object_key);
+    if (!r2Object) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Object not found in R2', { requestId, userId, object_key, duration, statusCode: 404 });
+      return corsError(env, request, 404, 'Object not found in R2 — upload may have failed');
+    }
+
+    // Verify the R2 object size matches
+    if (r2Object.size !== file_size) {
+      // Size mismatch — delete the orphaned R2 object
+      await env.FILES_BUCKET.delete(object_key);
+      const duration = Date.now() - startTime;
+      log('warn', 'File size mismatch', { requestId, userId, object_key, expected: file_size, actual: r2Object.size, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'File size mismatch — object deleted');
+    }
+
+    // Check for duplicate hash within subject
+    const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
+    if (isDuplicate) {
+      // Delete the duplicate R2 object
+      await env.FILES_BUCKET.delete(object_key);
+      const duration = Date.now() - startTime;
+      log('warn', 'Duplicate file detected', { requestId, userId, subject_id, file_hash, duration, statusCode: 409 });
+      return corsError(env, request, 409, 'Duplicate file: a file with this hash already exists in this subject');
+    }
+
+    // Insert the DB record
+    const record = {
+      id: file_id,
+      subject_id,
+      tab,
+      title: file_name,
+      storage_path: object_key,
+      file_url: object_key,
+      object_key,
+      storage_provider: 'r2',
+      file_type: file_type.toLowerCase(),
+      file_size,
+      mime_type,
+      file_hash,
+      batch_id: batch_id || null,
+      uploader_id: userId,
+    };
+
+    const inserted = await insertFileRecord(env, record);
+    if (!inserted) {
+      // DB save failed — delete the R2 object to avoid orphaned storage
+      await env.FILES_BUCKET.delete(object_key);
+      const duration = Date.now() - startTime;
+      log('error', 'Failed to save file record', { requestId, userId, object_key, duration, statusCode: 500 });
+      return corsError(env, request, 500, 'Failed to save file record — R2 object cleaned up');
+    }
+
+    const duration = Date.now() - startTime;
+    log('info', 'Upload confirmed successfully', { requestId, userId, file_id, object_key, duration, statusCode: 200 });
+    
+    return corsResponse(env, request, 200, {
+      success: true,
+      file: inserted,
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    log('error', 'Confirm upload failed', { requestId, userId, error: errorMessage, duration, statusCode: 500 });
+    return corsError(env, request, 500, 'Internal server error');
   }
-
-  // Verify the object key belongs to this user
-  const keyParts = object_key.split('/');
-  if (keyParts[0] !== userId) {
-    return corsError(env, request, 403, 'Object key does not belong to this user');
-  }
-
-  // Verify the R2 object actually exists
-  const r2Object = await env.FILES_BUCKET.head(object_key);
-  if (!r2Object) {
-    return corsError(env, request, 404, 'Object not found in R2 — upload may have failed');
-  }
-
-  // Verify the R2 object size matches
-  if (r2Object.size !== file_size) {
-    // Size mismatch — delete the orphaned R2 object
-    await env.FILES_BUCKET.delete(object_key);
-    return corsError(env, request, 400, 'File size mismatch — object deleted');
-  }
-
-  // Check for duplicate hash within subject
-  const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
-  if (isDuplicate) {
-    // Delete the duplicate R2 object
-    await env.FILES_BUCKET.delete(object_key);
-    return corsError(env, request, 409, 'Duplicate file: a file with this hash already exists in this subject');
-  }
-
-  // Insert the DB record
-  const record = {
-    id: file_id,
-    subject_id,
-    tab,
-    title: file_name,
-    storage_path: object_key,
-    file_url: object_key,
-    object_key,
-    storage_provider: 'r2',
-    file_type: file_type.toLowerCase(),
-    file_size,
-    mime_type,
-    file_hash,
-    batch_id: batch_id || null,
-    uploader_id: userId,
-  };
-
-  const inserted = await insertFileRecord(env, record);
-  if (!inserted) {
-    // DB save failed — delete the R2 object to avoid orphaned storage
-    await env.FILES_BUCKET.delete(object_key);
-    return corsError(env, request, 500, 'Failed to save file record — R2 object cleaned up');
-  }
-
-  return corsResponse(env, request, 200, {
-    success: true,
-    file: inserted,
-  });
 }
 
 interface DownloadPresignRequest {
@@ -846,116 +1011,160 @@ interface DownloadPresignRequest {
   mode?: 'preview' | 'download';
 }
 
-async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean): Promise<Response> {
-  const body = await request.json() as DownloadPresignRequest;
-  const { file_id, mode } = body;
+async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean, requestId: string): Promise<Response> {
+  const startTime = Date.now();
+  
+  try {
+    const body = await request.json() as DownloadPresignRequest;
+    const { file_id, mode } = body;
 
-  if (!file_id) {
-    return corsError(env, request, 400, 'Missing file_id');
-  }
+    if (!file_id) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Missing file_id in download presign', { requestId, userId, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'Missing file_id');
+    }
 
-  const file = await fetchFileRecord(env, file_id);
-  if (!file) {
-    return corsError(env, request, 404, 'File not found');
-  }
+    const file = await fetchFileRecord(env, file_id);
+    if (!file) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File not found in download presign', { requestId, userId, file_id, duration, statusCode: 404 });
+      return corsError(env, request, 404, 'File not found');
+    }
 
-  // Access control
-  if (!canAccessFile(file, userId, isAdmin)) {
-    return corsError(env, request, 403, 'Access denied');
-  }
+    // Access control
+    if (!canAccessFile(file, userId, isAdmin)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Access denied in download presign', { requestId, userId, file_id, isAdmin, duration, statusCode: 403 });
+      return corsError(env, request, 403, 'Access denied');
+    }
 
-  // Determine the object key — support both old (storage_path) and new (object_key) files
-  const objectKey = file.object_key || file.storage_path;
-  if (!objectKey) {
-    return corsError(env, request, 404, 'No storage path found for file');
-  }
+    // Determine the object key — support both old (storage_path) and new (object_key) files
+    const objectKey = file.object_key || file.storage_path;
+    if (!objectKey) {
+      const duration = Date.now() - startTime;
+      log('warn', 'No storage path found for file', { requestId, userId, file_id, duration, statusCode: 404 });
+      return corsError(env, request, 404, 'No storage path found for file');
+    }
 
-  // For old files in Supabase Storage (storage_provider is null or 'supabase'),
-  // we can't generate R2 presigned URLs — the frontend should fall back to
-  // Supabase signed URLs for those files.
-  if (file.storage_provider !== 'r2') {
+    // For old files in Supabase Storage (storage_provider is null or 'supabase'),
+    // we can't generate R2 presigned URLs — the frontend should fall back to
+    // Supabase signed URLs for those files.
+    if (file.storage_provider !== 'r2') {
+      const duration = Date.now() - startTime;
+      log('info', 'Supabase fallback for download', { requestId, userId, file_id, duration, statusCode: 200 });
+      return corsResponse(env, request, 200, {
+        provider: 'supabase',
+        storage_path: file.storage_path,
+      });
+    }
+
+    // Validate the object key format
+    if (!validateObjectKey(objectKey)) {
+      const duration = Date.now() - startTime;
+      log('error', 'Invalid object key in database', { requestId, userId, file_id, objectKey, duration, statusCode: 500 });
+      return corsError(env, request, 500, 'Invalid object key in database');
+    }
+
+    const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
+    // Do not pass response-content-disposition - unreliable on iOS and some browsers
+    // Frontend handles download via blob for consistent behavior across all devices
+    const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
+
+    const duration = Date.now() - startTime;
+    log('info', 'Download presign successful', { requestId, userId, file_id, mode, duration, statusCode: 200 });
+    
     return corsResponse(env, request, 200, {
-      provider: 'supabase',
-      storage_path: file.storage_path,
+      download_url: presignedUrl,
+      provider: 'r2',
+      expires_in: expiry,
     });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    log('error', 'Download presign failed', { requestId, userId, error: errorMessage, duration, statusCode: 500 });
+    return corsError(env, request, 500, 'Internal server error');
   }
-
-  // Validate the object key format
-  if (!validateObjectKey(objectKey)) {
-    return corsError(env, request, 500, 'Invalid object key in database');
-  }
-
-  const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  // Do not pass response-content-disposition to the presigned URL. The `filename*`
-  // parameter contains an asterisk that encodeURIComponent turns into %2A, but
-  // R2's S3 canonical request leaves `*` unencoded — causing SignatureDoesNotMatch.
-  // The frontend already sets the download filename client-side via blob download.
-  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
-
-  return corsResponse(env, request, 200, {
-    download_url: presignedUrl,
-    provider: 'r2',
-    expires_in: expiry,
-  });
 }
 
 interface DeleteRequest {
   file_id: string;
 }
 
-async function handleDelete(env: Env, request: Request, userId: string, isAdmin: boolean): Promise<Response> {
-  const body = await request.json() as DeleteRequest;
-  const { file_id } = body;
+async function handleDelete(env: Env, request: Request, userId: string, isAdmin: boolean, requestId: string): Promise<Response> {
+  const startTime = Date.now();
+  
+  try {
+    const body = await request.json() as DeleteRequest;
+    const { file_id } = body;
 
-  if (!file_id) {
-    return corsError(env, request, 400, 'Missing file_id');
-  }
-
-  const file = await fetchFileRecord(env, file_id);
-  if (!file) {
-    return corsError(env, request, 404, 'File not found');
-  }
-
-  // Access control — only admin can delete (matching RLS)
-  if (!canDeleteFile(file, userId, isAdmin)) {
-    return corsError(env, request, 403, 'Only administrators can delete files');
-  }
-
-  // Delete the DB record first
-  const dbDeleted = await deleteFileRecord(env, file_id);
-  if (!dbDeleted) {
-    return corsError(env, request, 500, 'Failed to delete file record');
-  }
-
-  // Delete the R2 object
-  const objectKey = file.object_key || file.storage_path;
-  let r2Deleted = true;
-
-  if (objectKey && file.storage_provider === 'r2') {
-    try {
-      await env.FILES_BUCKET.delete(objectKey);
-    } catch {
-      r2Deleted = false;
-      await insertCleanupRecord(env, objectKey, 'delete_failed');
+    if (!file_id) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Missing file_id in delete', { requestId, userId, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'Missing file_id');
     }
-  } else if (objectKey && file.storage_provider !== 'r2') {
-    // Old Supabase Storage file — frontend handles Supabase storage deletion
-    // Worker only handles R2 objects
-  }
 
-  if (!r2Deleted) {
-    return corsResponse(env, request, 207, {
-      success: false,
-      message: 'Database record deleted, but R2 object deletion failed. Cleanup queued for retry.',
+    const file = await fetchFileRecord(env, file_id);
+    if (!file) {
+      const duration = Date.now() - startTime;
+      log('warn', 'File not found in delete', { requestId, userId, file_id, duration, statusCode: 404 });
+      return corsError(env, request, 404, 'File not found');
+    }
+
+    // Access control — only admin can delete (matching RLS)
+    if (!canDeleteFile(file, userId, isAdmin)) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Unauthorized delete attempt', { requestId, userId, file_id, isAdmin, duration, statusCode: 403 });
+      return corsError(env, request, 403, 'Only administrators can delete files');
+    }
+
+    // Delete the DB record first
+    const dbDeleted = await deleteFileRecord(env, file_id);
+    if (!dbDeleted) {
+      const duration = Date.now() - startTime;
+      log('error', 'Failed to delete file record', { requestId, userId, file_id, duration, statusCode: 500 });
+      return corsError(env, request, 500, 'Failed to delete file record');
+    }
+
+    // Delete the R2 object
+    const objectKey = file.object_key || file.storage_path;
+    let r2Deleted = true;
+
+    if (objectKey && file.storage_provider === 'r2') {
+      try {
+        await env.FILES_BUCKET.delete(objectKey);
+      } catch {
+        r2Deleted = false;
+        await insertCleanupRecord(env, objectKey, 'delete_failed');
+        const duration = Date.now() - startTime;
+        log('error', 'R2 object deletion failed, cleanup queued', { requestId, userId, file_id, objectKey, duration, statusCode: 207 });
+      }
+    } else if (objectKey && file.storage_provider !== 'r2') {
+      // Old Supabase Storage file — frontend handles Supabase storage deletion
+      // Worker only handles R2 objects
+    }
+
+    if (!r2Deleted) {
+      return corsResponse(env, request, 207, {
+        success: false,
+        message: 'Database record deleted, but R2 object deletion failed. Cleanup queued for retry.',
+        file_id,
+        cleanup_queued: true,
+      });
+    }
+
+    const duration = Date.now() - startTime;
+    log('info', 'Delete successful', { requestId, userId, file_id, objectKey, duration, statusCode: 200 });
+    
+    return corsResponse(env, request, 200, {
+      success: true,
       file_id,
-      cleanup_queued: true,
     });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    log('error', 'Delete failed', { requestId, userId, error: errorMessage, duration, statusCode: 500 });
+    return corsError(env, request, 500, 'Internal server error');
   }
-
-  return corsResponse(env, request, 200, {
-    success: true,
-    file_id,
-  });
 }
 
 interface VerifyHashRequest {
@@ -963,18 +1172,33 @@ interface VerifyHashRequest {
   subject_id: string;
 }
 
-async function handleVerifyHash(env: Env, request: Request, userId: string): Promise<Response> {
-  const body = await request.json() as VerifyHashRequest;
-  const { file_hash, subject_id } = body;
+async function handleVerifyHash(env: Env, request: Request, userId: string, requestId: string): Promise<Response> {
+  const startTime = Date.now();
+  
+  try {
+    const body = await request.json() as VerifyHashRequest;
+    const { file_hash, subject_id } = body;
 
-  if (!file_hash || !subject_id) {
-    return corsError(env, request, 400, 'Missing file_hash or subject_id');
+    if (!file_hash || !subject_id) {
+      const duration = Date.now() - startTime;
+      log('warn', 'Missing file_hash or subject_id in verify hash', { requestId, userId, duration, statusCode: 400 });
+      return corsError(env, request, 400, 'Missing file_hash or subject_id');
+    }
+
+    const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
+    
+    const duration = Date.now() - startTime;
+    log('info', 'Hash verification completed', { requestId, userId, subject_id, isDuplicate: isDuplicate, duration, statusCode: 200 });
+    
+    return corsResponse(env, request, 200, {
+      is_duplicate: isDuplicate,
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    log('error', 'Hash verification failed', { requestId, userId, error: errorMessage, duration, statusCode: 500 });
+    return corsError(env, request, 500, 'Internal server error');
   }
-
-  const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
-  return corsResponse(env, request, 200, {
-    is_duplicate: isDuplicate,
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -995,7 +1219,7 @@ export {
   sha256,
   createPresignedUrl,
   getCorsHeaders,
-  downloadContentDisposition,
   getUploadLimit,
+  validateEnvironment,
 };
 export type { FileRecord, Profile, JwtPayload };

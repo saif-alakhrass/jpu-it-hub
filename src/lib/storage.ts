@@ -7,11 +7,18 @@ import {
   UPLOAD_MAX_PER_WINDOW,
   UPLOAD_WINDOW_MS,
 } from '@/lib/constants';
+import { classifyError, NetworkError, logError } from './errorHandler';
 
 export { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES, UPLOAD_MAX_PER_WINDOW };
 export { ALLOWED_MIME_TYPES, ALLOWED_EXTENSIONS };
 
 const SIGNED_URL_EXPIRY = 3600;
+const CLEANUP_DELAY_MS = 100;
+
+export interface DownloadResult {
+  success: boolean;
+  error?: string;
+}
 
 export async function getSignedFileUrl(storagePath: string): Promise<string | null> {
   const { data, error } = await supabase.storage
@@ -31,27 +38,84 @@ export function openFilePreview(url: string): void {
   window.open(url, '_blank');
 }
 
-export async function downloadFile(url: string, fallbackName: string): Promise<void> {
-  if (!url) return;
+export async function downloadFile(url: string, fallbackName: string): Promise<DownloadResult> {
+  if (!url) return { success: false, error: 'No URL provided' };
+  
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`Download failed (${res.status})`);
+    if (!res.ok) {
+      const error = new NetworkError(`Download failed (${res.status})`, { 
+        url, 
+        status: res.status,
+        fallbackName 
+      });
+      logError(error, { url, fallbackName });
+      throw error;
+    }
     const blob = await res.blob();
     saveBlob(blob, fallbackName);
-  } catch {
-    window.location.assign(url);
+    return { success: true };
+  } catch (error) {
+    const appError = classifyError(error);
+    logError(appError, { url, fallbackName });
+    
+    // Fallback: try direct download with download attribute
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fallbackName || 'file';
+      a.target = '_blank';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+      }, CLEANUP_DELAY_MS);
+      return { success: true };
+    } catch {
+      // Last resort: open in new tab
+      window.open(url, '_blank');
+      return { success: false, error: appError.message };
+    }
   }
 }
 
 function saveBlob(blob: Blob, fallbackName: string): void {
+  const filename = fallbackName || 'file';
   const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = objectUrl;
-  a.download = fallbackName || 'file';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(objectUrl);
+  
+  // iOS Safari workaround: use FileReader for better compatibility
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+  
+  if (isIOS) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const a = document.createElement('a');
+      a.href = reader.result as string;
+      a.download = filename;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+      }, CLEANUP_DELAY_MS);
+    };
+    reader.readAsDataURL(blob);
+  } else {
+    // Standard approach for other browsers
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    
+    // Cleanup
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    }, CLEANUP_DELAY_MS);
+  }
 }
 
 export function canUploadNow(recentTimestamps: number[], maxUploads = UPLOAD_MAX_PER_WINDOW): boolean {
