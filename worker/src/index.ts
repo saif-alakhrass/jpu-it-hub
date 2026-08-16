@@ -291,6 +291,12 @@ function extractToken(request: Request): string | null {
 // Supabase helpers (using service role key — server-side only)
 // ---------------------------------------------------------------------------
 
+function supabaseRestUrl(env: Env, table: string, params: Record<string, string>): string {
+  const base = env.SUPABASE_URL.replace(/\/$/, '');
+  const query = new URLSearchParams(params).toString();
+  return query ? `${base}/rest/v1/${table}?${query}` : `${base}/rest/v1/${table}`;
+}
+
 function supabaseHeaders(env: Env): Headers {
   return new Headers({
     'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
@@ -300,7 +306,8 @@ function supabaseHeaders(env: Env): Headers {
 }
 
 async function fetchProfile(env: Env, userId: string): Promise<Profile | null> {
-  const url = `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=id,role`;
+  if (!UUID_RE.test(userId)) return null;
+  const url = supabaseRestUrl(env, 'profiles', { id: `eq.${userId}`, select: 'id,role' });
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return null;
   const data = await res.json() as Profile[];
@@ -310,8 +317,8 @@ async function fetchProfile(env: Env, userId: string): Promise<Profile | null> {
 async function authenticateWithProfile(env: Env, token: string): Promise<Profile | null> {
   const [, payloadB64] = token.split('.');
   const payload = payloadB64 ? decodeJson<JwtPayload>(payloadB64) : null;
-  if (!payload?.sub) return null;
-  const url = `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${payload.sub}&select=id,role`;
+  if (!payload?.sub || !UUID_RE.test(payload.sub)) return null;
+  const url = supabaseRestUrl(env, 'profiles', { id: `eq.${payload.sub}`, select: 'id,role' });
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -324,7 +331,11 @@ async function authenticateWithProfile(env: Env, token: string): Promise<Profile
 }
 
 async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | null> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
+  if (!UUID_RE.test(fileId)) return null;
+  const url = supabaseRestUrl(env, 'files', {
+    id: `eq.${fileId}`,
+    select: 'id,title,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id',
+  });
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return null;
   const data = await res.json() as FileRecord[];
@@ -332,7 +343,9 @@ async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | n
 }
 
 async function insertFileRecord(env: Env, record: Record<string, unknown>): Promise<FileRecord | null> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?select=id,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
+  const url = supabaseRestUrl(env, 'files', {
+    select: 'id,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id',
+  });
   const res = await fetch(url, {
     method: 'POST',
     headers: supabaseHeaders(env),
@@ -344,7 +357,8 @@ async function insertFileRecord(env: Env, record: Record<string, unknown>): Prom
 }
 
 async function deleteFileRecord(env: Env, fileId: string): Promise<boolean> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}`;
+  if (!UUID_RE.test(fileId)) return false;
+  const url = supabaseRestUrl(env, 'files', { id: `eq.${fileId}` });
   const res = await fetch(url, {
     method: 'DELETE',
     headers: supabaseHeaders(env),
@@ -353,7 +367,12 @@ async function deleteFileRecord(env: Env, fileId: string): Promise<boolean> {
 }
 
 async function checkDuplicateHash(env: Env, userId: string, subjectId: string, fileHash: string): Promise<boolean> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?file_hash=eq.${fileHash}&subject_id=eq.${subjectId}&select=id`;
+  if (!UUID_RE.test(subjectId) || !SHA256_HEX_RE.test(fileHash)) return false;
+  const url = supabaseRestUrl(env, 'files', {
+    file_hash: `eq.${fileHash}`,
+    subject_id: `eq.${subjectId}`,
+    select: 'id',
+  });
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return false;
   const data = await res.json() as { id: string }[];
@@ -361,7 +380,7 @@ async function checkDuplicateHash(env: Env, userId: string, subjectId: string, f
 }
 
 async function insertCleanupRecord(env: Env, objectKey: string, reason: string): Promise<void> {
-  const url = `${env.SUPABASE_URL}/rest/v1/r2_cleanup_queue`;
+  const url = supabaseRestUrl(env, 'r2_cleanup_queue', {});
   await fetch(url, {
     method: 'POST',
     headers: supabaseHeaders(env),
@@ -509,6 +528,13 @@ function getMaxSize(env: Env): number {
 // ---------------------------------------------------------------------------
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
+const ALLOWED_TABS = ['summaries', 'exams', 'images', 'slides'] as const;
+const MAX_TITLE_LENGTH = 255;
+
+function isAllowedTab(tab: unknown): boolean {
+  return typeof tab === 'string' && (ALLOWED_TABS as readonly string[]).includes(tab);
+}
 
 function sanitizeObjectKey(userId: string, fileId: string, ext: string): string {
   // Validate userId is a UUID
@@ -693,8 +719,13 @@ async function handleUploadPresign(
   }
 
   // Validate tab
-  if (!['summaries', 'exams', 'images', 'slides'].includes(tab)) {
+  if (!isAllowedTab(tab)) {
     return corsError(env, request, 400, 'Invalid tab');
+  }
+
+  // Validate subject reference
+  if (!UUID_RE.test(subject_id)) {
+    return corsError(env, request, 400, 'Invalid subject_id');
   }
 
   // Validate file extension
@@ -789,6 +820,34 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
     return corsError(env, request, 403, 'Object key does not belong to this user');
   }
 
+  // Validate every client-supplied field before it reaches the database with
+  // the service role key (which bypasses RLS).
+  const keyExt = getExtension(object_key);
+  if (!UUID_RE.test(subject_id) || !isAllowedTab(tab)) {
+    return corsError(env, request, 400, 'Invalid subject_id or tab');
+  }
+  if (!UUID_RE.test(file_id) || object_key !== `${userId}/${file_id}.${keyExt}`) {
+    return corsError(env, request, 400, 'file_id does not match object key');
+  }
+  if (batch_id != null && !UUID_RE.test(batch_id)) {
+    return corsError(env, request, 400, 'Invalid batch_id');
+  }
+  if (!SHA256_HEX_RE.test(file_hash ?? '')) {
+    return corsError(env, request, 400, 'Invalid file_hash');
+  }
+  if (typeof file_name !== 'string' || file_name.trim().length === 0 || file_name.length > MAX_TITLE_LENGTH) {
+    return corsError(env, request, 400, 'Invalid file name');
+  }
+  if (typeof file_type !== 'string' || file_type.toLowerCase() !== keyExt) {
+    return corsError(env, request, 400, 'file_type does not match object key');
+  }
+  if (mime_type !== ALLOWED_MIME_TYPES[keyExt]) {
+    return corsError(env, request, 400, 'mime_type does not match file type');
+  }
+  if (!Number.isInteger(file_size) || file_size <= 0 || file_size > getMaxSize(env)) {
+    return corsError(env, request, 413, 'Invalid file size');
+  }
+
   // Verify the R2 object actually exists
   const r2Object = await env.FILES_BUCKET.head(object_key);
   if (!r2Object) {
@@ -800,6 +859,16 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
     // Size mismatch — delete the orphaned R2 object
     await env.FILES_BUCKET.delete(object_key);
     return corsError(env, request, 400, 'File size mismatch — object deleted');
+  }
+
+  // Verify the stored bytes really are the declared type. Objects written with
+  // a presigned PUT never pass through the proxy, so this is the only
+  // server-side content check for that path.
+  const head = await env.FILES_BUCKET.get(object_key, { range: { offset: 0, length: 16 } });
+  const headBytes = head ? new Uint8Array(await head.arrayBuffer()) : null;
+  if (!headBytes || !checkMagicBytes(headBytes, keyExt)) {
+    await env.FILES_BUCKET.delete(object_key);
+    return corsError(env, request, 400, 'File content does not match its type — object deleted');
   }
 
   // Check for duplicate hash within subject
@@ -850,8 +919,8 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   const body = await request.json() as DownloadPresignRequest;
   const { file_id, mode } = body;
 
-  if (!file_id) {
-    return corsError(env, request, 400, 'Missing file_id');
+  if (!file_id || !UUID_RE.test(file_id)) {
+    return corsError(env, request, 400, 'Missing or invalid file_id');
   }
 
   const file = await fetchFileRecord(env, file_id);
@@ -907,8 +976,8 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
   const body = await request.json() as DeleteRequest;
   const { file_id } = body;
 
-  if (!file_id) {
-    return corsError(env, request, 400, 'Missing file_id');
+  if (!file_id || !UUID_RE.test(file_id)) {
+    return corsError(env, request, 400, 'Missing or invalid file_id');
   }
 
   const file = await fetchFileRecord(env, file_id);
@@ -967,8 +1036,8 @@ async function handleVerifyHash(env: Env, request: Request, userId: string): Pro
   const body = await request.json() as VerifyHashRequest;
   const { file_hash, subject_id } = body;
 
-  if (!file_hash || !subject_id) {
-    return corsError(env, request, 400, 'Missing file_hash or subject_id');
+  if (!SHA256_HEX_RE.test(file_hash ?? '') || !UUID_RE.test(subject_id ?? '')) {
+    return corsError(env, request, 400, 'Invalid file_hash or subject_id');
   }
 
   const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
@@ -997,5 +1066,7 @@ export {
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,
+  isAllowedTab,
+  supabaseRestUrl,
 };
 export type { FileRecord, Profile, JwtPayload };
