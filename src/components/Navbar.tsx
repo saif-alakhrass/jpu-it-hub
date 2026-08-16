@@ -129,9 +129,12 @@ export function Navbar() {
             </button>
           )}
         </div>
-        <button className="rounded-lg p-2 text-slate-300 hover:bg-white/5 md:hidden" onClick={() => setOpen((v) => !v)} aria-label="القائمة">
-          <Icon name="Menu" className="h-6 w-6" />
-        </button>
+        <div className="flex items-center gap-1 md:hidden">
+          {session && <NotificationBell />}
+          <button className="rounded-lg p-2 text-slate-300 hover:bg-white/5" onClick={() => setOpen((v) => !v)} aria-label="القائمة">
+            <Icon name="Menu" className="h-6 w-6" />
+          </button>
+        </div>
       </div>
       {open && (
         <div className="border-t border-white/5 bg-ink-900/95 px-4 py-4 md:hidden">
@@ -156,8 +159,7 @@ export function Navbar() {
                 <button onClick={() => { navigate('/profile'); setOpen(false); }} className="btn-ghost justify-start">
                   <Icon name="User" className="h-4 w-4" /> الملف الشخصي
                 </button>
-                <div className="px-2 py-1"><NotificationBell /></div>
-                <button onClick={() => { signOut(); setOpen(false); }} className="btn-ghost justify-start text-danger-400">
+                        <button onClick={() => { signOut(); setOpen(false); }} className="btn-ghost justify-start text-danger-400">
                   <Icon name="LogOut" className="h-4 w-4" /> خروج
                 </button>
               </>
