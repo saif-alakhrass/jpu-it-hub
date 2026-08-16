@@ -299,10 +299,28 @@ function supabaseHeaders(env: Env): Headers {
   });
 }
 
+/**
+ * Supabase failures are indistinguishable from "no row" at the call sites, so
+ * they must at least stay visible in the Worker logs. Bodies are PostgREST
+ * error payloads; credentials only ever travel in request headers.
+ */
+async function logSupabaseFailure(operation: string, res: Response): Promise<void> {
+  let detail = '';
+  try {
+    detail = (await res.text()).slice(0, 500);
+  } catch (err) {
+    console.error(`Could not read the Supabase error body: ${operation}`, err);
+  }
+  console.error(`Supabase request failed: ${operation}`, res.status, detail);
+}
+
 async function fetchProfile(env: Env, userId: string): Promise<Profile | null> {
   const url = `${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${userId}&select=id,role`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logSupabaseFailure('fetchProfile', res);
+    return null;
+  }
   const data = await res.json() as Profile[];
   return data[0] ?? null;
 }
@@ -318,7 +336,10 @@ async function authenticateWithProfile(env: Env, token: string): Promise<Profile
       apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
     },
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logSupabaseFailure('authenticateWithProfile', res);
+    return null;
+  }
   const data = await res.json() as Profile[];
   return data[0] ?? null;
 }
@@ -326,7 +347,10 @@ async function authenticateWithProfile(env: Env, token: string): Promise<Profile
 async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | null> {
   const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logSupabaseFailure('fetchFileRecord', res);
+    return null;
+  }
   const data = await res.json() as FileRecord[];
   return data[0] ?? null;
 }
@@ -338,7 +362,10 @@ async function insertFileRecord(env: Env, record: Record<string, unknown>): Prom
     headers: supabaseHeaders(env),
     body: JSON.stringify(record),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    await logSupabaseFailure('insertFileRecord', res);
+    return null;
+  }
   const data = await res.json() as FileRecord[];
   return data[0] ?? null;
 }
@@ -349,24 +376,50 @@ async function deleteFileRecord(env: Env, fileId: string): Promise<boolean> {
     method: 'DELETE',
     headers: supabaseHeaders(env),
   });
+  if (!res.ok) await logSupabaseFailure('deleteFileRecord', res);
   return res.ok;
 }
 
 async function checkDuplicateHash(env: Env, userId: string, subjectId: string, fileHash: string): Promise<boolean> {
   const url = `${env.SUPABASE_URL}/rest/v1/files?file_hash=eq.${fileHash}&subject_id=eq.${subjectId}&select=id`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
-  if (!res.ok) return false;
+  if (!res.ok) {
+    // Reporting "not a duplicate" here would let a failed lookup create a
+    // duplicate record, so the request must fail instead.
+    await logSupabaseFailure('checkDuplicateHash', res);
+    throw new Error(`Duplicate hash lookup failed with status ${res.status}`);
+  }
   const data = await res.json() as { id: string }[];
   return data.length > 0;
 }
 
 async function insertCleanupRecord(env: Env, objectKey: string, reason: string): Promise<void> {
   const url = `${env.SUPABASE_URL}/rest/v1/r2_cleanup_queue`;
-  await fetch(url, {
-    method: 'POST',
-    headers: supabaseHeaders(env),
-    body: JSON.stringify({ object_key: objectKey, reason, status: 'pending' }),
-  }).catch(() => {});
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: supabaseHeaders(env),
+      body: JSON.stringify({ object_key: objectKey, reason, status: 'pending' }),
+    });
+    if (!res.ok) await logSupabaseFailure('insertCleanupRecord', res);
+  } catch (err) {
+    // A queue failure must not mask the caller's own outcome, but an object
+    // that nothing tracks anymore has to be traceable in the logs.
+    console.error('Could not queue an R2 object for cleanup', objectKey, reason, err);
+  }
+}
+
+/**
+ * Removes an object that must not stay in R2. When the delete itself fails the
+ * key is queued so the orphan is still reclaimed later.
+ */
+async function discardOrphanObject(env: Env, objectKey: string, reason: string): Promise<void> {
+  try {
+    await env.FILES_BUCKET.delete(objectKey);
+  } catch (err) {
+    console.error('Failed to delete an orphaned R2 object', objectKey, reason, err);
+    await insertCleanupRecord(env, objectKey, reason);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -798,7 +851,7 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
   // Verify the R2 object size matches
   if (r2Object.size !== file_size) {
     // Size mismatch — delete the orphaned R2 object
-    await env.FILES_BUCKET.delete(object_key);
+    await discardOrphanObject(env, object_key, 'size_mismatch');
     return corsError(env, request, 400, 'File size mismatch — object deleted');
   }
 
@@ -806,7 +859,7 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
   const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
   if (isDuplicate) {
     // Delete the duplicate R2 object
-    await env.FILES_BUCKET.delete(object_key);
+    await discardOrphanObject(env, object_key, 'duplicate_upload');
     return corsError(env, request, 409, 'Duplicate file: a file with this hash already exists in this subject');
   }
 
@@ -831,7 +884,7 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
   const inserted = await insertFileRecord(env, record);
   if (!inserted) {
     // DB save failed — delete the R2 object to avoid orphaned storage
-    await env.FILES_BUCKET.delete(object_key);
+    await discardOrphanObject(env, object_key, 'record_insert_failed');
     return corsError(env, request, 500, 'Failed to save file record — R2 object cleaned up');
   }
 

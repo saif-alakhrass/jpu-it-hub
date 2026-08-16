@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle as signInWithGoogleSvc, signOutUser, loadProfile as loadProfileSvc } from '@/services/auth';
@@ -15,25 +15,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(p);
   }
 
+  /**
+   * The session is already known at this point, so a failing profile query must
+   * not keep the app in its loading state or surface as an unhandled rejection.
+   */
+  const loadProfileForSession = useCallback(async (uid: string) => {
+    try {
+      setProfile(await loadProfileSvc(uid));
+    } catch (err) {
+      console.error('Failed to load profile for the current session', err);
+      setProfile(null);
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      const uid = data.session?.user?.id;
-      if (uid) {
-        loadProfile(uid).finally(() => mounted && setLoading(false));
-      } else {
-        setLoading(false);
-      }
-    });
+    supabase.auth.getSession()
+      .then(async ({ data }) => {
+        if (!mounted) return;
+        setSession(data.session);
+        const uid = data.session?.user?.id;
+        if (uid) await loadProfileForSession(uid);
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to restore the authentication session', err);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
-      (async () => {
+      void (async () => {
         setSession(sess);
         const uid = sess?.user?.id;
         if (uid) {
-          await loadProfile(uid);
+          await loadProfileForSession(uid);
         } else {
           setProfile(null);
         }
@@ -45,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [loadProfileForSession]);
 
   async function refreshProfile() {
     if (session?.user?.id) await loadProfile(session.user.id);
@@ -64,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data } = await supabase.auth.getSession();
       setSession(data.session);
       const uid = data.session?.user?.id;
-      if (uid) await loadProfile(uid);
+      if (uid) await loadProfileForSession(uid);
       return { error: null, notice: null };
     }
     if (res.notice) return { error: null, notice: res.notice };
@@ -72,8 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signInWithGoogle() {
-    if (!isSupabaseConfigured) return;
-    await signInWithGoogleSvc();
+    if (!isSupabaseConfigured) return { error: 'مفاتيح الاتصال بقاعدة البيانات غير متوفرة' };
+    return signInWithGoogleSvc();
   }
 
   async function signOut() {

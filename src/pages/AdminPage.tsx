@@ -108,99 +108,132 @@ export function AdminPage() {
 
   async function handleApprove(id: string) {
     setBusyId(id);
-    const ok = await setFileStatus(id, 'approved');
-    if (!ok) { setToast({ message: 'فشل الموافقة على الملف', type: 'error' }); setBusyId(null); return; }
-    setPending((prev) => prev.filter((f) => f.id !== id));
-    await loadStats();
-    setToast({ message: 'تمت الموافقة على الملف ونشره', type: 'success' });
-    setPreview(null);
-    setSignedPreviewUrl(null);
-    setBusyId(null);
+    try {
+      await setFileStatus(id, 'approved');
+      setPending((prev) => prev.filter((f) => f.id !== id));
+      await loadStats();
+      setToast({ message: 'تمت الموافقة على الملف ونشره', type: 'success' });
+      setPreview(null);
+      setSignedPreviewUrl(null);
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل الموافقة على الملف'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function performReject(file: FileRow) {
     const reason = rejectionReason.trim();
     if (reason.length < 3) { setToast({ message: 'اكتب سبب الرفض بثلاثة أحرف على الأقل', type: 'error' }); return; }
     setBusyId(file.id);
-    const ok = await setFileStatus(file.id, 'rejected', reason);
-    if (!ok) { setToast({ message: 'فشل رفض الملف', type: 'error' }); setBusyId(null); return; }
-    setPending((prev) => prev.filter((f) => f.id !== file.id));
-    await loadStats();
-    await loadRejected();
-    setToast({ message: 'تم رفض الملف ويمكن استعادته لاحقاً', type: 'success' });
-    setPreview(null);
-    setSignedPreviewUrl(null);
-    setConfirmReject(null);
-    setRejectionReason('');
-    setBusyId(null);
+    try {
+      await setFileStatus(file.id, 'rejected', reason);
+      setPending((prev) => prev.filter((f) => f.id !== file.id));
+      await loadStats();
+      await loadRejected();
+      setToast({ message: 'تم رفض الملف ويمكن استعادته لاحقاً', type: 'success' });
+      setPreview(null);
+      setSignedPreviewUrl(null);
+      setConfirmReject(null);
+      setRejectionReason('');
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل رفض الملف'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleApproveBatch(batchId: string) {
     setBusyId(batchId);
-    const ok = await moderatePendingBatch(batchId, 'approved');
-    if (!ok) { setToast({ message: 'فشلت الموافقة على ملفات المجلد', type: 'error' }); setBusyId(null); return; }
-    setPending((prev) => prev.filter((file) => file.batch_id !== batchId));
-    await Promise.all([loadStats(), loadPending()]);
-    setToast({ message: 'تمت الموافقة على جميع ملفات المجلد ونشرها', type: 'success' });
-    setBusyId(null);
+    try {
+      await moderatePendingBatch(batchId, 'approved');
+      setPending((prev) => prev.filter((file) => file.batch_id !== batchId));
+      await Promise.all([loadStats(), loadPending()]);
+      setToast({ message: 'تمت الموافقة على جميع ملفات المجلد ونشرها', type: 'success' });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشلت الموافقة على ملفات المجلد'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleEditFile(file: FileRow, changes: { title: string; subject_id: string; tab: FileTab; detachFromBatch?: boolean }) {
     setBusyId(file.id);
-    const ok = await updateManagedFile(file.id, changes);
-    setBusyId(null);
-    if (!ok) { setToast({ message: 'فشل حفظ تعديل الملف', type: 'error' }); return; }
-    setEditFile(null);
-    await Promise.all([loadPending(), loadManagedFiles()]);
-    setToast({ message: changes.detachFromBatch ? 'تم نقل الملف خارج المجلد وتحديث مكانه.' : 'تم حفظ تعديل الملف مع إبقائه في مجلده.', type: 'success' });
+    try {
+      await updateManagedFile(file.id, changes);
+      setEditFile(null);
+      await Promise.all([loadPending(), loadManagedFiles()]);
+      setToast({ message: changes.detachFromBatch ? 'تم نقل الملف خارج المجلد وتحديث مكانه.' : 'تم حفظ تعديل الملف مع إبقائه في مجلده.', type: 'success' });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل حفظ تعديل الملف'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleEditBatch(batch: NonNullable<FileRow['batch']>, changes: { title: string; subject_id: string; tab: FileTab }) {
     setBusyId(batch.id);
-    const ok = await updateManagedBatch(batch.id, changes);
-    setBusyId(null);
-    if (!ok) { setToast({ message: 'فشل حفظ تعديل المجلد', type: 'error' }); return; }
-    setEditBatch(null);
-    await Promise.all([loadPending(), loadManagedFiles()]);
-    setToast({ message: 'تم تعديل المجلد وكل ملفاته مع الحفاظ على تنظيمه.', type: 'success' });
+    try {
+      await updateManagedBatch(batch.id, changes);
+      setEditBatch(null);
+      await Promise.all([loadPending(), loadManagedFiles()]);
+      setToast({ message: 'تم تعديل المجلد وكل ملفاته مع الحفاظ على تنظيمه.', type: 'success' });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل حفظ تعديل المجلد'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleGroupPending(title: string) {
     if (!groupPending) return;
     setBusyId('group-pending');
-    const ok = await groupManagedFiles(groupPending.map((file) => file.id), title);
-    setBusyId(null);
-    if (!ok) { setToast({ message: 'تعذر تجميع الملفات. اختر ملفات معلقة من المادة والقسم نفسيهما.', type: 'error' }); return; }
-    setGroupPending(null);
-    setSelectedPendingIds(new Set());
-    await Promise.all([loadPending(), loadManagedFiles()]);
-    setToast({ message: 'تم تجميع الملفات في مجلد واحد للمراجعة', type: 'success' });
+    try {
+      await groupManagedFiles(groupPending.map((file) => file.id), title);
+      setGroupPending(null);
+      setSelectedPendingIds(new Set());
+      await Promise.all([loadPending(), loadManagedFiles()]);
+      setToast({ message: 'تم تجميع الملفات في مجلد واحد للمراجعة', type: 'success' });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'تعذر تجميع الملفات. اختر ملفات معلقة من المادة والقسم نفسيهما.'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleGroupManaged(title: string) {
     if (!groupManaged) return;
     setBusyId('group-managed');
-    const ok = await groupManagedFiles(groupManaged.map((file) => file.id), title);
-    setBusyId(null);
-    if (!ok) { setToast({ message: 'تعذر تجميع الملفات. اختر ملفات منفصلة لها نفس المادة والقسم والحالة.', type: 'error' }); return; }
-    setGroupManaged(null);
-    setSelectedManagedIds(new Set());
-    await loadManagedFiles();
-    setToast({ message: 'تم إنشاء المجلد مع الحفاظ على حالة الملفات الحالية.', type: 'success' });
+    try {
+      await groupManagedFiles(groupManaged.map((file) => file.id), title);
+      setGroupManaged(null);
+      setSelectedManagedIds(new Set());
+      await loadManagedFiles();
+      setToast({ message: 'تم إنشاء المجلد مع الحفاظ على حالة الملفات الحالية.', type: 'success' });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'تعذر تجميع الملفات. اختر ملفات منفصلة لها نفس المادة والقسم والحالة.'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function handleRestore(id: string) {
     setBusyId(id);
-    const ok = await setFileStatus(id, 'approved');
-    if (!ok) { setToast({ message: 'فشل استعادة الملف', type: 'error' }); setBusyId(null); return; }
-    setRejectedFiles((prev) => prev.filter((f) => f.id !== id));
-    await loadStats();
-    setToast({ message: 'تمت استعادة الملف ونشره', type: 'success' });
-    setBusyId(null);
+    try {
+      await setFileStatus(id, 'approved');
+      setRejectedFiles((prev) => prev.filter((f) => f.id !== id));
+      await loadStats();
+      setToast({ message: 'تمت استعادة الملف ونشره', type: 'success' });
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل استعادة الملف'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   async function performDeleteRejected(file: FileRow) {
     setBusyId(file.id);
+    let storageCleanupFailed = false;
     try {
       if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
         const { data } = await supabase.auth.getSession();
@@ -208,7 +241,6 @@ export function AdminPage() {
         if (!accessToken) throw new Error('Missing authenticated session');
 
         const result = await deleteFileViaWorker(accessToken, file.id);
-        if (!result) throw new Error('Worker delete request failed');
 
         if (!result.success) {
           await loadRejected();
@@ -223,22 +255,26 @@ export function AdminPage() {
           return;
         }
       } else {
-        const storageDeleted = file.storage_path
-          ? await removeStorageObjects([file.storage_path])
-          : true;
-        if (!storageDeleted) throw new Error('Legacy storage delete failed');
+        storageCleanupFailed = file.storage_path
+          ? !(await removeStorageObjects([file.storage_path]))
+          : false;
 
-        const recordDeleted = await deleteFile(file.id);
-        if (!recordDeleted) throw new Error('Database record delete failed');
+        await deleteFile(file.id);
       }
 
       setRejectedFiles((files) => files.filter((item) => item.id !== file.id));
       setRejectedTotal((total) => Math.max(0, total - 1));
       setConfirmDeleteRejected(null);
       await loadStats();
-      setToast({ message: 'تم حذف الملف المرفوض نهائيًا من التخزين والسجل.', type: 'success' });
-    } catch {
-      setToast({ message: 'تعذر حذف الملف نهائيًا. لم يُزل من القائمة.', type: 'error' });
+      setToast({
+        message: storageCleanupFailed
+          ? 'تم حذف سجل الملف، لكن تعذر حذف النسخة المخزنة وتحتاج تنظيفًا يدويًا.'
+          : 'تم حذف الملف المرفوض نهائيًا من التخزين والسجل.',
+        type: storageCleanupFailed ? 'error' : 'success',
+      });
+    } catch (error) {
+      console.error('Failed to permanently delete a rejected file', error);
+      setToast({ message: getUserErrorMessage(error, 'تعذر حذف الملف نهائيًا. لم يُزل من القائمة.'), type: 'error' });
     } finally {
       setBusyId(null);
     }
@@ -246,14 +282,27 @@ export function AdminPage() {
 
   async function performRoleChange(user: Profile, toRole: Role) {
     setBusyId(user.id);
-    const ok = await updateUserRole(user.id, toRole);
-    setBusyId(null);
     setConfirmRole(null);
-    if (!ok) { setToast({ message: 'فشل تحديث الدور', type: 'error' }); return; }
-    const labels: Record<Role, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
-    setToast({ message: `تم تحديث دور ${user.full_name ?? 'المستخدم'} إلى: ${labels[toRole]}`, type: 'success' });
-    await loadUsers();
-    await loadStats();
+    try {
+      await updateUserRole(user.id, toRole);
+      const labels: Record<Role, string> = { admin: 'مدير', trusted: 'موثوق', student: 'طالب' };
+      setToast({ message: `تم تحديث دور ${user.full_name ?? 'المستخدم'} إلى: ${labels[toRole]}`, type: 'success' });
+      await loadUsers();
+      await loadStats();
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل تحديث الدور'), type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function loadBatchFilesForLibrary(batchId: string): Promise<FileRow[]> {
+    try {
+      return await fetchFilesForBatch(batchId);
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'تعذر تحميل ملفات المجلد.'), type: 'error' });
+      throw error;
+    }
   }
 
   async function openPreview(file: FileRow) {
@@ -264,19 +313,19 @@ export function AdminPage() {
       if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
-        if (token) {
-          const result = await requestDownloadPresign(token, file.id);
-          if (result?.download_url) url = result.download_url;
-          else if (result?.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
-        }
+        if (!token) throw new Error('Missing authenticated session');
+        const result = await requestDownloadPresign(token, file.id);
+        if (result.download_url) url = result.download_url;
+        else if (result.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
       } else {
         url = await getSignedFileUrl(file.storage_path);
       }
       if (!url) throw new Error('preview URL unavailable');
       setSignedPreviewUrl(url);
-    } catch {
+    } catch (error) {
+      console.error('Failed to build a preview URL', error);
       setPreview(null);
-      setToast({ message: 'تعذر إنشاء رابط معاينة آمن للملف.', type: 'error' });
+      setToast({ message: getUserErrorMessage(error, 'تعذر إنشاء رابط معاينة آمن للملف.'), type: 'error' });
     }
   }
 
@@ -363,7 +412,7 @@ export function AdminPage() {
           openPreview={openPreview}
           requestEdit={setEditFile}
           requestEditBatch={setEditBatch}
-          loadBatchFiles={fetchFilesForBatch}
+          loadBatchFiles={loadBatchFilesForLibrary}
           busyId={busyId}
         />
       ) : tab === 'subjects' ? (
@@ -578,10 +627,16 @@ function SubjectsTab({ subjects, setToast, onUpdated }: {
 
   async function handleDelete(subject: Subject) {
     setDeleting(true);
-    const result = await deleteSubjectSvc(subject.id);
-    setDeleting(false);
-    setDeleteSubject(null);
-    if (!result.ok) { setToast({ message: 'فشل حذف المادة', type: 'error' }); return; }
+    let result: Awaited<ReturnType<typeof deleteSubjectSvc>>;
+    try {
+      result = await deleteSubjectSvc(subject.id);
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل حذف المادة'), type: 'error' });
+      return;
+    } finally {
+      setDeleting(false);
+      setDeleteSubject(null);
+    }
     setToast({
       message: result.storageCleanupFailed
         ? `تم حذف المادة "${subject.name}"، لكن بعض ملفات التخزين تحتاج تنظيفًا يدويًا`
@@ -635,7 +690,7 @@ function SubjectsTab({ subjects, setToast, onUpdated }: {
         <EditSubjectModal
           subject={editSubject}
           onClose={() => setEditSubject(null)}
-          onSaved={() => { setEditSubject(null); onUpdated(); }}
+          onSaved={() => { setEditSubject(null); void onUpdated(); }}
           setToast={setToast}
         />
       )}
@@ -687,19 +742,23 @@ function EditSubjectModal({ subject, onClose, onSaved, setToast }: {
     e.preventDefault();
     setSaving(true);
     const finalDepts = departments.length > 0 ? departments : [major];
-    const ok = await updateSubject(subject.id, {
-      name: name.trim(),
-      code: code.trim() || null,
-      description: description.trim() || null,
-      course_description: courseDescription.trim() || null,
-      major,
-      departments: finalDepts,
-      difficulty: (difficulty || null) as Difficulty | null,
-    });
-    setSaving(false);
-    if (!ok) { setToast({ message: 'فشل حفظ التعديلات', type: 'error' }); return; }
-    setToast({ message: 'تم تحديث المادة بنجاح', type: 'success' });
-    onSaved();
+    try {
+      await updateSubject(subject.id, {
+        name: name.trim(),
+        code: code.trim() || null,
+        description: description.trim() || null,
+        course_description: courseDescription.trim() || null,
+        major,
+        departments: finalDepts,
+        difficulty: (difficulty || null) as Difficulty | null,
+      });
+      setToast({ message: 'تم تحديث المادة بنجاح', type: 'success' });
+      onSaved();
+    } catch (error) {
+      setToast({ message: getUserErrorMessage(error, 'فشل حفظ التعديلات'), type: 'error' });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

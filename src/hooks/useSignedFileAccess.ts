@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
 import { downloadFile, downloadFileViaStorage, getSignedFileUrl } from '@/lib/storage';
 import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { getUserErrorMessage } from '@/lib/serviceError';
 
 // R2 URLs currently expire after five minutes. Keep the cache shorter so a
 // preview never reuses a URL that the Worker has already expired.
@@ -31,9 +32,9 @@ export function useSignedFileAccess(onError: (message: string) => void) {
             return;
           }
           const result = await requestDownloadPresign(accessToken, file.id, mode);
-          if (result?.download_url) {
+          if (result.download_url) {
             url = result.download_url;
-          } else if (result?.provider === 'supabase' && result.storage_path) {
+          } else if (result.provider === 'supabase' && result.storage_path) {
             // Legacy file — fall back to Supabase signed URL
             if (mode === 'download') {
               await downloadFileViaStorage(result.storage_path, file.title);
@@ -65,8 +66,9 @@ export function useSignedFileAccess(onError: (message: string) => void) {
 
       if (mode === 'preview') return url;
       await downloadFile(url, file.title);
-    } catch {
-      onError('حدث خطأ أثناء الوصول إلى الملف.');
+    } catch (err) {
+      console.error('File access failed', err);
+      onError(getUserErrorMessage(err, 'حدث خطأ أثناء الوصول إلى الملف.'));
     } finally {
       setAccessingFileId(null);
     }

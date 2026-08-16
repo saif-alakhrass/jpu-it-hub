@@ -76,6 +76,11 @@ export function AdminFileLibrary({
     try {
       const loadedFiles = await loadBatchFiles(batchId);
       setFolderFiles((current) => ({ ...current, [batchId]: loadedFiles }));
+    } catch (err) {
+      // The parent surfaces the toast; collapse again so the folder is not
+      // shown as an empty one.
+      console.error('Failed to load batch files', err);
+      setExpandedFolders((current) => { const next = new Set(current); next.delete(batchId); return next; });
     } finally {
       setLoadingFolder(null);
     }

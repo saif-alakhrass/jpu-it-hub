@@ -74,10 +74,10 @@ export async function fetchRejectedFilesPaged(page: number): Promise<PaginatedFi
   };
 }
 
-export async function setFileStatus(id: string, status: FileStatus, rejectionReason?: string): Promise<boolean> {
+export async function setFileStatus(id: string, status: FileStatus, rejectionReason?: string): Promise<void> {
   const update = { status, rejection_reason: status === 'rejected' ? rejectionReason?.trim() ?? null : null, moderated_at: new Date().toISOString() };
   const { error } = await supabase.from('files').update(update).eq('id', id);
-  return !error;
+  if (error) failService('set file status', error);
 }
 
 export async function fetchAdminFilesPaged(page: number, status?: FileStatus): Promise<PaginatedFiles> {
@@ -106,54 +106,60 @@ export async function fetchFilesForBatch(batchId: string): Promise<FileRow[]> {
 
 export interface ManagedFileUpdate { title: string; subject_id: string; tab: FileTab; detachFromBatch?: boolean; }
 
-export async function updateManagedFile(id: string, changes: ManagedFileUpdate): Promise<boolean> {
+export async function updateManagedFile(id: string, changes: ManagedFileUpdate): Promise<void> {
   const { detachFromBatch, ...details } = changes;
   const update = detachFromBatch ? { ...details, batch_id: null, box_name: null } : details;
   const { error } = await supabase.from('files').update(update).eq('id', id);
-  return !error;
+  if (error) failService('update managed file', error);
 }
 
-export async function updateManagedBatch(id: string, changes: Omit<ManagedFileUpdate, 'detachFromBatch'>): Promise<boolean> {
+export async function updateManagedBatch(id: string, changes: Omit<ManagedFileUpdate, 'detachFromBatch'>): Promise<void> {
   const { error } = await supabase.rpc('admin_update_file_batch', {
     p_batch_id: id,
     p_title: changes.title,
     p_subject_id: changes.subject_id,
     p_tab: changes.tab,
   });
-  return !error;
+  if (error) failService('update managed batch', error);
 }
 
-export async function groupManagedFiles(fileIds: string[], title: string): Promise<boolean> {
+export async function groupManagedFiles(fileIds: string[], title: string): Promise<void> {
   const { error } = await supabase.rpc('admin_group_files', {
     p_file_ids: fileIds,
     p_title: title.trim(),
   });
-  return !error;
+  if (error) failService('group managed files', error);
 }
 
-export async function moderatePendingBatch(id: string, status: Extract<FileStatus, 'approved' | 'rejected'>, rejectionReason?: string): Promise<boolean> {
+export async function moderatePendingBatch(id: string, status: Extract<FileStatus, 'approved' | 'rejected'>, rejectionReason?: string): Promise<void> {
   const { error } = await supabase.rpc('admin_moderate_pending_batch', {
     p_batch_id: id,
     p_status: status,
     p_rejection_reason: rejectionReason?.trim() ?? null,
   });
-  return !error;
+  if (error) failService('moderate pending batch', error);
 }
 
-export async function deleteFile(id: string): Promise<boolean> {
+export async function deleteFile(id: string): Promise<void> {
   const { error } = await supabase.from('files').delete().eq('id', id);
-  return !error;
+  if (error) failService('delete file', error);
 }
 
+/**
+ * Deletes legacy Supabase Storage objects. Returns false when the records are
+ * gone but the objects were left behind, so callers can warn about orphans
+ * instead of reporting a fully clean deletion.
+ */
 export async function removeStorageObjects(paths: string[]): Promise<boolean> {
   if (paths.length === 0) return true;
   const { error } = await supabase.storage.from('files').remove(paths);
+  if (error) console.error('Storage cleanup failed', error);
   return !error;
 }
 
-export async function deleteBatch(batchId: string): Promise<boolean> {
+export async function deleteBatch(batchId: string): Promise<void> {
   const { error } = await supabase.from('file_batches').delete().eq('id', batchId);
-  return !error;
+  if (error) failService('delete batch', error);
 }
 
 export interface AdminStats {

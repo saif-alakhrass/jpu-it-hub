@@ -4,6 +4,7 @@ import { scrollPageTo } from '@/lib/scroll';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { NotificationBell } from '@/components/NotificationBell';
+import { getUserErrorMessage } from '@/lib/serviceError';
 
 function initials(name: string | null | undefined): string {
   if (!name) return '؟';
@@ -24,6 +25,16 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+
+  async function handleSignOut() {
+    setSignOutError(null);
+    try {
+      await signOut();
+    } catch (err) {
+      setSignOutError(getUserErrorMessage(err, 'تعذر تسجيل الخروج. حاول مجددًا.'));
+    }
+  }
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -116,7 +127,7 @@ export function Navbar() {
                     </button>
                   )}
                   <div className="my-1 h-px bg-white/5" />
-                  <button onClick={() => { setMenuOpen(false); signOut(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-danger-400 transition hover:bg-danger-500/10">
+                  <button onClick={() => { setMenuOpen(false); void handleSignOut(); }} className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-bold text-danger-400 transition hover:bg-danger-500/10">
                     <Icon name="LogOut" className="h-4 w-4" /> تسجيل الخروج
                   </button>
                 </div>
@@ -157,7 +168,7 @@ export function Navbar() {
                   <Icon name="User" className="h-4 w-4" /> الملف الشخصي
                 </button>
                 <div className="px-2 py-1"><NotificationBell /></div>
-                <button onClick={() => { signOut(); setOpen(false); }} className="btn-ghost justify-start text-danger-400">
+                <button onClick={() => { void handleSignOut(); setOpen(false); }} className="btn-ghost justify-start text-danger-400">
                   <Icon name="LogOut" className="h-4 w-4" /> خروج
                 </button>
               </>
@@ -167,6 +178,11 @@ export function Navbar() {
               </button>
             )}
           </div>
+        </div>
+      )}
+      {signOutError && (
+        <div className="border-t border-danger-500/30 bg-danger-500/10 px-4 py-2 text-center text-sm text-danger-400">
+          {signOutError}
         </div>
       )}
     </header>

@@ -7,17 +7,19 @@ import {
   UPLOAD_MAX_PER_WINDOW,
   UPLOAD_WINDOW_MS,
 } from '@/lib/constants';
+import { failService } from '@/lib/serviceError';
 
 export { MAX_FILE_SIZE_MB, MAX_FILE_SIZE_BYTES, UPLOAD_MAX_PER_WINDOW };
 export { ALLOWED_MIME_TYPES, ALLOWED_EXTENSIONS };
 
 const SIGNED_URL_EXPIRY = 3600;
 
-export async function getSignedFileUrl(storagePath: string): Promise<string | null> {
+export async function getSignedFileUrl(storagePath: string): Promise<string> {
   const { data, error } = await supabase.storage
     .from('files')
     .createSignedUrl(storagePath, SIGNED_URL_EXPIRY);
-  if (error || !data?.signedUrl) return null;
+  if (error) failService('create signed file url', error);
+  if (!data?.signedUrl) failService('create signed file url', new Error('Signed URL missing from response'));
   return data.signedUrl;
 }
 
@@ -38,7 +40,10 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
     const blob = await res.blob();
     saveBlob(blob, fallbackName);
-  } catch {
+  } catch (err) {
+    // Cross-origin responses can block blob downloads; navigating to the signed
+    // URL still lets the browser handle it. Log so the failure is not invisible.
+    console.warn('Blob download failed, falling back to navigation', err);
     window.location.assign(url);
   }
 }
