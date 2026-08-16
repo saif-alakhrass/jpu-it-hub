@@ -1,15 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
-import { formatFileSize, getFileIcon, canUploadNow } from '@/lib/storage';
+import { formatFileSize, canUploadNow } from '@/lib/storage';
+import { getFileIcon } from '@/lib/fileTypes';
+import { buildBatchTitle } from '@/lib/format';
 import { getUploadLimit, MAX_FILE_SIZE_MB } from '@/lib/constants';
 import { useUpload, type QueuedFile } from '@/hooks/useUpload';
 import type { FileTab, Role } from '@/lib/types';
-
-function buildBatchTitle(tabLabel: string, count: number): string {
-  const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
-  return `${tabLabel} - مجموعة (${count} ملفات) - ${d}`;
-}
 
 interface MultiFileUploadProps {
   open: boolean;

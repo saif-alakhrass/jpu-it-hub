@@ -2,6 +2,14 @@ export type Role = 'admin' | 'trusted' | 'student';
 export type FileTab = 'summaries' | 'exams' | 'images' | 'slides';
 export type FileStatus = 'pending' | 'approved' | 'rejected';
 export type Difficulty = 'سهلة' | 'متوسطة' | 'صعبة';
+export type ToastType = 'success' | 'error' | 'info';
+
+export interface ToastMessage {
+  message: string;
+  type: ToastType;
+  actionLabel?: string;
+  onAction?: () => void;
+}
 
 export interface Profile {
   id: string;

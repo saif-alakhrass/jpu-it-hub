@@ -1,21 +1,15 @@
 import { supabase } from '@/lib/supabase';
 import type { Subject, Difficulty } from '@/lib/types';
-import { PAGE_SIZE } from '@/lib/constants';
 import { failService } from '@/lib/serviceError';
+import { pageRange, paginated, type Paginated } from '@/lib/pagination';
 
-export interface PaginatedSubjects {
-  items: Subject[];
-  total: number;
-  page: number;
-  totalPages: number;
-}
+export type PaginatedSubjects = Paginated<Subject>;
 
 const SUBJECT_COLUMNS =
   'id, name, code, description, major, departments, created_by, created_at, difficulty, course_description';
 
 export async function fetchSubjectsPaged(page: number, search?: string, major?: string): Promise<PaginatedSubjects> {
-  const from = page * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
+  const { from, to } = pageRange(page);
 
   let query = supabase.from('subjects').select(SUBJECT_COLUMNS, { count: 'exact' });
 
@@ -32,14 +26,7 @@ export async function fetchSubjectsPaged(page: number, search?: string, major?: 
 
   if (error) failService('fetch subjects', error);
 
-  const items = (data ?? []) as Subject[];
-  const total = count ?? 0;
-  return {
-    items,
-    total,
-    page,
-    totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
-  };
+  return paginated((data ?? []) as Subject[], count, page);
 }
 
 export async function fetchAllSubjects(): Promise<Subject[]> {

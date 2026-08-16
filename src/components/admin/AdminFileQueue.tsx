@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Icon } from '@/components/Icon';
+import { BusyIcon } from '@/components/BusyIcon';
 import { Pagination } from '@/components/Pagination';
-import { PAGE_SIZE } from '@/lib/constants';
+import { countTotalPages } from '@/lib/pagination';
+import { formatArabicDate } from '@/lib/format';
 import { TABS, type FileRow } from '@/lib/types';
 
 interface AdminFileQueueProps {
@@ -76,15 +78,15 @@ export function AdminFileQueue({
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => restore(file.id)} className="btn-primary" disabled={busyId === file.id}>
-                    {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="RotateCcw" className="h-4 w-4" />} استعادة ونشر
+                    <BusyIcon busy={busyId === file.id} name="RotateCcw" /> استعادة ونشر
                   </button>
                   <button onClick={() => requestDeleteRejected(file)} className="btn-danger" disabled={busyId === file.id}>
-                    {busyId === file.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} حذف نهائي
+                    <BusyIcon busy={busyId === file.id} name="Trash2" /> حذف نهائي
                   </button>
                 </div>
               </div>
             ))}
-            <Pagination page={rejectedPage} totalPages={Math.max(1, Math.ceil(rejectedTotal / PAGE_SIZE))} onPageChange={setRejectedPage} />
+            <Pagination page={rejectedPage} totalPages={countTotalPages(rejectedTotal)} onPageChange={setRejectedPage} />
           </>
         )}
       </div>
@@ -109,7 +111,7 @@ export function AdminFileQueue({
             <h3 className="mt-1.5 truncate font-bold text-slate-100">{file.title}</h3>
             {file.batch && <p className="mt-1 text-xs text-accent-300"><Icon name="Folder" className="ml-1 inline h-3.5 w-3.5" />ضمن مجلد: {file.batch.box_name || file.batch.title}</p>}
             <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-              <Icon name="GraduationCap" className="h-3.5 w-3.5" />{file.uploader?.full_name || 'رافع غير مسمّى'}<span>·</span><span>{new Date(file.created_at).toLocaleDateString('ar')}</span>
+              <Icon name="GraduationCap" className="h-3.5 w-3.5" />{file.uploader?.full_name || 'رافع غير مسمّى'}<span>·</span><span>{formatArabicDate(file.created_at)}</span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -120,7 +122,7 @@ export function AdminFileQueue({
             <button onClick={() => requestEdit(file)} className="btn-ghost" title="تعديل الاسم أو المكان" disabled={busyId === file.id}><Icon name="Pencil" className="h-4 w-4" /> تعديل</button>
             {file.batch && <button onClick={() => requestEditBatch(file.batch!)} className="btn-ghost" title="تعديل المجلد ومكانه" disabled={busyId === file.batch.id}><Icon name="FolderCog" className="h-4 w-4" /> تعديل المجلد</button>}
             <button onClick={() => file.batch ? approveBatch(file.batch.id) : approve(file.id)} className="btn-primary" disabled={busyId === file.id || busyId === file.batch?.id}>
-              {busyId === file.id || busyId === file.batch?.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Check" className="h-4 w-4" />} {file.batch ? 'موافقة على المجلد' : 'موافقة'}
+              <BusyIcon busy={busyId === file.id || busyId === file.batch?.id} name="Check" /> {file.batch ? 'موافقة على المجلد' : 'موافقة'}
             </button>
             <button onClick={() => requestReject(file)} className="btn-danger" disabled={busyId === file.id}>
               <Icon name="Trash2" className="h-4 w-4" /> رفض
@@ -128,7 +130,7 @@ export function AdminFileQueue({
           </div>
         </div>
       ))}
-      <Pagination page={pendingPage} totalPages={Math.max(1, Math.ceil(pendingTotal / PAGE_SIZE))} onPageChange={setPendingPage} />
+      <Pagination page={pendingPage} totalPages={countTotalPages(pendingTotal)} onPageChange={setPendingPage} />
     </div>
   );
 }

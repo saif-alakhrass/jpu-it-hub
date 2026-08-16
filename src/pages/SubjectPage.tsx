@@ -9,16 +9,17 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmarks';
 import { getBookmarkedIds } from '@/services/bookmarks';
-import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
+import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty, type ToastMessage } from '@/lib/types';
+import { BusyIcon } from '@/components/BusyIcon';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { TabButton } from '@/components/TabButton';
+import { toggleInSet } from '@/lib/collections';
+import { isImageFile, isOfficeFile, isPdfFile, officePreviewUrl } from '@/lib/fileTypes';
 import { formatFileSize } from '@/lib/storage';
-import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
-import {
-  deleteFile,
-  removeStorageObjects,
-} from '@/services/files';
+import { deleteStoredFile } from '@/services/fileAccess';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
@@ -37,21 +38,6 @@ interface DisplayGroup {
   files: FileRow[];
 }
 
-function isImageFile(file: FileRow): boolean {
-  return (file.mime_type ?? '').startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes((file.file_type ?? '').toLowerCase());
-}
-
-function isPdfFile(file: FileRow): boolean {
-  return file.mime_type === 'application/pdf' || file.file_type?.toLowerCase() === 'pdf';
-}
-
-function isOfficeFile(file: FileRow): boolean {
-  return ['doc', 'docx', 'ppt', 'pptx'].includes((file.file_type ?? '').toLowerCase());
-}
-
-function officePreviewUrl(fileUrl: string): string {
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
-}
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
@@ -65,7 +51,7 @@ export function SubjectPage() {
   const queryError = subjectQuery.error ?? filesError;
   const loadError = queryError ? getUserErrorMessage(queryError, 'تعذر تحميل المادة وملفاتها.') : null;
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; actionLabel?: string; onAction?: () => void } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [bookmarkForEditor, setBookmarkForEditor] = useState<{ bookmark: Bookmark; folders: string[] } | null>(null);
 
@@ -170,7 +156,7 @@ export function SubjectPage() {
     if (deleteTarget.kind === 'file') {
       const file = deleteTarget.file;
       setBusyId(file.id);
-      const result = await deleteStoredFile(file);
+      const result = await deleteStoredFile(file, session?.access_token);
       if (!result.ok) {
         setBusyId(null);
         setDeleteTarget(null);
@@ -206,7 +192,7 @@ export function SubjectPage() {
     const batch = deleteTarget.batch;
     setBusyId(batch.id);
     const batchFiles = files.filter((f) => f.batch_id === batch.id);
-    const results = await Promise.all(batchFiles.map((file) => deleteStoredFile(file)));
+    const results = await Promise.all(batchFiles.map((file) => deleteStoredFile(file, session?.access_token)));
     const failed = results.find((result) => !result.ok);
     if (failed) {
       setBusyId(null);
@@ -230,25 +216,6 @@ export function SubjectPage() {
     });
   }
 
-  async function deleteStoredFile(file: FileRow): Promise<{ ok: boolean; storageOk: boolean; cleanupQueued?: boolean; message?: string }> {
-    if (file.storage_provider === 'r2') {
-      const token = session?.access_token;
-      if (!token || !isR2Configured()) {
-        return { ok: false, storageOk: false, message: 'خدمة حذف الملفات الآمنة غير متاحة الآن.' };
-      }
-      const result = await deleteFileViaWorker(token, file.id);
-      if (!result) return { ok: false, storageOk: false, message: 'تعذر الاتصال بخدمة حذف الملفات.' };
-      if (!result.success) {
-        return { ok: true, storageOk: false, cleanupQueued: result.cleanup_queued, message: result.message };
-      }
-      return { ok: true, storageOk: true };
-    }
-
-    const storageOk = file.storage_path ? await removeStorageObjects([file.storage_path]) : true;
-    if (!storageOk) return { ok: false, storageOk: false, message: 'تعذر حذف النسخة المخزنة؛ لم يُحذف سجل الملف.' };
-    const recordDeleted = await deleteFile(file.id);
-    return { ok: recordDeleted, storageOk, message: recordDeleted ? undefined : 'تعذر حذف سجل الملف.' };
-  }
 
   async function handleToggleBookmark(file: FileRow) {
     if (!session) {
@@ -277,12 +244,7 @@ export function SubjectPage() {
   }
 
   function toggleBatch(id: string) {
-    setExpandedBatches((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
+    setExpandedBatches((prev) => toggleInSet(prev, id));
   }
 
   async function handlePreview(file: FileRow) {
@@ -355,18 +317,14 @@ export function SubjectPage() {
 
       <div className="mb-6 flex gap-2 overflow-x-auto border-b border-white/5 pb-px">
         {TABS.map((t) => (
-          <button
+          <TabButton
             key={t.key}
+            active={activeTab === t.key}
+            icon={t.icon}
+            label={t.label}
+            className="rounded-t-xl"
             onClick={() => setActiveTab(t.key)}
-            className={`flex items-center gap-2 whitespace-nowrap rounded-t-xl border-b-2 px-4 py-3 text-sm font-bold transition ${
-              activeTab === t.key
-                ? 'border-brand-500 text-brand-300'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Icon name={t.icon} className="h-4 w-4" />
-            {t.label}
-          </button>
+          />
         ))}
       </div>
 
@@ -479,35 +437,22 @@ export function SubjectPage() {
         />
       )}
 
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="تأكيد الحذف">
-        {deleteTarget && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger-500/30 bg-danger-500/10 p-4 text-danger-400">
-              <Icon name="AlertCircle" className="h-5 w-5 shrink-0" />
-              <div>
-                {deleteTarget.kind === 'batch' ? (
-                  <>
-                    <p className="font-bold">هل أنت متأكد من حذف هذه المجموعة؟</p>
-                    <p className="mt-1 text-sm">سيُحذف "{deleteTarget.batch.title}" وكل ملفاتها ({deleteTarget.batch.file_count} ملف) نهائياً ولا يمكن التراجع.</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-bold">هل أنت متأكد من حذف هذا الملف؟</p>
-                    <p className="mt-1 text-sm">سيُحذف "{deleteTarget.file.title}" نهائياً ولا يمكن التراجع عن هذا الإجراء.</p>
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setDeleteTarget(null)} className="btn-ghost" disabled={!!busyId}>إلغاء</button>
-              <button onClick={handleConfirmDelete} className="btn-danger" disabled={!!busyId}>
-                {busyId ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
-                حذف
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          title="تأكيد الحذف"
+          heading={deleteTarget.kind === 'batch' ? 'هل أنت متأكد من حذف هذه المجموعة؟' : 'هل أنت متأكد من حذف هذا الملف؟'}
+          description={deleteTarget.kind === 'batch' ? (
+            <>سيُحذف "{deleteTarget.batch.title}" وكل ملفاتها ({deleteTarget.batch.file_count} ملف) نهائياً ولا يمكن التراجع.</>
+          ) : (
+            <>سيُحذف "{deleteTarget.file.title}" نهائياً ولا يمكن التراجع عن هذا الإجراء.</>
+          )}
+          confirmLabel="حذف"
+          busy={!!busyId}
+          onConfirm={() => void handleConfirmDelete()}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
 
       <Modal open={!!preview} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-5xl">
         {preview && (
@@ -669,7 +614,7 @@ function BatchFolderCard({
               title="حذف المجموعة"
               disabled={busyId === batch.id}
             >
-              {busyId === batch.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />}
+              <BusyIcon busy={busyId === batch.id} name="Trash2" />
             </button>
           )}
         </div>

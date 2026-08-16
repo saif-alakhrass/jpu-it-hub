@@ -1,20 +1,7 @@
 import { Icon } from '@/components/Icon';
+import { RoleBadge } from '@/components/RoleBadge';
+import { formatArabicDate } from '@/lib/format';
 import type { Profile, Role } from '@/lib/types';
-
-const ROLE_BADGES: Record<Role, { label: string; className: string; icon: string }> = {
-  admin: { label: 'مدير', className: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
-  trusted: { label: 'موثوق', className: 'bg-brand-500/20 text-brand-300 border-brand-500/40', icon: 'Shield' },
-  student: { label: 'طالب', className: 'bg-ink-700 text-slate-300 border-white/10', icon: 'GraduationCap' },
-};
-
-function RoleBadge({ role }: { role: Role }) {
-  const badge = ROLE_BADGES[role];
-  return (
-    <span className={`badge border ${badge.className}`}>
-      <Icon name={badge.icon} className="h-3 w-3" />{badge.label}
-    </span>
-  );
-}
 
 export function AdminUsers({ users, requestRoleChange, busyId }: {
   users: Profile[];
@@ -35,7 +22,7 @@ export function AdminUsers({ users, requestRoleChange, busyId }: {
               <h3 className="truncate font-bold text-slate-100">{user.full_name ?? 'بدون اسم'}</h3>
               <RoleBadge role={user.role} />
             </div>
-            <div className="text-xs text-slate-500">{new Date(user.created_at).toLocaleDateString('ar')}</div>
+            <div className="text-xs text-slate-500">{formatArabicDate(user.created_at)}</div>
           </div>
           {user.role !== 'admin' && (
             <div className="flex items-center gap-2">

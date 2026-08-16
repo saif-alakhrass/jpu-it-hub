@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { canUploadNow, formatFileSize, getFileIcon, validateFile } from './storage';
+import { canUploadNow, formatFileSize, validateFile } from './storage';
+import { getFileIcon } from './fileTypes';
 import { MAX_FILE_SIZE_BYTES } from './constants';
 
 function fakeFile(name: string, type: string, size: number): File {
