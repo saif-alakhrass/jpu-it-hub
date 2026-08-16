@@ -642,6 +642,11 @@ export default {
         return handleDownloadPresign(env, request, userId, isAdmin);
       }
 
+      // Route: POST /download-proxy — authenticated direct download stream
+      if (path === '/download-proxy' && request.method === 'POST') {
+        return handleDownloadProxy(env, request, userId, isAdmin);
+      }
+
       // Route: POST /delete — delete an R2 object + DB record
       if (path === '/delete' && request.method === 'POST') {
         return handleDelete(env, request, userId, isAdmin);
@@ -896,6 +901,52 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
     download_url: presignedUrl,
     provider: 'r2',
     expires_in: expiry,
+  });
+}
+
+interface DownloadProxyRequest {
+  file_id: string;
+}
+
+async function handleDownloadProxy(env: Env, request: Request, userId: string, isAdmin: boolean): Promise<Response> {
+  const body = await request.json() as DownloadProxyRequest;
+  const { file_id } = body;
+
+  if (!file_id) {
+    return corsError(env, request, 400, 'Missing file_id');
+  }
+
+  const file = await fetchFileRecord(env, file_id);
+  if (!file) {
+    return corsError(env, request, 404, 'File not found');
+  }
+
+  if (!canAccessFile(file, userId, isAdmin)) {
+    return corsError(env, request, 403, 'Access denied');
+  }
+
+  const objectKey = file.object_key || file.storage_path;
+  if (!objectKey || file.storage_provider !== 'r2') {
+    return corsError(env, request, 400, 'File is not stored in R2');
+  }
+
+  if (!validateObjectKey(objectKey)) {
+    return corsError(env, request, 500, 'Invalid object key in database');
+  }
+
+  const object = await env.FILES_BUCKET.get(objectKey);
+  if (!object || !object.body) {
+    return corsError(env, request, 404, 'Object not found in R2');
+  }
+
+  const headers = getCorsHeaders(env, request.headers.get('Origin'));
+  headers.set('Content-Type', file.mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Disposition', downloadContentDisposition(file));
+  headers.set('Content-Length', String(object.size));
+
+  return new Response(object.body, {
+    status: 200,
+    headers,
   });
 }
 

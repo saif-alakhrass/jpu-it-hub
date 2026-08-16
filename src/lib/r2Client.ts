@@ -43,6 +43,17 @@ export interface DeleteResult {
   message?: string;
 }
 
+function saveBlob(blob: Blob, fallbackName: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = fallbackName || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export class WorkerRequestError extends Error {
   constructor(message: string) {
     super(message);
@@ -185,6 +196,30 @@ export async function requestDownloadPresign(
 }
 
 /**
+ * Download a file through the Worker proxy. This avoids browser-to-R2
+ * cross-origin issues by streaming bytes from the authenticated Worker.
+ */
+export async function downloadViaWorkerProxy(
+  accessToken: string,
+  fileId: string,
+  fallbackName: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${WORKER_URL}/download-proxy`, {
+      method: 'POST',
+      headers: getAuthHeaders(accessToken),
+      body: JSON.stringify({ file_id: fileId }),
+    });
+    if (!res.ok) return false;
+    const blob = await res.blob();
+    saveBlob(blob, fallbackName);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Delete a file via the Worker — removes the R2 object and the DB record.
  * If R2 deletion fails, a cleanup record is queued for retry.
  */
@@ -200,4 +235,3 @@ export async function deleteFileViaWorker(
   if (!res.ok) return null;
   return res.json() as Promise<DeleteResult>;
 }
-

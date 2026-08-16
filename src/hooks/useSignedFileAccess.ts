@@ -2,11 +2,15 @@ import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
 import { downloadFile, downloadFileViaStorage, getSignedFileUrl } from '@/lib/storage';
-import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { downloadViaWorkerProxy, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
 
 // R2 URLs currently expire after five minutes. Keep the cache shorter so a
 // preview never reuses a URL that the Worker has already expired.
 const CACHE_DURATION_MS = 4 * 60 * 1000;
+
+export function shouldUseWorkerProxyDownload(file: FileRow, mode: 'preview' | 'download'): boolean {
+  return mode === 'download' && file.storage_provider === 'r2' && Boolean(file.object_key);
+}
 
 export function useSignedFileAccess(onError: (message: string) => void) {
   const cache = useRef(new Map<string, { url: string; expiresAt: number }>());
@@ -30,6 +34,12 @@ export function useSignedFileAccess(onError: (message: string) => void) {
             onError('يجب تسجيل الدخول للوصول إلى الملفات.');
             return;
           }
+
+          if (shouldUseWorkerProxyDownload(file, mode)) {
+            const downloaded = await downloadViaWorkerProxy(accessToken, file.id, file.title);
+            if (downloaded) return;
+          }
+
           const result = await requestDownloadPresign(accessToken, file.id, mode);
           if (result?.download_url) {
             url = result.download_url;
