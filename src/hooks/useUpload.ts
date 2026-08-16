@@ -26,6 +26,23 @@ export interface UploadResult {
   error: string | null;
 }
 
+const NON_RECOVERABLE_R2_ERRORS = [
+  'ملف مكرر',
+  'duplicate file',
+  'rate limit',
+  'file too large',
+  'file type not allowed',
+  'file content does not match its type',
+  'missing authorization token',
+  'invalid or expired token',
+  'invalid token',
+] as const;
+
+export function shouldFallbackToSupabase(r2Error: string): boolean {
+  const normalized = r2Error.toLowerCase();
+  return !NON_RECOVERABLE_R2_ERRORS.some((fragment) => normalized.includes(fragment));
+}
+
 export function useUpload() {
   const [uploading, setUploading] = useState(false);
   const [uploadTimes, setUploadTimes] = useState<number[]>([]);
@@ -84,7 +101,11 @@ export function useUpload() {
 
       if (isR2Configured() && accessToken) {
         // ---- R2 upload path ----
-        const result = await uploadViaR2(item, ext, opts, batchId, accessToken);
+        let result = await uploadViaR2(item, ext, opts, batchId, accessToken);
+        if (!result.success && shouldFallbackToSupabase(result.error)) {
+          const fallback = await uploadViaSupabase(item, ext, opts, batchId);
+          if (fallback.success) result = fallback;
+        }
         if (result.success) {
           successCount++;
           setUploadTimes((prev) => [...prev, Date.now()]);
