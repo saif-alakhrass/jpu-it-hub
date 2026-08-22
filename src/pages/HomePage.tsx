@@ -195,9 +195,9 @@ export function HomePage() {
               return (
                 <button
                   key={s.id}
-                  onClick={() => navigate(`/subject/${s.id}`)}
-                  onPointerEnter={() => warmSubject(s.id)}
-                  onPointerDown={() => warmSubject(s.id, true)}
+                  onClick={() => { warmSubject(s.id, true); navigate(`/subject/${s.id}`); }}
+                  onPointerEnter={(event) => { if (event.pointerType === 'mouse') warmSubject(s.id); }}
+                  onPointerDown={(event) => { if (event.pointerType === 'mouse') warmSubject(s.id, true); }}
                   onFocus={() => warmSubject(s.id)}
                   className="performance-item card group p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow"
                 >

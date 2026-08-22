@@ -37,7 +37,7 @@ export function restorePublicQueryCache(queryClient: QueryClient): void {
     }
     hydrate(queryClient, stored.state);
   } catch {
-    window.localStorage.removeItem(PUBLIC_CACHE_KEY);
+    try { window.localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* unavailable storage */ }
   }
 }
 
