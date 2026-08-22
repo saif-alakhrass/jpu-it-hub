@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import type { FileRow } from '@/lib/types';
 import { mobileOfficePreviewUrl } from '@/lib/filePreview';
@@ -90,7 +90,7 @@ function PdfReader({ url }: { url: string }) {
   const [zoom, setZoom] = useState(1);
   const [hostWidth, setHostWidth] = useState(360);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [errorStage, setErrorStage] = useState<'load' | 'render' | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -106,8 +106,11 @@ function PdfReader({ url }: { url: string }) {
     let disposed = false;
     let loadedDocument: PDFDocumentProxy | null = null;
     setLoading(true);
-    setError(false);
-    void import('pdfjs-dist').then((pdfjs) => {
+    setErrorStage(null);
+    // The legacy build includes the runtime polyfills required by older iOS
+    // Safari releases. The modern build can fail before rendering on phones
+    // that do not yet provide APIs such as Promise.withResolvers.
+    void import('pdfjs-dist/legacy/build/pdf.mjs').then((pdfjs) => {
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
       return pdfjs.getDocument({ url, isEvalSupported: false }).promise;
     }).then((pdf) => {
@@ -116,7 +119,7 @@ function PdfReader({ url }: { url: string }) {
       setDocument(pdf);
       setPageNumber(1);
     }).catch(() => {
-      if (!disposed) setError(true);
+      if (!disposed) setErrorStage('load');
     }).finally(() => {
       if (!disposed) setLoading(false);
     });
@@ -150,7 +153,7 @@ function PdfReader({ url }: { url: string }) {
       renderTaskRef.current = task;
       return task.promise;
     }).catch((reason: unknown) => {
-      if (!disposed && !(reason instanceof Error && reason.name === 'RenderingCancelledException')) setError(true);
+      if (!disposed && !(reason instanceof Error && reason.name === 'RenderingCancelledException')) setErrorStage('render');
     }).finally(() => {
       if (!disposed) setLoading(false);
     });
@@ -166,10 +169,10 @@ function PdfReader({ url }: { url: string }) {
     hostRef.current?.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   };
 
-  if (error) {
+  if (errorStage) {
     return (
       <div className="grid h-full place-items-center px-6 text-center">
-        <div><Icon name="FileWarning" className="mx-auto mb-3 h-10 w-10 text-amber-400" /><p className="font-semibold">تعذّر عرض ملف PDF</p><p className="mt-1 text-sm text-slate-400">يمكنك تنزيل الملف وفتحه من جهازك.</p></div>
+        <div><Icon name="FileWarning" className="mx-auto mb-3 h-10 w-10 text-amber-400" /><p className="font-semibold">تعذّر عرض ملف PDF</p><p className="mt-1 text-sm text-slate-400">يمكنك تنزيل الملف وفتحه من جهازك.</p><p className="mt-3 font-mono text-[10px] text-slate-600">PDF_{errorStage.toUpperCase()}</p></div>
       </div>
     );
   }

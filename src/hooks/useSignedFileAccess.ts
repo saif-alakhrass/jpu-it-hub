@@ -106,8 +106,8 @@ export function useSignedFileAccess(onError: (message: string) => void) {
       }
 
       return URL.createObjectURL(blob);
-    } catch {
-      onError('تعذّر تجهيز الملف للعرض. حاول مجددًا.');
+    } catch (error) {
+      onError(error instanceof Error ? `تعذّر تجهيز الملف: ${error.message}` : 'تعذّر تجهيز الملف للعرض. حاول مجددًا.');
     } finally {
       setAccessingFileId(null);
     }
