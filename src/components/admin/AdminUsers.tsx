@@ -24,10 +24,9 @@ function RoleBadge({ user }: { user: Profile }) {
   );
 }
 
-export function AdminUsers({ users, requestRoleChange, requestBan, busyId }: {
+export function AdminUsers({ users, requestRoleChange, busyId }: {
   users: Profile[];
   requestRoleChange: (user: Profile, toRole: Role) => void;
-  requestBan: (user: Profile) => void;
   busyId: string | null;
 }) {
   const { profile: currentUser } = useAuth();
@@ -51,11 +50,6 @@ export function AdminUsers({ users, requestRoleChange, requestBan, busyId }: {
         // - Target is Not Admin: Admins can manage
         const canManageRole = !isSelf && !targetIsSuperAdmin && (!targetIsAdmin || isCurrentUserSuperAdmin);
         
-        // Who can ban this user?
-        // - Cannot ban self
-        // - Cannot ban any admin
-        const canBan = !isSelf && !targetIsAdmin;
-
         return (
           <div key={user.id} className="card flex items-center gap-3 p-4">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-ink-700 text-slate-300 font-bold">{(user.full_name ?? '؟').slice(0, 1)}</span>
@@ -93,16 +87,6 @@ export function AdminUsers({ users, requestRoleChange, requestBan, busyId }: {
                     </>
                   )}
                 </>
-              )}
-              {canBan && (
-                <button 
-                  onClick={() => requestBan(user)} 
-                  className="btn-ghost border border-red-500/30 text-red-400 hover:bg-red-500/10 ml-2" 
-                  title="حظر المستخدم" 
-                  disabled={busyId === user.id}
-                >
-                  <Icon name="Ban" className="h-4 w-4" /> حظر
-                </button>
               )}
             </div>
           </div>

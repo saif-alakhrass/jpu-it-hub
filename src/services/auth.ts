@@ -81,33 +81,3 @@ export async function fetchProfiles(): Promise<Profile[]> {
   if (error) return [];
   return (data ?? []) as Profile[];
 }
-
-export async function banUser(
-  userId: string,
-  banType: 'temporary' | 'permanent',
-  banDays: number,
-  reason: string,
-): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase.rpc('ban_user', {
-    target_user_id: userId,
-    p_ban_type: banType,
-    p_ban_days: banDays,
-    p_reason: reason,
-  });
-  if (error) return { success: false, error: error.message };
-  return { success: true };
-}
-
-export async function unbanUser(email: string): Promise<boolean> {
-  const { error } = await supabase.rpc('unban_user_by_email', { target_email: email });
-  return !error;
-}
-
-export async function fetchBannedUsers(): Promise<import('@/lib/types').BannedIdentity[]> {
-  const { data, error } = await supabase
-    .from('banned_identities')
-    .select('*')
-    .order('banned_at', { ascending: false });
-  if (error) return [];
-  return data as import('@/lib/types').BannedIdentity[];
-}

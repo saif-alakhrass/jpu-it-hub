@@ -15,15 +15,6 @@ export interface Profile {
   created_at: string;
 }
 
-export interface BannedIdentity {
-  email: string;
-  banned_by: string | null;
-  ban_type: 'temporary' | 'permanent';
-  banned_at: string;
-  expires_at: string | null;
-  reason: string | null;
-}
-
 export interface Subject {
   id: string;
   name: string;
