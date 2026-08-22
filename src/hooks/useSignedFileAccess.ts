@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
-import { downloadFile, downloadFileViaStorage, getSignedFileUrl } from '@/lib/storage';
-import { isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { downloadFileViaStorage, getSignedFileUrl, saveBlob } from '@/lib/storage';
+import { downloadR2File, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
 
 // R2 URLs currently expire after five minutes. Keep the cache shorter so a
 // preview never reuses a URL that the Worker has already expired.
@@ -30,15 +30,21 @@ export function useSignedFileAccess(onError: (message: string) => void) {
             onError('يجب تسجيل الدخول للوصول إلى الملفات.');
             return;
           }
+          if (mode === 'download') {
+            const extension = (file.file_type ?? '').toLowerCase();
+            const downloadName = extension && !file.title.toLowerCase().endsWith(`.${extension}`)
+              ? `${file.title}.${extension}`
+              : file.title;
+            const blob = await downloadR2File(accessToken, file.id);
+            saveBlob(blob, downloadName);
+            return;
+          }
           const result = await requestDownloadPresign(accessToken, file.id, mode);
           if (result?.download_url) {
             url = result.download_url;
           } else if (result?.provider === 'supabase' && result.storage_path) {
-            // Legacy file — fall back to Supabase signed URL
-            if (mode === 'download') {
-              await downloadFileViaStorage(result.storage_path, file.title);
-              return;
-            }
+            // Defensive compatibility for a record whose provider metadata
+            // changed while this page was open. This branch is preview-only.
             url = await getSignedFileUrl(result.storage_path);
           }
         } else {
@@ -63,12 +69,7 @@ export function useSignedFileAccess(onError: (message: string) => void) {
         return;
       }
 
-      if (mode === 'preview') return url;
-      const extension = (file.file_type ?? '').toLowerCase();
-      const downloadName = extension && !file.title.toLowerCase().endsWith(`.${extension}`)
-        ? `${file.title}.${extension}`
-        : file.title;
-      await downloadFile(url, downloadName);
+      return url;
     } catch {
       onError('حدث خطأ أثناء الوصول إلى الملف.');
     } finally {

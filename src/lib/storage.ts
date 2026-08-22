@@ -46,7 +46,7 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
   }
 }
 
-function saveBlob(blob: Blob, fallbackName: string): void {
+export function saveBlob(blob: Blob, fallbackName: string): void {
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = objectUrl;

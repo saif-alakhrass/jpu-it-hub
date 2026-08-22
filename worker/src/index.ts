@@ -652,6 +652,13 @@ export default {
         return handleDownloadPresign(env, request, userId, isAdmin, profile.role);
       }
 
+      // Route: POST /download — stream an authenticated R2 object with an
+      // attachment header. This is the reliable path for browsers that either
+      // block cross-origin Blob reads or display PDF/image presigned URLs.
+      if (path === '/download' && request.method === 'POST') {
+        return handleDownload(env, request, userId, isAdmin, profile.role);
+      }
+
       // Route: POST /delete — delete an R2 object + DB record
       if (path === '/delete' && request.method === 'POST') {
         return handleDelete(env, request, userId, isAdmin);
@@ -861,6 +868,43 @@ interface DownloadPresignRequest {
   mode?: 'preview' | 'download';
 }
 
+async function handleDownload(env: Env, request: Request, userId: string, isAdmin: boolean, role: Profile['role']): Promise<Response> {
+  const body = await request.json() as DownloadPresignRequest;
+  const { file_id } = body;
+  if (!file_id) return corsError(env, request, 400, 'Missing file_id');
+
+  const file = await fetchFileRecord(env, file_id);
+  if (!file) return corsError(env, request, 404, 'File not found');
+  if (file.tab === 'exams' && role === 'student') {
+    return corsError(env, request, 403, 'Access denied: exams tab requires trusted or admin role');
+  }
+  if (!canAccessFile(file, userId, isAdmin)) {
+    return corsError(env, request, 403, 'Access denied');
+  }
+  if (file.storage_provider !== 'r2') {
+    return corsError(env, request, 409, 'File is not stored in R2');
+  }
+
+  const objectKey = file.object_key || file.storage_path;
+  if (!objectKey || !validateObjectKey(objectKey)) {
+    return corsError(env, request, 500, 'Invalid object key in database');
+  }
+  const object = await env.FILES_BUCKET.get(objectKey);
+  if (!object) return corsError(env, request, 404, 'Stored object not found');
+
+  return fileDownloadResponse(env, request, file, object);
+}
+
+function fileDownloadResponse(env: Env, request: Request, file: FileRecord, object: R2ObjectBody): Response {
+  const headers = getCorsHeaders(env, request.headers.get('Origin'));
+  headers.set('Content-Type', file.mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Disposition', downloadContentDisposition(file));
+  headers.set('Content-Length', String(object.size));
+  headers.set('Cache-Control', 'private, no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  return new Response(object.body, { status: 200, headers });
+}
+
 async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean, role: Profile['role']): Promise<Response> {
   const body = await request.json() as DownloadPresignRequest;
   const { file_id, mode } = body;
@@ -1014,6 +1058,7 @@ export {
   sha256,
   createPresignedUrl,
   awsUriEncode,
+  fileDownloadResponse,
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,
