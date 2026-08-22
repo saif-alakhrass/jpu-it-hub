@@ -15,6 +15,8 @@ import {
   downloadContentDisposition,
   awsUriEncode,
   fileDownloadResponse,
+  createDownloadTicket,
+  verifyDownloadTicket,
   getUploadLimit,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
@@ -240,10 +242,19 @@ describe('download access', () => {
       object,
     );
     expect(response.headers.get('Content-Disposition')).toContain('attachment; filename="Lecture 1.pdf"');
-    expect(response.headers.get('Content-Type')).toBe('application/pdf');
+    expect(response.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(response.headers.get('X-File-Content-Type')).toBe('application/pdf');
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
     expect(await response.text()).toBe('pdf-content');
+  });
+  it('issues tamper-resistant, expiring iOS download tickets', async () => {
+    const payload = { file_id: 'f1', user_id: 'u1', role: 'student' as const, exp: Math.floor(Date.now() / 1000) + 60 };
+    const ticket = await createDownloadTicket(mockEnv, payload);
+    await expect(verifyDownloadTicket(mockEnv, ticket)).resolves.toEqual(payload);
+    await expect(verifyDownloadTicket(mockEnv, `${ticket}x`)).resolves.toBeNull();
+    const expired = await createDownloadTicket(mockEnv, { ...payload, exp: Math.floor(Date.now() / 1000) - 1 });
+    await expect(verifyDownloadTicket(mockEnv, expired)).resolves.toBeNull();
   });
   it('uses AWS RFC 3986 encoding for signed response parameters', () => {
     expect(awsUriEncode("attachment; filename*=UTF-8''lecture 1.pdf"))

@@ -31,6 +31,11 @@ export function openFilePreview(url: string): void {
   window.open(url, '_blank');
 }
 
+export function isIosDevice(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 export async function downloadFile(url: string, fallbackName: string): Promise<void> {
   if (!url) return;
   try {

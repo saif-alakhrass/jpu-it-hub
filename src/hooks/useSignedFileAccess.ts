@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
-import { downloadFileViaStorage, getSignedFileUrl, saveBlob } from '@/lib/storage';
-import { downloadR2File, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { downloadFileViaStorage, getSignedFileUrl, isIosDevice, saveBlob } from '@/lib/storage';
+import { downloadR2File, isR2Configured, requestDownloadPresign, requestNativeDownloadUrl } from '@/lib/r2Client';
 
 // R2 URLs currently expire after five minutes. Keep the cache shorter so a
 // preview never reuses a URL that the Worker has already expired.
@@ -31,6 +31,11 @@ export function useSignedFileAccess(onError: (message: string) => void) {
             return;
           }
           if (mode === 'download') {
+            if (isIosDevice()) {
+              const nativeUrl = await requestNativeDownloadUrl(accessToken, file.id);
+              window.location.assign(nativeUrl);
+              return;
+            }
             const extension = (file.file_type ?? '').toLowerCase();
             const downloadName = extension && !file.title.toLowerCase().endsWith(`.${extension}`)
               ? `${file.title}.${extension}`

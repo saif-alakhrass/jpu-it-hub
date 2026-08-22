@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUploadNow, formatFileSize, getFileIcon, validateFile } from './storage';
+import { canUploadNow, formatFileSize, getFileIcon, isIosDevice, validateFile } from './storage';
 import { MAX_FILE_SIZE_BYTES } from './constants';
 
 function fakeFile(name: string, type: string, size: number): File {
@@ -22,6 +22,19 @@ describe('file validation', () => {
 });
 
 describe('storage helpers', () => {
+  it('detects iPhone and iPadOS Safari devices for native downloads', () => {
+    const originalUserAgent = navigator.userAgent;
+    const originalPlatform = navigator.platform;
+    const originalTouchPoints = navigator.maxTouchPoints;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)' });
+    expect(isIosDevice()).toBe(true);
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUserAgent });
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+    expect(isIosDevice()).toBe(true);
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouchPoints });
+  });
   it('formats file sizes for display', () => {
     expect(formatFileSize(900)).toBe('900 B');
     expect(formatFileSize(1536)).toBe('1.5 KB');
