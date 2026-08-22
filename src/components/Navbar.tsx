@@ -82,6 +82,9 @@ export function Navbar() {
           <button onClick={openAbout} className={`btn-ghost ${route.path === '/about' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Info" className="h-4 w-4" /> من نحن
           </button>
+          <button onClick={() => navigate('/faq')} className={`btn-ghost ${route.path === '/faq' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
+            <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
+          </button>
           {isAdmin && (
             <button onClick={() => navigate('/admin')} className={`btn-ghost ${route.path === '/admin' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
               <Icon name="ShieldCheck" className="h-4 w-4" /> لوحة الإدارة
@@ -144,6 +147,9 @@ export function Navbar() {
             </button>
             <button onClick={() => { openAbout(); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Info" className="h-4 w-4" /> من نحن
+            </button>
+            <button onClick={() => { navigate('/faq'); setOpen(false); }} className="btn-ghost justify-start">
+              <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
             </button>
             {isAdmin && (
               <button onClick={() => { navigate('/admin'); setOpen(false); }} className="btn-ghost justify-start">
