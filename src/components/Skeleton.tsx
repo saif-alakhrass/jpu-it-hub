@@ -1,6 +1,6 @@
 export function SubjectCardSkeleton() {
   return (
-    <div className="card overflow-hidden p-5">
+    <div className="performance-item card overflow-hidden p-5">
       <div className="mb-3 flex items-start justify-between">
         <div className="h-11 w-11 animate-pulse rounded-xl bg-ink-700/60" />
         <div className="flex gap-1">

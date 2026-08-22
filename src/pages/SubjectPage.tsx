@@ -582,7 +582,7 @@ function FileRowCard({
   const pending = file.status === 'pending';
   const rejected = file.status === 'rejected';
   return (
-    <div className={`card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''} ${rejected ? 'border-danger-500/30' : ''}`}>
+    <div className={`performance-item card flex min-w-0 flex-wrap items-center gap-3 p-4 transition hover:border-white/10 sm:flex-nowrap sm:gap-4 ${pending && !isOwn ? 'opacity-50' : ''} ${rejected ? 'border-danger-500/30' : ''}`}>
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink-700 text-brand-400">
         <Icon name="File" className="h-5 w-5" />
       </span>
@@ -644,7 +644,7 @@ function BatchFolderCard({
   const pending = batch.status === 'pending';
   const totalSize = files.reduce((sum, f) => sum + (f.file_size ?? 0), 0);
   return (
-    <div className={`card min-w-0 overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
+    <div className={`performance-item card min-w-0 overflow-hidden transition ${pending && !isOwn ? 'opacity-60' : ''}`}>
       <div className="flex min-w-0 items-center gap-3 p-4 sm:gap-4">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-400">
           <Icon name="FolderOpen" className="h-5 w-5" />

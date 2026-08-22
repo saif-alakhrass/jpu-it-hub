@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { fetchSubjectsPaged, fetchAllSubjects, fetchSubject } from '@/services/subjects';
 
+export const SUBJECT_STALE_TIME = 1000 * 60 * 15;
+
 function useDebouncedValue<T>(value: T, delay = 250): T {
   const [debounced, setDebounced] = useState(value);
 
@@ -30,6 +32,7 @@ export function useSubjectsPaged(search: string, major: string | undefined, init
     queryKey: ['subjects', 'paged', page, debouncedSearch, major ?? null],
     queryFn: () => fetchSubjectsPaged(page, debouncedSearch || undefined, major),
     placeholderData: keepPreviousData,
+    staleTime: SUBJECT_STALE_TIME,
   });
 
   return {
@@ -44,7 +47,7 @@ export function useSubjectsPaged(search: string, major: string | undefined, init
 }
 
 export function useAllSubjects() {
-  const query = useQuery({ queryKey: ['subjects', 'all'], queryFn: fetchAllSubjects });
+  const query = useQuery({ queryKey: ['subjects', 'all'], queryFn: fetchAllSubjects, staleTime: SUBJECT_STALE_TIME });
   return { subjects: query.data ?? [], loading: query.isLoading, error: query.error, reload: query.refetch };
 }
 
@@ -53,5 +56,6 @@ export function useSubject(subjectId: string) {
     queryKey: ['subjects', 'detail', subjectId],
     queryFn: () => fetchSubject(subjectId),
     enabled: Boolean(subjectId),
+    staleTime: SUBJECT_STALE_TIME,
   });
 }

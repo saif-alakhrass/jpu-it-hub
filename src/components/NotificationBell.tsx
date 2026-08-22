@@ -32,7 +32,12 @@ export function NotificationBell() {
     try { const nextItems = await fetchNotifications(session.user.id); setItems(nextItems); return nextItems; } finally { setLoading(false); }
   }, [session?.user.id]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    // Keep the unread badge useful without competing with the initial page
+    // content on slower mobile connections.
+    const timer = window.setTimeout(() => { void refresh(); }, 800);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
   useEffect(() => {
     function close(event: MouseEvent) { if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false); }
     if (open) document.addEventListener('mousedown', close);
