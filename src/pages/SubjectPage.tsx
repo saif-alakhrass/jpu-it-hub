@@ -24,6 +24,7 @@ import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { useSubject } from '@/hooks/useSubjects';
 import { useSubjectFiles } from '@/hooks/useFiles';
+import { officePreviewUrl, shouldUseFullPageOfficePreview } from '@/lib/filePreview';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -47,10 +48,6 @@ function isPdfFile(file: FileRow): boolean {
 
 function isOfficeFile(file: FileRow): boolean {
   return ['doc', 'docx', 'ppt', 'pptx'].includes((file.file_type ?? '').toLowerCase());
-}
-
-function officePreviewUrl(fileUrl: string): string {
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
 }
 
 export function SubjectPage() {
@@ -302,7 +299,14 @@ export function SubjectPage() {
 
   async function handlePreview(file: FileRow) {
     const url = await accessFile(file, 'preview');
-    if (url) setPreview({ file, url });
+    if (!url) return;
+    if (isOfficeFile(file) && shouldUseFullPageOfficePreview(window.innerWidth, navigator.maxTouchPoints)) {
+      // A top-level Office viewer receives touch gestures directly, so slide
+      // navigation works instead of the surrounding modal zooming the page.
+      window.location.assign(officePreviewUrl(url, false));
+      return;
+    }
+    setPreview({ file, url });
   }
 
   if (loading) {
@@ -539,7 +543,7 @@ export function SubjectPage() {
               <iframe src={preview.url} title={preview.file.title} className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white" />
             ) : isOfficeFile(preview.file) ? (
               <iframe
-                src={officePreviewUrl(preview.url)}
+                src={officePreviewUrl(preview.url, true)}
                 title={preview.file.title}
                 className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white"
                 allowFullScreen
