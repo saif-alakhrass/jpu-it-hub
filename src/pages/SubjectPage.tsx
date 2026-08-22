@@ -15,6 +15,7 @@ import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
+import { MobileFileReader } from '@/components/MobileFileReader';
 import {
   deleteFile,
   removeStorageObjects,
@@ -24,7 +25,7 @@ import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { useSubject } from '@/hooks/useSubjects';
 import { useSubjectFiles } from '@/hooks/useFiles';
-import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPagePreview } from '@/lib/filePreview';
+import { officePreviewUrl, shouldUseMobileReader } from '@/lib/filePreview';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -300,13 +301,6 @@ export function SubjectPage() {
   async function handlePreview(file: FileRow) {
     const url = await accessFile(file, 'preview');
     if (!url) return;
-    const fullPageMobilePreview = shouldUseFullPagePreview(window.innerWidth, navigator.maxTouchPoints);
-    if (fullPageMobilePreview && (isOfficeFile(file) || isPdfFile(file) || isImageFile(file))) {
-      // Never nest a document viewer inside the site's modal on touch devices.
-      // The native browser handles PDF/image gestures; Google handles Office.
-      window.location.assign(isOfficeFile(file) ? mobileOfficePreviewUrl(url) : url);
-      return;
-    }
     setPreview({ file, url });
   }
 
@@ -529,7 +523,16 @@ export function SubjectPage() {
         )}
       </Modal>
 
-      <Modal open={!!preview} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-6xl">
+      {preview && shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints) && (
+        <MobileFileReader
+          file={preview.file}
+          url={preview.url}
+          onClose={() => setPreview(null)}
+          onDownload={() => { void accessFile(preview.file, 'download'); }}
+        />
+      )}
+
+      <Modal open={!!preview && !shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints)} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-6xl">
         {preview && (
           <div className="flex h-[calc(100dvh-5.5rem)] min-h-0 flex-col gap-3 sm:h-[min(82vh,56rem)]">
             <div className="shrink-0 px-1">

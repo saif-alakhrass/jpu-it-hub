@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPagePreview } from './filePreview';
+import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseMobileReader } from './filePreview';
 
 describe('Office file preview', () => {
   it('uses the full-page viewer on phones and touch-first tablets', () => {
-    expect(shouldUseFullPagePreview(390, 5)).toBe(true);
-    expect(shouldUseFullPagePreview(1024, 5)).toBe(true);
-    expect(shouldUseFullPagePreview(1440, 0)).toBe(false);
+    expect(shouldUseMobileReader(390, 5)).toBe(true);
+    expect(shouldUseMobileReader(1024, 5)).toBe(true);
+    expect(shouldUseMobileReader(1440, 0)).toBe(false);
   });
 
   it('builds distinct embedded and full-page Office viewer URLs', () => {
@@ -18,7 +18,7 @@ describe('Office file preview', () => {
   it('uses the Google document viewer for touch-device Office previews', () => {
     const signedUrl = 'https://example.com/file.pptx?signature=a&expires=1';
     expect(mobileOfficePreviewUrl(signedUrl)).toBe(
-      `https://docs.google.com/gview?url=${encodeURIComponent(signedUrl)}`,
+      `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(signedUrl)}`,
     );
   });
 });
