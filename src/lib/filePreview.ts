@@ -11,6 +11,6 @@ export function mobileOfficePreviewUrl(fileUrl: string): string {
  * Nested Office iframes do not handle touch gestures reliably. Phones and
  * touch-first tablets use Microsoft's full-page viewer instead.
  */
-export function shouldUseFullPageOfficePreview(viewportWidth: number, maxTouchPoints: number): boolean {
+export function shouldUseFullPagePreview(viewportWidth: number, maxTouchPoints: number): boolean {
   return viewportWidth < 768 || maxTouchPoints > 0;
 }

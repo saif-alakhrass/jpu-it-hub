@@ -24,7 +24,7 @@ import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { useSubject } from '@/hooks/useSubjects';
 import { useSubjectFiles } from '@/hooks/useFiles';
-import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPageOfficePreview } from '@/lib/filePreview';
+import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPagePreview } from '@/lib/filePreview';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -300,10 +300,11 @@ export function SubjectPage() {
   async function handlePreview(file: FileRow) {
     const url = await accessFile(file, 'preview');
     if (!url) return;
-    if (isOfficeFile(file) && shouldUseFullPageOfficePreview(window.innerWidth, navigator.maxTouchPoints)) {
-      // A top-level Office viewer receives touch gestures directly, so slide
-      // navigation works instead of the surrounding modal zooming the page.
-      window.location.assign(mobileOfficePreviewUrl(url));
+    const fullPageMobilePreview = shouldUseFullPagePreview(window.innerWidth, navigator.maxTouchPoints);
+    if (fullPageMobilePreview && (isOfficeFile(file) || isPdfFile(file) || isImageFile(file))) {
+      // Never nest a document viewer inside the site's modal on touch devices.
+      // The native browser handles PDF/image gestures; Google handles Office.
+      window.location.assign(isOfficeFile(file) ? mobileOfficePreviewUrl(url) : url);
       return;
     }
     setPreview({ file, url });
