@@ -6,6 +6,15 @@ export default {
       fontFamily: {
         sans: ['"IBM Plex Sans Arabic"', 'system-ui', 'sans-serif'],
       },
+      // IBM Plex Sans Arabic has strong strokes. A calmer weight scale keeps
+      // controls and card titles readable without making the whole interface
+      // look bold, while reserving 700 for primary page headings.
+      fontWeight: {
+        medium: '500',
+        semibold: '600',
+        bold: '600',
+        extrabold: '700',
+      },
       colors: {
         slate: {
           100: '#17233a',
