@@ -83,9 +83,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const role = profile?.role ?? null;
-  const isAdmin = role === 'admin';
   const isSuperAdmin = Boolean(profile?.is_super_admin);
-  const isTrusted = role === 'trusted' || role === 'admin';
+  // A super-admin must never lose access because of a temporarily inconsistent
+  // role value while a migration/profile refresh is in flight.
+  const isAdmin = role === 'admin' || isSuperAdmin;
+  const isTrusted = role === 'trusted' || isAdmin;
   const canPublishDirectly = isTrusted;
 
   return (
