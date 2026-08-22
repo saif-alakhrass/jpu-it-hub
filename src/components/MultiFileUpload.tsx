@@ -5,6 +5,7 @@ import { formatFileSize, getFileIcon, canUploadNow } from '@/lib/storage';
 import { getUploadLimit, MAX_FILE_SIZE_MB } from '@/lib/constants';
 import { useUpload, type QueuedFile } from '@/hooks/useUpload';
 import type { FileTab, Role } from '@/lib/types';
+import { RESTRICTED_TABS } from '@/lib/types';
 
 function buildBatchTitle(tabLabel: string, count: number): string {
   const d = new Date().toLocaleDateString('ar', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -85,6 +86,12 @@ export function MultiFileUpload({
   async function handleBatchUpload() {
     const toUpload = queue.filter((q) => q.status === 'waiting');
     if (toUpload.length === 0) return;
+
+    // Guard: block upload to restricted tabs for unauthorized roles
+    if (RESTRICTED_TABS.has(activeTab) && role === 'student') {
+      onToast({ message: 'لا يمكنك الرفع في هذا القسم', type: 'error' });
+      return;
+    }
 
     setShowValidation(true);
     const emptyTitles = new Set(toUpload.filter((q) => !q.title.trim()).map((q) => q.id));

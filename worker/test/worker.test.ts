@@ -35,6 +35,7 @@ function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
     id: 'f1',
     title: 'محاضرة الشبكات',
     subject_id: 's1',
+    tab: 'summaries',
     uploader_id: 'user-uuid-1',
     status: 'approved',
     storage_path: 'user-uuid-1/file.pdf',

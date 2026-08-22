@@ -9,7 +9,7 @@ import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
 import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmarks';
 import { getBookmarkedIds } from '@/services/bookmarks';
-import { TABS, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
+import { TABS, RESTRICTED_TABS, getVisibleTabs, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
 import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
 import { FileCardSkeletonList } from '@/components/Skeleton';
@@ -55,9 +55,11 @@ function officePreviewUrl(fileUrl: string): string {
 
 export function SubjectPage() {
   const { session, profile, canPublishDirectly, isAdmin } = useAuth();
+  const role = profile?.role ?? null;
   const { navigate, goBack, route } = useRouter();
   const subjectId = route.params.id ?? '';
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
+  const visibleTabs = getVisibleTabs(role);
   const subjectQuery = useSubject(subjectId);
   const { files, batches, loading: filesLoading, error: filesError, reload: reloadFiles, setFiles, setBatches } = useSubjectFiles(subjectId);
   const subject = subjectQuery.data ?? null;
@@ -84,6 +86,13 @@ export function SubjectPage() {
     await Promise.all([subjectQuery.refetch(), reloadFiles()]);
   }, [subjectQuery, reloadFiles]);
 
+  // Redirect away from restricted tabs the user cannot access.
+  useEffect(() => {
+    if (RESTRICTED_TABS.has(activeTab) && !visibleTabs.some((t) => t.key === activeTab)) {
+      setActiveTab(visibleTabs[0]?.key ?? 'summaries');
+    }
+  }, [activeTab, visibleTabs]);
+
   useEffect(() => {
     if (!session || files.length === 0) return;
     (async () => {
@@ -96,11 +105,17 @@ export function SubjectPage() {
   // visitors see only approved files. Administrators can additionally inspect
   // pending and rejected files here, clearly labelled, while a student sees
   // only their own pending upload.
-  const contentFiles = useMemo(() => files.filter((file) => (
-    file.status === 'approved'
-    || isAdmin
-    || (file.status === 'pending' && file.uploader_id === profile?.id)
-  )), [files, isAdmin, profile?.id]);
+  // Restricted tabs (e.g. exams) are filtered out entirely for unauthorized roles.
+  const isTrustedOrAdmin = role === 'admin' || role === 'trusted';
+  const contentFiles = useMemo(() => files.filter((file) => {
+    // Hide restricted-tab files from unauthorized users
+    if (RESTRICTED_TABS.has(file.tab) && !isTrustedOrAdmin) return false;
+    return (
+      file.status === 'approved'
+      || isAdmin
+      || (file.status === 'pending' && file.uploader_id === profile?.id)
+    );
+  }), [files, isAdmin, isTrustedOrAdmin, profile?.id]);
 
   // Build display groups: batches first (with their files), then standalone files.
   // Files whose batch is invisible (hidden by RLS) fall back to standalone cards.
@@ -354,7 +369,7 @@ export function SubjectPage() {
       </header>
 
       <div className="mb-6 flex gap-2 overflow-x-auto border-b border-white/5 pb-px">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setActiveTab(t.key)}
