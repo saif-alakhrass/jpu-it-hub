@@ -82,5 +82,36 @@ export function useSignedFileAccess(onError: (message: string) => void) {
     }
   }, [onError]);
 
-  return { accessingFileId, accessFile };
+  const accessFileBlob = useCallback(async (file: FileRow) => {
+    setAccessingFileId(file.id);
+    try {
+      let blob: Blob | null = null;
+      const isR2File = file.storage_provider === 'r2' && file.object_key;
+
+      if (isR2File && isR2Configured()) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) {
+          onError('يجب تسجيل الدخول للوصول إلى الملفات.');
+          return;
+        }
+        // Read through the authenticated Worker instead of the cross-origin
+        // presigned URL. PDF.js and canvas need byte access, which R2 CORS can
+        // legitimately block even when browser navigation to the URL works.
+        blob = await downloadR2File(accessToken, file.id);
+      } else {
+        const { data, error } = await supabase.storage.from('files').download(file.storage_path);
+        if (error || !data) throw error ?? new Error('Preview download failed');
+        blob = data;
+      }
+
+      return URL.createObjectURL(blob);
+    } catch {
+      onError('تعذّر تجهيز الملف للعرض. حاول مجددًا.');
+    } finally {
+      setAccessingFileId(null);
+    }
+  }, [onError]);
+
+  return { accessingFileId, accessFile, accessFileBlob };
 }

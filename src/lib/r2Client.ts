@@ -195,7 +195,12 @@ export async function downloadR2File(accessToken: string, fileId: string): Promi
     body: JSON.stringify({ file_id: fileId }),
   });
   if (!res.ok) return throwWorkerError(res);
-  return res.blob();
+  const blob = await res.blob();
+  const originalType = res.headers.get('X-File-Content-Type');
+  // The Worker intentionally responds as octet-stream to force iOS downloads.
+  // Restore the verified MIME only inside this authenticated in-memory copy so
+  // image elements and PDF.js can decode it without weakening download safety.
+  return originalType ? new Blob([blob], { type: originalType }) : blob;
 }
 
 export async function requestNativeDownloadUrl(accessToken: string, fileId: string): Promise<string> {

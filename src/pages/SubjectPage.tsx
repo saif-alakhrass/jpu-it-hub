@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -72,13 +72,26 @@ export function SubjectPage() {
   const reportFileAccessError = useCallback((message: string) => {
     setToast({ message, type: 'error' });
   }, []);
-  const { accessingFileId, accessFile } = useSignedFileAccess(reportFileAccessError);
+  const { accessingFileId, accessFile, accessFileBlob } = useSignedFileAccess(reportFileAccessError);
   const [preview, setPreview] = useState<{ file: FileRow; url: string } | null>(null);
+  const previewObjectUrlRef = useRef<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  const closePreview = useCallback(() => {
+    if (previewObjectUrlRef.current) {
+      URL.revokeObjectURL(previewObjectUrlRef.current);
+      previewObjectUrlRef.current = null;
+    }
+    setPreview(null);
+  }, []);
+
+  useEffect(() => () => {
+    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
+  }, []);
 
   const loadPage = useCallback(async () => {
     await Promise.all([subjectQuery.refetch(), reloadFiles()]);
@@ -299,8 +312,13 @@ export function SubjectPage() {
   }
 
   async function handlePreview(file: FileRow) {
-    const url = await accessFile(file, 'preview');
+    const mobileReader = shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints);
+    const needsReadableBytes = mobileReader && (isPdfFile(file) || isImageFile(file));
+    const url = needsReadableBytes
+      ? await accessFileBlob(file)
+      : await accessFile(file, 'preview');
     if (!url) return;
+    if (needsReadableBytes) previewObjectUrlRef.current = url;
     setPreview({ file, url });
   }
 
@@ -527,12 +545,12 @@ export function SubjectPage() {
         <MobileFileReader
           file={preview.file}
           url={preview.url}
-          onClose={() => setPreview(null)}
+          onClose={closePreview}
           onDownload={() => { void accessFile(preview.file, 'download'); }}
         />
       )}
 
-      <Modal open={!!preview && !shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints)} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-6xl">
+      <Modal open={!!preview && !shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints)} onClose={closePreview} title="عرض الملف" maxWidth="max-w-6xl">
         {preview && (
           <div className="flex h-[calc(100dvh-5.5rem)] min-h-0 flex-col gap-3 sm:h-[min(82vh,56rem)]">
             <div className="shrink-0 px-1">
