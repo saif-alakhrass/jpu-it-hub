@@ -11,7 +11,12 @@ import {
   verifyJwt,
   extractToken,
   getCorsHeaders,
+  createPresignedUrl,
   downloadContentDisposition,
+  awsUriEncode,
+  fileDownloadResponse,
+  createDownloadTicket,
+  verifyDownloadTicket,
   getUploadLimit,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
@@ -223,6 +228,46 @@ describe('upload validation', () => {
 });
 
 describe('download access', () => {
+  it('streams files as attachments with safe response headers', async () => {
+    const bytes = new TextEncoder().encode('pdf-content');
+    const object = {
+      body: new Blob([bytes]).stream(),
+      size: bytes.byteLength,
+      httpMetadata: { contentType: 'application/pdf' },
+    } as unknown as R2ObjectBody;
+    const response = fileDownloadResponse(
+      mockEnv,
+      new Request('https://worker.test/download', { headers: { Origin: 'http://localhost:5173' } }),
+      makeFile({ title: 'Lecture 1', file_type: 'pdf' }),
+      object,
+    );
+    expect(response.headers.get('Content-Disposition')).toContain('attachment; filename="Lecture 1.pdf"');
+    expect(response.headers.get('Content-Type')).toBe('application/octet-stream');
+    expect(response.headers.get('X-File-Content-Type')).toBe('application/pdf');
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+    expect(await response.text()).toBe('pdf-content');
+  });
+  it('issues tamper-resistant, expiring iOS download tickets', async () => {
+    const payload = { file_id: 'f1', user_id: 'u1', role: 'student' as const, exp: Math.floor(Date.now() / 1000) + 60 };
+    const ticket = await createDownloadTicket(mockEnv, payload);
+    await expect(verifyDownloadTicket(mockEnv, ticket)).resolves.toEqual(payload);
+    await expect(verifyDownloadTicket(mockEnv, `${ticket}x`)).resolves.toBeNull();
+    const expired = await createDownloadTicket(mockEnv, { ...payload, exp: Math.floor(Date.now() / 1000) - 1 });
+    await expect(verifyDownloadTicket(mockEnv, expired)).resolves.toBeNull();
+  });
+  it('uses AWS RFC 3986 encoding for signed response parameters', () => {
+    expect(awsUriEncode("attachment; filename*=UTF-8''lecture 1.pdf"))
+      .toBe('attachment%3B%20filename%2A%3DUTF-8%27%27lecture%201.pdf');
+  });
+  it('signs the forced-download disposition as part of the R2 URL', async () => {
+    const disposition = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pdf' }));
+    const url = await createPresignedUrl(mockEnv, 'user/file.pdf', 'GET', 300, disposition);
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get('response-content-disposition')).toBe(disposition);
+    expect(url).toContain('response-content-disposition=attachment%3B%20filename%3D%22Lecture%201.pdf%22%3B%20filename%2A%3D');
+    expect(parsed.searchParams.get('X-Amz-Signature')).toMatch(/^[a-f0-9]{64}$/);
+  });
   it('preserves the stored upload name in the download response', () => {
     const value = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pptx' }));
     expect(value).toContain('filename="Lecture 1.pptx"');

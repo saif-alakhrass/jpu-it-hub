@@ -24,6 +24,7 @@ import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { useSubject } from '@/hooks/useSubjects';
 import { useSubjectFiles } from '@/hooks/useFiles';
+import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPagePreview } from '@/lib/filePreview';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -47,10 +48,6 @@ function isPdfFile(file: FileRow): boolean {
 
 function isOfficeFile(file: FileRow): boolean {
   return ['doc', 'docx', 'ppt', 'pptx'].includes((file.file_type ?? '').toLowerCase());
-}
-
-function officePreviewUrl(fileUrl: string): string {
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
 }
 
 export function SubjectPage() {
@@ -302,7 +299,15 @@ export function SubjectPage() {
 
   async function handlePreview(file: FileRow) {
     const url = await accessFile(file, 'preview');
-    if (url) setPreview({ file, url });
+    if (!url) return;
+    const fullPageMobilePreview = shouldUseFullPagePreview(window.innerWidth, navigator.maxTouchPoints);
+    if (fullPageMobilePreview && (isOfficeFile(file) || isPdfFile(file) || isImageFile(file))) {
+      // Never nest a document viewer inside the site's modal on touch devices.
+      // The native browser handles PDF/image gestures; Google handles Office.
+      window.location.assign(isOfficeFile(file) ? mobileOfficePreviewUrl(url) : url);
+      return;
+    }
+    setPreview({ file, url });
   }
 
   if (loading) {
@@ -524,22 +529,24 @@ export function SubjectPage() {
         )}
       </Modal>
 
-      <Modal open={!!preview} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-5xl">
+      <Modal open={!!preview} onClose={() => setPreview(null)} title="عرض الملف" maxWidth="max-w-6xl">
         {preview && (
-          <div className="space-y-3">
-            <div>
-              <h4 className="font-bold text-slate-100">{preview.file.title}</h4>
-              <p className="mt-1 text-sm text-slate-400">وضع قراءة فقط — لا يتم تنزيل الملف عند العرض.</p>
+          <div className="flex h-[calc(100dvh-5.5rem)] min-h-0 flex-col gap-3 sm:h-[min(82vh,56rem)]">
+            <div className="shrink-0 px-1">
+              <h4 className="truncate font-bold text-slate-100" title={preview.file.title}>{preview.file.title}</h4>
+              <p className="mt-0.5 text-xs text-slate-400 sm:text-sm">وضع قراءة فقط — حرّك وكبّر داخل مساحة العرض.</p>
             </div>
             {isImageFile(preview.file) ? (
-              <img src={preview.url} alt={preview.file.title} className="mx-auto max-h-[70vh] rounded-xl object-contain" />
+              <div className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-xl border border-white/10 bg-black/20 p-2">
+                <img src={preview.url} alt={preview.file.title} className="m-auto h-auto max-h-full max-w-full rounded-lg object-contain" />
+              </div>
             ) : isPdfFile(preview.file) ? (
-              <iframe src={preview.url} title={preview.file.title} className="h-[70vh] w-full rounded-xl border border-white/10 bg-white" />
+              <iframe src={preview.url} title={preview.file.title} className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white" />
             ) : isOfficeFile(preview.file) ? (
               <iframe
-                src={officePreviewUrl(preview.url)}
+                src={officePreviewUrl(preview.url, true)}
                 title={preview.file.title}
-                className="h-[70vh] w-full rounded-xl border border-white/10 bg-white"
+                className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white"
                 allowFullScreen
               />
             ) : (

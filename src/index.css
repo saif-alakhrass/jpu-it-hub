@@ -13,6 +13,9 @@ html, body, #root {
 html {
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
+  /* Keep touch scrolling fully native. Programmatic navigation may restore a
+     saved position, but finger movement must never be interpolated. */
+  scroll-behavior: auto;
 }
 
 body {
@@ -23,6 +26,9 @@ body {
     radial-gradient(44rem 30rem at -8% 38%, rgba(14, 165, 233, 0.09), transparent 68%),
     linear-gradient(180deg, #f8fbff 0%, #f4f8fc 48%, #f7f8fa 100%);
   background-attachment: fixed;
+  /* Removes the delayed double-tap gesture while preserving native vertical
+     and horizontal panning and pinch zoom. */
+  touch-action: manipulation;
 }
 
 @media (max-width: 640px) {

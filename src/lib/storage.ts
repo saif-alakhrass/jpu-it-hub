@@ -31,6 +31,11 @@ export function openFilePreview(url: string): void {
   window.open(url, '_blank');
 }
 
+export function isIosDevice(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 export async function downloadFile(url: string, fallbackName: string): Promise<void> {
   if (!url) return;
   try {
@@ -39,11 +44,14 @@ export async function downloadFile(url: string, fallbackName: string): Promise<v
     const blob = await res.blob();
     saveBlob(blob, fallbackName);
   } catch {
+    // The Worker signs download URLs with Content-Disposition: attachment.
+    // Navigating to it is therefore a forced download even when R2 does not
+    // allow the browser to read the cross-origin response as a Blob.
     window.location.assign(url);
   }
 }
 
-function saveBlob(blob: Blob, fallbackName: string): void {
+export function saveBlob(blob: Blob, fallbackName: string): void {
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = objectUrl;
@@ -51,7 +59,8 @@ function saveBlob(blob: Blob, fallbackName: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(objectUrl);
+  // Safari may not have consumed the object URL synchronously after click().
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
 }
 
 export function canUploadNow(recentTimestamps: number[], maxUploads = UPLOAD_MAX_PER_WINDOW): boolean {

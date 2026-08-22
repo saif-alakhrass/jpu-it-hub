@@ -431,7 +431,7 @@ async function createPresignedUrl(
     `X-Amz-SignedHeaders=host`,
   ];
   if (responseContentDisposition) {
-    queryParts.push(`response-content-disposition=${encodeURIComponent(responseContentDisposition)}`);
+    queryParts.push(`response-content-disposition=${awsUriEncode(responseContentDisposition)}`);
   }
   const canonicalQueryString = queryParts.sort().join('&');
 
@@ -462,6 +462,15 @@ async function createPresignedUrl(
 
   const url = `https://${host}/${canonicalUriStr}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
   return url;
+}
+
+// AWS Signature V4 uses RFC 3986 encoding. JavaScript's encodeURIComponent
+// deliberately leaves !'()* unescaped, which changes R2's canonical query and
+// causes SignatureDoesNotMatch for Content-Disposition's filename* parameter.
+function awsUriEncode(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 function downloadContentDisposition(file: FileRecord): string {
@@ -607,6 +616,12 @@ export default {
         return corsResponse(env, request, 200, { status: 'ok' });
       }
 
+      // iOS Safari needs a real top-level HTTP download response. The ticket
+      // is a short-lived signed capability issued only after JWT validation.
+      if (path === '/download-file' && request.method === 'GET') {
+        return handleTicketDownload(env, request);
+      }
+
       // All other routes require authentication
       const token = extractToken(request);
       if (!token) {
@@ -641,6 +656,17 @@ export default {
       // Route: POST /download-presign — get a presigned GET URL for downloading
       if (path === '/download-presign' && request.method === 'POST') {
         return handleDownloadPresign(env, request, userId, isAdmin, profile.role);
+      }
+
+      // Route: POST /download — stream an authenticated R2 object with an
+      // attachment header. This is the reliable path for browsers that either
+      // block cross-origin Blob reads or display PDF/image presigned URLs.
+      if (path === '/download' && request.method === 'POST') {
+        return handleDownload(env, request, userId, isAdmin, profile.role);
+      }
+
+      if (path === '/download-ticket' && request.method === 'POST') {
+        return handleDownloadTicket(env, request, userId, isAdmin, profile.role);
       }
 
       // Route: POST /delete — delete an R2 object + DB record
@@ -852,6 +878,133 @@ interface DownloadPresignRequest {
   mode?: 'preview' | 'download';
 }
 
+interface DownloadTicketPayload {
+  file_id: string;
+  user_id: string;
+  role: Profile['role'];
+  exp: number;
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function createDownloadTicket(env: Env, payload: DownloadTicketPayload): Promise<string> {
+  const encoded = encodeBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = encodeBase64Url(new Uint8Array(await hmacSha256(env.R2_SECRET_ACCESS_KEY, `download:${encoded}`)));
+  return `${encoded}.${signature}`;
+}
+
+async function verifyDownloadTicket(env: Env, ticket: string): Promise<DownloadTicketPayload | null> {
+  const [encoded, signature] = ticket.split('.');
+  if (!encoded || !signature || ticket.length > 2048) return null;
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(env.R2_SECRET_ACCESS_KEY),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      decodeBase64Url(signature),
+      new TextEncoder().encode(`download:${encoded}`),
+    );
+    if (!valid) return null;
+    const payload = decodeJson<DownloadTicketPayload>(encoded);
+    const now = Math.floor(Date.now() / 1000);
+    if (!payload?.file_id || !payload.user_id || !['student', 'trusted', 'admin'].includes(payload.role) || payload.exp < now) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function handleDownloadTicket(env: Env, request: Request, userId: string, isAdmin: boolean, role: Profile['role']): Promise<Response> {
+  const body = await request.json() as DownloadPresignRequest;
+  const { file_id } = body;
+  if (!file_id) return corsError(env, request, 400, 'Missing file_id');
+
+  const file = await fetchFileRecord(env, file_id);
+  if (!file) return corsError(env, request, 404, 'File not found');
+  if (file.tab === 'exams' && role === 'student') return corsError(env, request, 403, 'Access denied');
+  if (!canAccessFile(file, userId, isAdmin)) return corsError(env, request, 403, 'Access denied');
+  if (file.storage_provider !== 'r2') return corsError(env, request, 409, 'File is not stored in R2');
+
+  const ticket = await createDownloadTicket(env, {
+    file_id,
+    user_id: userId,
+    role,
+    exp: Math.floor(Date.now() / 1000) + 60,
+  });
+  const url = new URL('/download-file', request.url);
+  url.searchParams.set('ticket', ticket);
+  return corsResponse(env, request, 200, { download_url: url.toString(), expires_in: 60 });
+}
+
+async function handleTicketDownload(env: Env, request: Request): Promise<Response> {
+  const ticket = new URL(request.url).searchParams.get('ticket');
+  const payload = ticket ? await verifyDownloadTicket(env, ticket) : null;
+  if (!payload) return corsError(env, request, 401, 'Invalid or expired download ticket');
+
+  const file = await fetchFileRecord(env, payload.file_id);
+  if (!file) return corsError(env, request, 404, 'File not found');
+  const isAdmin = payload.role === 'admin';
+  if (file.tab === 'exams' && payload.role === 'student') return corsError(env, request, 403, 'Access denied');
+  if (!canAccessFile(file, payload.user_id, isAdmin)) return corsError(env, request, 403, 'Access denied');
+  if (file.storage_provider !== 'r2') return corsError(env, request, 409, 'File is not stored in R2');
+
+  const objectKey = file.object_key || file.storage_path;
+  if (!objectKey || !validateObjectKey(objectKey)) return corsError(env, request, 500, 'Invalid object key');
+  const object = await env.FILES_BUCKET.get(objectKey);
+  if (!object) return corsError(env, request, 404, 'Stored object not found');
+  return fileDownloadResponse(env, request, file, object);
+}
+
+async function handleDownload(env: Env, request: Request, userId: string, isAdmin: boolean, role: Profile['role']): Promise<Response> {
+  const body = await request.json() as DownloadPresignRequest;
+  const { file_id } = body;
+  if (!file_id) return corsError(env, request, 400, 'Missing file_id');
+
+  const file = await fetchFileRecord(env, file_id);
+  if (!file) return corsError(env, request, 404, 'File not found');
+  if (file.tab === 'exams' && role === 'student') {
+    return corsError(env, request, 403, 'Access denied: exams tab requires trusted or admin role');
+  }
+  if (!canAccessFile(file, userId, isAdmin)) {
+    return corsError(env, request, 403, 'Access denied');
+  }
+  if (file.storage_provider !== 'r2') {
+    return corsError(env, request, 409, 'File is not stored in R2');
+  }
+
+  const objectKey = file.object_key || file.storage_path;
+  if (!objectKey || !validateObjectKey(objectKey)) {
+    return corsError(env, request, 500, 'Invalid object key in database');
+  }
+  const object = await env.FILES_BUCKET.get(objectKey);
+  if (!object) return corsError(env, request, 404, 'Stored object not found');
+
+  return fileDownloadResponse(env, request, file, object);
+}
+
+function fileDownloadResponse(env: Env, request: Request, file: FileRecord, object: R2ObjectBody): Response {
+  const headers = getCorsHeaders(env, request.headers.get('Origin'));
+  // application/octet-stream prevents iOS Safari from invoking its inline PDF
+  // or image viewer despite Content-Disposition: attachment.
+  headers.set('Content-Type', 'application/octet-stream');
+  headers.set('X-File-Content-Type', file.mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Disposition', downloadContentDisposition(file));
+  headers.set('Content-Length', String(object.size));
+  headers.set('Cache-Control', 'private, no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  return new Response(object.body, { status: 200, headers });
+}
+
 async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean, role: Profile['role']): Promise<Response> {
   const body = await request.json() as DownloadPresignRequest;
   const { file_id, mode } = body;
@@ -897,11 +1050,10 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   }
 
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  // Do not pass response-content-disposition to the presigned URL. The `filename*`
-  // parameter contains an asterisk that encodeURIComponent turns into %2A, but
-  // R2's S3 canonical request leaves `*` unencoded — causing SignatureDoesNotMatch.
-  // The frontend already sets the download filename client-side via blob download.
-  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
+  // Preview stays inline. Download is explicitly an attachment so browsers do
+  // not open PDFs/images in a new tab when cross-origin blob fetching is blocked.
+  const disposition = mode === 'download' ? downloadContentDisposition(file) : undefined;
+  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry, disposition);
 
   return corsResponse(env, request, 200, {
     download_url: presignedUrl,
@@ -1005,6 +1157,10 @@ export {
   checkInMemoryRateLimit,
   sha256,
   createPresignedUrl,
+  awsUriEncode,
+  fileDownloadResponse,
+  createDownloadTicket,
+  verifyDownloadTicket,
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,

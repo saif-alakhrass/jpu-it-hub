@@ -185,6 +185,32 @@ export async function requestDownloadPresign(
 }
 
 /**
+ * Download an R2 object through the authenticated Worker. Unlike navigating
+ * to an R2 URL, this always gives the frontend bytes it can save explicitly.
+ */
+export async function downloadR2File(accessToken: string, fileId: string): Promise<Blob> {
+  const res = await fetch(`${WORKER_URL}/download`, {
+    method: 'POST',
+    headers: getAuthHeaders(accessToken),
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  if (!res.ok) return throwWorkerError(res);
+  return res.blob();
+}
+
+export async function requestNativeDownloadUrl(accessToken: string, fileId: string): Promise<string> {
+  const res = await fetch(`${WORKER_URL}/download-ticket`, {
+    method: 'POST',
+    headers: getAuthHeaders(accessToken),
+    body: JSON.stringify({ file_id: fileId }),
+  });
+  if (!res.ok) return throwWorkerError(res);
+  const data = await res.json() as { download_url?: string };
+  if (!data.download_url) throw new WorkerRequestError('تعذر إنشاء رابط التنزيل.');
+  return data.download_url;
+}
+
+/**
  * Delete a file via the Worker — removes the R2 object and the DB record.
  * If R2 deletion fails, a cleanup record is queued for retry.
  */
