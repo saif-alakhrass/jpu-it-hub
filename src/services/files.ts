@@ -16,6 +16,17 @@ export interface PaginatedFiles {
   totalPages: number;
 }
 
+export async function fetchUserApprovedCount(userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('files')
+    .select('*', { count: 'exact', head: true })
+    .eq('uploader_id', userId)
+    .eq('status', 'approved');
+  
+  if (error) return 0;
+  return count ?? 0;
+}
+
 export async function fetchFilesForSubject(subjectId: string, tab?: FileTab): Promise<FileRow[]> {
   let query = supabase
     .from('files')

@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
 import { updateProfile } from '@/services/auth';
+import { fetchUserApprovedCount } from '@/services/files';
 import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
 
 const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
@@ -42,6 +43,9 @@ export function ProfilePage() {
   const [department, setDepartment] = useState('');
   const [creditHours, setCreditHours] = useState('');
   const [bio, setBio] = useState('');
+  
+  const [approvedCount, setApprovedCount] = useState<number>(0);
+  const [loadingCount, setLoadingCount] = useState(true);
 
   useEffect(() => {
     if (!session) { navigate('/auth'); return; }
@@ -54,6 +58,12 @@ export function ProfilePage() {
       setDepartment(profile.department ?? '');
       setCreditHours(profile.credit_hours != null ? String(profile.credit_hours) : '');
       setBio(profile.bio ?? '');
+      
+      setLoadingCount(true);
+      fetchUserApprovedCount(profile.id).then((count) => {
+        setApprovedCount(count);
+        setLoadingCount(false);
+      });
     }
   }, [profile]);
 
@@ -120,6 +130,43 @@ export function ProfilePage() {
 
       {tab === 'profile' ? (
         <>
+          <div className="card p-6 mb-6">
+            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100 mb-4"><Icon name="Trophy" className="h-5 w-5 text-brand-400" /> مستوى المساهمة</h2>
+            {profile.role === 'admin' || profile.role === 'trusted' ? (
+              <div className="flex items-center gap-3 bg-brand-500/10 border border-brand-500/20 p-4 rounded-xl text-brand-300">
+                <Icon name="ShieldCheck" className="h-6 w-6" />
+                <div>
+                  <h3 className="font-bold">حساب موثوق</h3>
+                  <p className="text-sm opacity-90 mt-0.5">شكراً لجهودك ومساهماتك! يتيح لك هذا الحساب الوصول لقسم الامتحانات والرفع المباشر.</p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="flex justify-between items-end mb-2">
+                  <div>
+                    <h3 className="font-bold text-slate-200">الترقية التلقائية</h3>
+                    <p className="text-sm text-slate-400 mt-1">ارفع 20 ملفاً مفيداً (ويتم اعتماده) لتتم ترقيتك إلى <strong className="text-brand-300">موثوق</strong>.</p>
+                  </div>
+                  <div className="text-xl font-black text-brand-400 font-mono">
+                    {loadingCount ? '...' : approvedCount} <span className="text-sm text-slate-500">/ 20</span>
+                  </div>
+                </div>
+                <div className="h-3 w-full bg-ink-900 rounded-full overflow-hidden border border-white/5">
+                  <div 
+                    className="h-full bg-gradient-to-r from-brand-600 to-brand-400 transition-all duration-1000 ease-out"
+                    style={{ width: `${Math.min(100, Math.max(0, (approvedCount / 20) * 100))}%` }}
+                  />
+                </div>
+                {!loadingCount && approvedCount < 20 && (
+                  <p className="text-xs text-slate-500 mt-2 text-left">يتبقى لك {20 - approvedCount} ملفات للترقية.</p>
+                )}
+                {!loadingCount && approvedCount >= 20 && profile.role === 'student' && (
+                  <p className="text-xs text-brand-400 mt-2 text-left font-bold animate-pulse">تهانينا! أكملت العدد المطلوب. ستتم ترقيتك قريباً جداً.</p>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="card p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100"><Icon name="GraduationCap" className="h-5 w-5 text-brand-400" /> التفاصيل الأكاديمية</h2>
