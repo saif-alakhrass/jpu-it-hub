@@ -30,14 +30,15 @@ export function ScrollRestoration() {
   useEffect(() => {
     const save = () => sessionStorage.setItem(storageKey, String(pageScrollTop()));
 
-    // Save before React handles a link/button event and replaces the current
-    // route's DOM. Route helpers also save synchronously. Deliberately avoid a
-    // scroll listener: no storage writes or timers should run while a finger
-    // is moving on a low-end phone.
-    window.addEventListener('pointerdown', save, { capture: true, passive: true });
+    // Save after a tap has become a click, not when the finger first touches
+    // the screen. This keeps the start of every scroll gesture free of
+    // synchronous sessionStorage work. Route helpers also save synchronously.
+    // Deliberately avoid a scroll listener: nothing runs while the finger is
+    // moving on a low-end phone.
+    window.addEventListener('click', save, { capture: true, passive: true });
     window.addEventListener('pagehide', save);
     return () => {
-      window.removeEventListener('pointerdown', save, { capture: true });
+      window.removeEventListener('click', save, { capture: true });
       window.removeEventListener('pagehide', save);
     };
   }, [storageKey]);
