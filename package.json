@@ -14,6 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans-arabic": "^4.5.11",
     "@supabase/supabase-js": "^2.57.4",
     "@tanstack/react-query": "^5.101.4",
     "lucide-react": "^0.344.0",

@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { SUBJECT_STALE_TIME } from '@/hooks/useSubjects';
 import { fetchSubject } from '@/services/subjects';
 import { fetchBatchesForSubject, fetchFilesForSubject } from '@/services/files';
+import { scrollPageTo } from '@/lib/scroll';
 
 const HOME_VIEW_KEY = 'jpu-it-hub:home-view';
 
@@ -89,7 +90,7 @@ export function HomePage() {
     // This page owns the list height. Restore only after cards are rendered
     // (from cache or the first response), not while a short loading shell is up.
     const firstFrame = requestAnimationFrame(() => {
-      requestAnimationFrame(() => window.scrollTo(0, target));
+      requestAnimationFrame(() => scrollPageTo(target));
     });
     return () => cancelAnimationFrame(firstFrame);
   }, [loading, data.items.length]);

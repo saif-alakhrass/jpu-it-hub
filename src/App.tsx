@@ -1,23 +1,30 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Link, Navigate, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { useAuth } from '@/hooks/useAuth';
 import { Navbar } from '@/components/Navbar';
 import { Icon } from '@/components/Icon';
 import { ScrollRestoration } from '@/components/ScrollRestoration';
+import { HomePage } from '@/pages/HomePage';
 
-const HomePage = lazy(() => import('@/pages/HomePage').then((module) => ({ default: module.HomePage })));
-const SubjectPage = lazy(() => import('@/pages/SubjectPage').then((module) => ({ default: module.SubjectPage })));
-const AuthPage = lazy(() => import('@/pages/AuthPage').then((module) => ({ default: module.AuthPage })));
+const loadSubjectPage = () => import('@/pages/SubjectPage');
+const loadAuthPage = () => import('@/pages/AuthPage');
+const loadAboutPage = () => import('@/pages/AboutPage');
+const loadProfilePage = () => import('@/pages/ProfilePage');
+const loadFaqPage = () => import('@/pages/FaqPage');
+
+const SubjectPage = lazy(() => loadSubjectPage().then((module) => ({ default: module.SubjectPage })));
+const AuthPage = lazy(() => loadAuthPage().then((module) => ({ default: module.AuthPage })));
 const AdminPage = lazy(() => import('@/pages/AdminPage').then((module) => ({ default: module.AdminPage })));
-const AboutPage = lazy(() => import('@/pages/AboutPage').then((module) => ({ default: module.AboutPage })));
-const ProfilePage = lazy(() => import('@/pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
-const FaqPage = lazy(() => import('@/pages/FaqPage').then((module) => ({ default: module.FaqPage })));
+const AboutPage = lazy(() => loadAboutPage().then((module) => ({ default: module.AboutPage })));
+const ProfilePage = lazy(() => loadProfilePage().then((module) => ({ default: module.ProfilePage })));
+const FaqPage = lazy(() => loadFaqPage().then((module) => ({ default: module.FaqPage })));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 
 export default function App() {
   return (
     <AuthProvider>
+      <PublicRoutePreloader />
       <ScrollRestoration />
       <div className="flex min-h-screen flex-col">
         <Navbar />
@@ -44,6 +51,30 @@ export default function App() {
       </div>
     </AuthProvider>
   );
+}
+
+function PublicRoutePreloader() {
+  useEffect(() => {
+    const connection = (navigator as Navigator & {
+      connection?: { saveData?: boolean; effectiveType?: string };
+    }).connection;
+    if (connection?.saveData || connection?.effectiveType?.includes('2g')) return;
+
+    // Route chunks total only a few dozen KiB. Fetch them after the first
+    // screen is stable so mobile navigation does not flash the Suspense shell.
+    const timer = window.setTimeout(() => {
+      void Promise.allSettled([
+        loadSubjectPage(),
+        loadAuthPage(),
+        loadAboutPage(),
+        loadProfilePage(),
+        loadFaqPage(),
+      ]);
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return null;
 }
 
 function AdminRoute() {
