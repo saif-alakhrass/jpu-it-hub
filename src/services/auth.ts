@@ -7,6 +7,13 @@ export interface AuthResult {
   notice?: string | null;
 }
 
+export interface ContributionProgress {
+  approved_count: number;
+  target_count: number;
+  remaining_count: number;
+  role_name: Role;
+}
+
 export async function signInWithEmail(email: string, password: string): Promise<AuthResult> {
   try {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -80,4 +87,11 @@ export async function fetchProfiles(): Promise<Profile[]> {
     .limit(100);
   if (error) return [];
   return (data ?? []) as Profile[];
+}
+
+export async function getMyContributionProgress(): Promise<ContributionProgress | null> {
+  const { data, error } = await supabase.rpc('get_my_contribution_progress');
+  if (error) return null;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? row as ContributionProgress : null;
 }

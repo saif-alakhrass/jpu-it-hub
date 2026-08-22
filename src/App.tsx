@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Navigate, Routes, Route } from 'react-router-dom';
+import { Link, Navigate, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from '@/context/AuthContext';
 import { useAuth } from '@/hooks/useAuth';
 import { Navbar } from '@/components/Navbar';
@@ -12,6 +12,7 @@ const AuthPage = lazy(() => import('@/pages/AuthPage').then((module) => ({ defau
 const AdminPage = lazy(() => import('@/pages/AdminPage').then((module) => ({ default: module.AdminPage })));
 const AboutPage = lazy(() => import('@/pages/AboutPage').then((module) => ({ default: module.AboutPage })));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const FaqPage = lazy(() => import('@/pages/FaqPage').then((module) => ({ default: module.FaqPage })));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 
 export default function App() {
@@ -29,12 +30,16 @@ export default function App() {
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/faq" element={<FaqPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </main>
         <footer className="border-t border-white/5 py-6 text-center text-xs text-slate-500">
-          JPU-IT Hub · جامعة جرش - كلية الـ IT · {new Date().getFullYear()}
+          <p>JPU-IT Hub · جامعة جرش - كلية الـ IT · {new Date().getFullYear()}</p>
+          <Link to="/faq" className="mt-2 inline-flex items-center gap-1 text-slate-400 transition hover:text-brand-300">
+            <Icon name="HelpCircle" className="h-3.5 w-3.5" /> الأسئلة الشائعة
+          </Link>
         </footer>
       </div>
     </AuthProvider>

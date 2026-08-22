@@ -4,7 +4,8 @@ import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/types';
-import { updateProfile } from '@/services/auth';
+import { getContributionProgressView } from '@/lib/contributionProgress';
+import { getMyContributionProgress, updateProfile, type ContributionProgress } from '@/services/auth';
 import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
 
 const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
@@ -36,6 +37,8 @@ export function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [contributionProgress, setContributionProgress] = useState<ContributionProgress | null>(null);
+  const [progressLoading, setProgressLoading] = useState(true);
 
   const [fullName, setFullName] = useState('');
   const [academicYear, setAcademicYear] = useState('');
@@ -56,6 +59,18 @@ export function ProfilePage() {
       setBio(profile.bio ?? '');
     }
   }, [profile]);
+
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    setProgressLoading(true);
+    getMyContributionProgress().then((progress) => {
+      if (!active) return;
+      setContributionProgress(progress);
+      setProgressLoading(false);
+    });
+    return () => { active = false; };
+  }, [session, profile?.role]);
 
   if (!session || !profile) {
     return <div className="mx-auto max-w-4xl px-4 py-20 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>;
@@ -120,6 +135,12 @@ export function ProfilePage() {
 
       {tab === 'profile' ? (
         <>
+          <ContributionCard
+            role={profile.role}
+            approvedCount={contributionProgress?.approved_count ?? 0}
+            loading={progressLoading}
+          />
+
           <div className="card p-6">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100"><Icon name="GraduationCap" className="h-5 w-5 text-brand-400" /> التفاصيل الأكاديمية</h2>
@@ -189,6 +210,47 @@ export function ProfilePage() {
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
+  );
+}
+
+function ContributionCard({ role, approvedCount, loading }: { role: Role; approvedCount: number; loading: boolean }) {
+  const progress = getContributionProgressView(role, approvedCount);
+
+  return (
+    <section className="card mb-6 p-6" aria-labelledby="contribution-progress-title">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="contribution-progress-title" className="flex items-center gap-2 text-lg font-bold text-slate-100">
+            <Icon name="TrendingUp" className="h-5 w-5 text-brand-400" />
+            مساهماتك المعتمدة
+          </h2>
+          <p className="mt-1 text-sm text-slate-400">يتم احتساب الملفات الفريدة بعد اعتمادها من الإدارة.</p>
+        </div>
+        <span className="shrink-0 rounded-lg border border-white/10 bg-ink-900/60 px-3 py-1.5 text-sm font-bold text-slate-200">
+          {loading ? '—' : progress.approvedCount}
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="mt-5 h-2 animate-pulse rounded-full bg-ink-700" />
+      ) : progress.showProgress ? (
+        <div className="mt-5">
+          <div className="mb-2 flex items-center justify-between text-sm">
+            <span className="font-bold text-slate-200">{progress.approvedCount} / {progress.targetCount}</span>
+            <span className="text-slate-400">رتبة موثوق</span>
+          </div>
+          <div className="h-2.5 overflow-hidden rounded-full bg-ink-700" role="progressbar" aria-valuemin={0} aria-valuemax={progress.targetCount} aria-valuenow={Math.min(progress.approvedCount, progress.targetCount)}>
+            <div className="h-full rounded-full bg-gradient-to-l from-brand-400 to-brand-600 transition-[width] duration-500" style={{ width: `${progress.percentage}%` }} />
+          </div>
+          <p className="mt-3 text-sm text-slate-400">{progress.message}</p>
+        </div>
+      ) : (
+        <div className="mt-5 flex items-center gap-2 rounded-xl border border-brand-500/20 bg-brand-500/10 p-4 text-sm text-brand-200">
+          <Icon name="BadgeCheck" className="h-5 w-5 shrink-0 text-brand-400" />
+          {progress.message}
+        </div>
+      )}
+    </section>
   );
 }
 
