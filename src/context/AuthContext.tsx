@@ -84,13 +84,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const role = profile?.role ?? null;
   const isAdmin = role === 'admin';
+  const isSuperAdmin = Boolean(profile?.is_super_admin);
   const isTrusted = role === 'trusted' || role === 'admin';
   const canPublishDirectly = isTrusted;
 
   return (
     <AuthContext.Provider
       value={{
-        session, profile, loading, role, isAdmin, isTrusted, canPublishDirectly,
+        session, profile, loading, role, isAdmin, isSuperAdmin, isTrusted, canPublishDirectly,
         signIn, signUp, signInWithGoogle, signOut, refreshProfile,
       }}
     >

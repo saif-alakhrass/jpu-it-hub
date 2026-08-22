@@ -52,7 +52,7 @@ export async function signOutUser(): Promise<void> {
 export async function loadProfile(uid: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, role, created_at, academic_year, department, credit_hours, bio')
+    .select('id, full_name, role, is_super_admin, created_at, academic_year, department, credit_hours, bio')
     .eq('id', uid)
     .maybeSingle();
   if (error) return null;
@@ -75,9 +75,39 @@ export async function updateUserRole(id: string, role: Role): Promise<boolean> {
 export async function fetchProfiles(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, role, created_at')
+    .select('id, full_name, role, is_super_admin, created_at')
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) return [];
   return (data ?? []) as Profile[];
+}
+
+export async function banUser(
+  userId: string,
+  banType: 'temporary' | 'permanent',
+  banDays: number,
+  reason: string,
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase.rpc('ban_user', {
+    target_user_id: userId,
+    p_ban_type: banType,
+    p_ban_days: banDays,
+    p_reason: reason,
+  });
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function unbanUser(email: string): Promise<boolean> {
+  const { error } = await supabase.rpc('unban_user_by_email', { target_email: email });
+  return !error;
+}
+
+export async function fetchBannedUsers(): Promise<import('@/lib/types').BannedIdentity[]> {
+  const { data, error } = await supabase
+    .from('banned_identities')
+    .select('*')
+    .order('banned_at', { ascending: false });
+  if (error) return [];
+  return data as import('@/lib/types').BannedIdentity[];
 }

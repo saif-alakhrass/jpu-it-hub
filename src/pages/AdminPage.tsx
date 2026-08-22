@@ -24,14 +24,17 @@ import {
   type AdminStats,
 } from '@/services/files';
 import { fetchAllSubjects, deleteSubject as deleteSubjectSvc, updateSubject } from '@/services/subjects';
-import { fetchProfiles, updateUserRole } from '@/services/auth';
+import { fetchProfiles, updateUserRole, fetchBannedUsers, banUser, unbanUser } from '@/services/auth';
+import type { BannedIdentity } from '@/lib/types';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { AdminOverview } from '@/components/admin/AdminOverview';
 import { AdminFileQueue } from '@/components/admin/AdminFileQueue';
 import { AdminFileLibrary } from '@/components/admin/AdminFileLibrary';
 import { AdminUsers } from '@/components/admin/AdminUsers';
+import { AdminBannedUsers } from '@/components/admin/AdminBannedUsers';
+import { BanModal } from '@/components/admin/BanModal';
 
-type AdminTab = 'overview' | 'pending' | 'files' | 'subjects' | 'users';
+type AdminTab = 'overview' | 'pending' | 'files' | 'subjects' | 'users' | 'banned';
 
 export function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth();
@@ -47,6 +50,7 @@ export function AdminPage() {
   const [managedStatus, setManagedStatus] = useState<FileStatus | 'all'>('all');
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Profile[]>([]);
+  const [bannedUsers, setBannedUsers] = useState<BannedIdentity[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<AdminTab>('overview');
@@ -64,6 +68,7 @@ export function AdminPage() {
   const [groupManaged, setGroupManaged] = useState<FileRow[] | null>(null);
   const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
+  const [confirmBan, setConfirmBan] = useState<Profile | null>(null);
 
   const loadPending = useCallback(async () => {
     const result = await fetchPendingFilesPaged(pendingPage);
@@ -89,6 +94,7 @@ export function AdminPage() {
 
   const loadUsers = useCallback(async () => {
     setStudents(await fetchProfiles());
+    setBannedUsers(await fetchBannedUsers());
   }, []);
 
   const loadStats = useCallback(async () => {
@@ -256,6 +262,26 @@ export function AdminPage() {
     await loadStats();
   }
 
+  async function performBan(user: Profile, type: 'temporary' | 'permanent', days: number, reason: string) {
+    setBusyId(user.id);
+    const { success, error } = await banUser(user.id, type, days, reason);
+    setBusyId(null);
+    setConfirmBan(null);
+    if (!success) { setToast({ message: error || 'فشل حظر المستخدم', type: 'error' }); return; }
+    setToast({ message: 'تم حظر المستخدم بنجاح.', type: 'success' });
+    await loadUsers();
+    await loadStats();
+  }
+
+  async function performUnban(email: string) {
+    setBusyId(email);
+    const ok = await unbanUser(email);
+    setBusyId(null);
+    if (!ok) { setToast({ message: 'فشل إلغاء الحظر.', type: 'error' }); return; }
+    setToast({ message: 'تم إلغاء حظر المستخدم.', type: 'success' });
+    await loadUsers();
+  }
+
   async function openPreview(file: FileRow) {
     setPreview(file);
     setSignedPreviewUrl(null);
@@ -320,6 +346,9 @@ export function AdminPage() {
         <button onClick={() => setTab('users')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'users' ? 'border-brand-500 text-brand-300' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
           <Icon name="Users" className="h-4 w-4" /> المستخدمون
         </button>
+        <button onClick={() => setTab('banned')} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-bold transition ${tab === 'banned' ? 'border-red-500 text-red-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+          <Icon name="Ban" className="h-4 w-4" /> المحظورين
+        </button>
       </div>
 
       {loading ? (
@@ -368,8 +397,19 @@ export function AdminPage() {
         />
       ) : tab === 'subjects' ? (
         <SubjectsTab subjects={subjects} setToast={setToast} onUpdated={loadSubjects} />
+      ) : tab === 'users' ? (
+        <AdminUsers users={students} requestRoleChange={(user, toRole) => setConfirmRole({ user, toRole })} requestBan={setConfirmBan} busyId={busyId} />
       ) : (
-        <AdminUsers users={students} requestRoleChange={(user, toRole) => setConfirmRole({ user, toRole })} busyId={busyId} />
+        <AdminBannedUsers bannedUsers={bannedUsers} requestUnban={performUnban} busyId={busyId} />
+      )}
+
+      {confirmBan && (
+        <BanModal
+          user={confirmBan}
+          onClose={() => setConfirmBan(null)}
+          onBan={(type, days, reason) => performBan(confirmBan, type, days, reason)}
+          busy={busyId === confirmBan.id}
+        />
       )}
 
       <Modal open={!!preview} onClose={() => { setPreview(null); setSignedPreviewUrl(null); }} title="معاينة الملف" maxWidth="max-w-3xl">

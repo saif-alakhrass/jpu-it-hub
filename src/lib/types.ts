@@ -7,11 +7,21 @@ export interface Profile {
   id: string;
   full_name: string | null;
   role: Role;
-  created_at: string;
   academic_year: string | null;
   department: string | null;
   credit_hours: number | null;
   bio: string | null;
+  is_super_admin: boolean;
+  created_at: string;
+}
+
+export interface BannedIdentity {
+  email: string;
+  banned_by: string | null;
+  ban_type: 'temporary' | 'permanent';
+  banned_at: string;
+  expires_at: string | null;
+  reason: string | null;
 }
 
 export interface Subject {
