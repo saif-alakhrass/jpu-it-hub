@@ -11,6 +11,7 @@ import {
   StickyNote, Pencil, Trash, Compass, BookX, RotateCcw,
   ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning, SearchX,
   WifiOff, RefreshCw, Bell, FolderPlus, FolderCog,
+  BadgeCheck, HelpCircle, TrendingUp,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -27,6 +28,7 @@ const map: Record<string, LucideIcon> = {
   StickyNote, Pencil, Trash, Compass, BookX, RotateCcw,
   ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning, SearchX,
   WifiOff, RefreshCw, Bell, FolderPlus, FolderCog,
+  BadgeCheck, HelpCircle, TrendingUp,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {
