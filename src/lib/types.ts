@@ -91,6 +91,15 @@ export const TABS: { key: FileTab; label: string; icon: string }[] = [
   { key: 'slides', label: 'سلايدات وكتب', icon: 'Presentation' },
 ];
 
+/** Tabs restricted to trusted / admin users. Students cannot see these. */
+export const RESTRICTED_TABS: ReadonlySet<FileTab> = new Set(['exams']);
+
+/** Returns the TABS array filtered by the user's role. */
+export function getVisibleTabs(role: Role | null): typeof TABS {
+  if (role === 'admin' || role === 'trusted') return TABS;
+  return TABS.filter((t) => !RESTRICTED_TABS.has(t.key));
+}
+
 export const MAJORS = [
   'علم الحاسوب',
   'الأمن السيبراني',

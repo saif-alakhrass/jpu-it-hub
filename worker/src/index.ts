@@ -82,6 +82,7 @@ interface FileRecord {
   id: string;
   title: string;
   subject_id: string;
+  tab: string;
   uploader_id: string;
   status: 'pending' | 'approved' | 'rejected';
   storage_path: string;
@@ -324,7 +325,7 @@ async function authenticateWithProfile(env: Env, token: string): Promise<Profile
 }
 
 async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | null> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
+  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,tab,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return null;
   const data = await res.json() as FileRecord[];
@@ -639,7 +640,7 @@ export default {
 
       // Route: POST /download-presign — get a presigned GET URL for downloading
       if (path === '/download-presign' && request.method === 'POST') {
-        return handleDownloadPresign(env, request, userId, isAdmin);
+        return handleDownloadPresign(env, request, userId, isAdmin, profile.role);
       }
 
       // Route: POST /delete — delete an R2 object + DB record
@@ -695,6 +696,11 @@ async function handleUploadPresign(
   // Validate tab
   if (!['summaries', 'exams', 'images', 'slides'].includes(tab)) {
     return corsError(env, request, 400, 'Invalid tab');
+  }
+
+  // Exams tab is restricted to trusted / admin users
+  if (tab === 'exams' && role === 'student') {
+    return corsError(env, request, 403, 'Access denied: exams tab requires trusted or admin role');
   }
 
   // Validate file extension
@@ -846,7 +852,7 @@ interface DownloadPresignRequest {
   mode?: 'preview' | 'download';
 }
 
-async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean): Promise<Response> {
+async function handleDownloadPresign(env: Env, request: Request, userId: string, isAdmin: boolean, role: Profile['role']): Promise<Response> {
   const body = await request.json() as DownloadPresignRequest;
   const { file_id, mode } = body;
 
@@ -857,6 +863,11 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   const file = await fetchFileRecord(env, file_id);
   if (!file) {
     return corsError(env, request, 404, 'File not found');
+  }
+
+  // Exams tab is restricted to trusted / admin users
+  if (file.tab === 'exams' && role === 'student') {
+    return corsError(env, request, 403, 'Access denied: exams tab requires trusted or admin role');
   }
 
   // Access control
