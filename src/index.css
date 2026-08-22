@@ -39,6 +39,25 @@ h1, h2, h3 {
   contain-intrinsic-size: auto 190px;
 }
 
+@media (max-width: 640px) {
+  /* `content-visibility: auto` saves work on very long desktop lists, but on
+     mobile it activates cards while the finger is moving. That causes layout
+     work and visible flashes. Twenty lightweight cards are smoother when
+     fully laid out once and then paint-contained. */
+  .performance-item {
+    content-visibility: visible;
+    contain: layout paint style;
+    contain-intrinsic-size: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .performance-item,
+  .performance-item * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

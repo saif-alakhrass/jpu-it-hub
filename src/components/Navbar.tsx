@@ -64,7 +64,7 @@ export function Navbar() {
   );
 
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-600 bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-ink-600 bg-white/95 sm:backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <button onClick={() => navigate('/')} className="flex items-center gap-2.5 transition hover:opacity-90">
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand-600 text-white">

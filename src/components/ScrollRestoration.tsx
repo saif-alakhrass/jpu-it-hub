@@ -28,25 +28,15 @@ export function ScrollRestoration() {
   }, []);
 
   useEffect(() => {
-    let frame = 0;
-    const scroller = pageScroller();
     const save = () => sessionStorage.setItem(storageKey, String(pageScrollTop()));
-    const scheduleSave = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        save();
-      });
-    };
 
-    scroller.addEventListener('scroll', scheduleSave, { passive: true });
     // Save before React handles a link/button event and replaces the current
-    // route's DOM. This keeps the real position when the next route is shorter.
+    // route's DOM. Route helpers also save synchronously. Deliberately avoid a
+    // scroll listener: no storage writes or timers should run while a finger
+    // is moving on a low-end phone.
     window.addEventListener('pointerdown', save, { capture: true, passive: true });
     window.addEventListener('pagehide', save);
     return () => {
-      if (frame) cancelAnimationFrame(frame);
-      scroller.removeEventListener('scroll', scheduleSave);
       window.removeEventListener('pointerdown', save, { capture: true });
       window.removeEventListener('pagehide', save);
     };
