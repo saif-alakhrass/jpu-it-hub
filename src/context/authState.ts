@@ -8,6 +8,7 @@ export interface AuthState {
   loading: boolean;
   role: Role | null;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isTrusted: boolean;
   canPublishDirectly: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null; notice?: string | null }>;

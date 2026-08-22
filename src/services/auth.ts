@@ -52,7 +52,7 @@ export async function signOutUser(): Promise<void> {
 export async function loadProfile(uid: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, role, created_at, academic_year, department, credit_hours, bio')
+    .select('id, full_name, role, is_super_admin, created_at, academic_year, department, credit_hours, bio')
     .eq('id', uid)
     .maybeSingle();
   if (error) return null;
@@ -75,7 +75,7 @@ export async function updateUserRole(id: string, role: Role): Promise<boolean> {
 export async function fetchProfiles(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, role, created_at')
+    .select('id, full_name, role, is_super_admin, created_at')
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) return [];

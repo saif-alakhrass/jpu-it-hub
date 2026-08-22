@@ -7,11 +7,12 @@ export interface Profile {
   id: string;
   full_name: string | null;
   role: Role;
-  created_at: string;
   academic_year: string | null;
   department: string | null;
   credit_hours: number | null;
   bio: string | null;
+  is_super_admin: boolean;
+  created_at: string;
 }
 
 export interface Subject {
