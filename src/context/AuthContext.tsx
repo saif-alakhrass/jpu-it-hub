@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle as signInWithGoogleSvc, signOutUser, loadProfile as loadProfileSvc } from '@/services/auth';
@@ -9,9 +9,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const profileLoadRef = useRef<{ uid: string; promise: Promise<Profile | null> } | null>(null);
 
   async function loadProfile(uid: string) {
-    const p = await loadProfileSvc(uid);
+    let pending = profileLoadRef.current;
+    if (!pending || pending.uid !== uid) {
+      pending = { uid, promise: loadProfileSvc(uid) };
+      profileLoadRef.current = pending;
+    }
+    const p = await pending.promise;
+    if (profileLoadRef.current === pending) profileLoadRef.current = null;
     setProfile(p);
   }
 

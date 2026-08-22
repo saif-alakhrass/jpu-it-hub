@@ -33,6 +33,12 @@ h1, h2, h3 {
   letter-spacing: -0.012em;
 }
 
+/* Skip layout/paint work for long lists until an item nears the viewport. */
+.performance-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 190px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

@@ -13,6 +13,10 @@ import { EmptyState } from '@/components/EmptyState';
 import { useSubjectsPaged } from '@/hooks/useSubjects';
 import { createSubject } from '@/services/subjects';
 import { getUserErrorMessage } from '@/lib/serviceError';
+import { useQueryClient } from '@tanstack/react-query';
+import { SUBJECT_STALE_TIME } from '@/hooks/useSubjects';
+import { fetchSubject } from '@/services/subjects';
+import { fetchBatchesForSubject, fetchFilesForSubject } from '@/services/files';
 
 const HOME_VIEW_KEY = 'jpu-it-hub:home-view';
 
@@ -38,6 +42,7 @@ function readHomeView(): HomeViewState {
 export function HomePage() {
   const { session, isTrusted } = useAuth();
   const { navigate } = useRouter();
+  const queryClient = useQueryClient();
   const [initialView] = useState(readHomeView);
   const [search, setSearch] = useState(initialView.search);
   const [major, setMajor] = useState<string>(initialView.major);
@@ -51,6 +56,24 @@ export function HomePage() {
 
   const { data, loading, error, page, setPage, reload } = useSubjectsPaged(search, major, initialView.page);
   const restoredScroll = useRef(false);
+
+  function warmSubject(subjectId: string, includeContent = false) {
+    void import('@/pages/SubjectPage');
+    void queryClient.prefetchQuery({
+      queryKey: ['subjects', 'detail', subjectId],
+      queryFn: () => fetchSubject(subjectId),
+      staleTime: SUBJECT_STALE_TIME,
+    });
+    if (!includeContent) return;
+    void queryClient.prefetchQuery({
+      queryKey: ['files', 'subject', subjectId, 'all'],
+      queryFn: () => fetchFilesForSubject(subjectId),
+    });
+    void queryClient.prefetchQuery({
+      queryKey: ['batches', 'subject', subjectId, 'all'],
+      queryFn: () => fetchBatchesForSubject(subjectId),
+    });
+  }
 
   useEffect(() => {
     sessionStorage.setItem(HOME_VIEW_KEY, JSON.stringify({ search, major, page }));
@@ -143,7 +166,7 @@ export function HomePage() {
       </div>
 
       {loading ? (
-        <SubjectCardSkeletonGrid count={6} />
+        <SubjectCardSkeletonGrid count={20} />
       ) : error ? (
         <EmptyState
           icon="WifiOff"
@@ -173,7 +196,10 @@ export function HomePage() {
                 <button
                   key={s.id}
                   onClick={() => navigate(`/subject/${s.id}`)}
-                  className="card group p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow"
+                  onPointerEnter={() => warmSubject(s.id)}
+                  onPointerDown={() => warmSubject(s.id, true)}
+                  onFocus={() => warmSubject(s.id)}
+                  className="performance-item card group p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow"
                 >
                   <div className="mb-3 flex items-start justify-between">
                     <span className="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100">
