@@ -11,7 +11,7 @@ export interface ContributionProgress {
   approved_count: number;
   target_count: number;
   remaining_count: number;
-  current_role: Role;
+  role_name: Role;
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<AuthResult> {

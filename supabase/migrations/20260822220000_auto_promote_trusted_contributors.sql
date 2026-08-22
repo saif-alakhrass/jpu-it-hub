@@ -79,7 +79,7 @@ RETURNS TABLE (
   approved_count integer,
   target_count integer,
   remaining_count integer,
-  current_role text
+  role_name text
 )
 LANGUAGE plpgsql
 STABLE
