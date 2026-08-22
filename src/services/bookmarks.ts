@@ -70,8 +70,8 @@ export async function getUserBookmarks(): Promise<BookmarkWithFile[]> {
     .select(`
       id, user_id, resource_id, folder_name, note, created_at,
       file:files(
-        id, subject_id, tab, title, storage_path, file_url, file_type,
-        uploader_id, status, created_at,
+        id, subject_id, tab, title, storage_path, file_url, file_type, file_size,
+        uploader_id, status, created_at, storage_provider, object_key, mime_type,
         subject:subjects!files_subject_id_fkey(id, name, code, description, major, departments, created_by, created_at)
       )
     `)

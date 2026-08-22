@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,6 +7,7 @@ import { ACADEMIC_YEARS, MAJORS, type Role, type BookmarkWithFile } from '@/lib/
 import { getContributionProgressView } from '@/lib/contributionProgress';
 import { getMyContributionProgress, updateProfile, type ContributionProgress } from '@/services/auth';
 import { getUserBookmarks, removeBookmarkById } from '@/services/bookmarks';
+import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 
 const ROLE_LABEL: Record<Role, { label: string; cls: string; icon: string }> = {
   admin: { label: 'مدير', cls: 'bg-accent-500/20 text-accent-400 border-accent-500/40', icon: 'ShieldCheck' },
@@ -258,6 +259,10 @@ function SavedItemsTab({ onToast }: { onToast: (t: { message: string; type: 'suc
   const [bookmarks, setBookmarks] = useState<BookmarkWithFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedFolder, setExpandedFolder] = useState<string | null>(null);
+  const reportAccessError = useCallback((message: string) => {
+    onToast({ message, type: 'error' });
+  }, [onToast]);
+  const { accessingFileId, accessFile } = useSignedFileAccess(reportAccessError);
 
   useEffect(() => {
     (async () => {
@@ -379,14 +384,17 @@ function SavedItemsTab({ onToast }: { onToast: (t: { message: string; type: 'suc
                         >
                           <Icon name="Eye" className="h-4 w-4" />
                         </a>
-                        <a
-                          href={file.file_url}
-                          download
+                        <button
+                          onClick={() => void accessFile(file, 'download')}
+                          disabled={accessingFileId === file.id}
                           className="rounded-lg p-2 text-slate-400 hover:bg-white/5 hover:text-brand-300"
                           title="تنزيل"
                         >
-                          <Icon name="Download" className="h-4 w-4" />
-                        </a>
+                          <Icon
+                            name={accessingFileId === file.id ? 'Loader2' : 'Download'}
+                            className={`h-4 w-4 ${accessingFileId === file.id ? 'animate-spin' : ''}`}
+                          />
+                        </button>
                         <button
                           onClick={() => handleDelete(b.id)}
                           className="rounded-lg p-2 text-slate-400 hover:bg-danger-500/10 hover:text-danger-400"
