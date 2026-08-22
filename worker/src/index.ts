@@ -431,7 +431,7 @@ async function createPresignedUrl(
     `X-Amz-SignedHeaders=host`,
   ];
   if (responseContentDisposition) {
-    queryParts.push(`response-content-disposition=${encodeURIComponent(responseContentDisposition)}`);
+    queryParts.push(`response-content-disposition=${awsUriEncode(responseContentDisposition)}`);
   }
   const canonicalQueryString = queryParts.sort().join('&');
 
@@ -462,6 +462,15 @@ async function createPresignedUrl(
 
   const url = `https://${host}/${canonicalUriStr}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
   return url;
+}
+
+// AWS Signature V4 uses RFC 3986 encoding. JavaScript's encodeURIComponent
+// deliberately leaves !'()* unescaped, which changes R2's canonical query and
+// causes SignatureDoesNotMatch for Content-Disposition's filename* parameter.
+function awsUriEncode(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
+    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 function downloadContentDisposition(file: FileRecord): string {
@@ -897,11 +906,10 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
   }
 
   const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
-  // Do not pass response-content-disposition to the presigned URL. The `filename*`
-  // parameter contains an asterisk that encodeURIComponent turns into %2A, but
-  // R2's S3 canonical request leaves `*` unencoded — causing SignatureDoesNotMatch.
-  // The frontend already sets the download filename client-side via blob download.
-  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry);
+  // Preview stays inline. Download is explicitly an attachment so browsers do
+  // not open PDFs/images in a new tab when cross-origin blob fetching is blocked.
+  const disposition = mode === 'download' ? downloadContentDisposition(file) : undefined;
+  const presignedUrl = await createPresignedUrl(env, objectKey, 'GET', expiry, disposition);
 
   return corsResponse(env, request, 200, {
     download_url: presignedUrl,
@@ -1005,6 +1013,7 @@ export {
   checkInMemoryRateLimit,
   sha256,
   createPresignedUrl,
+  awsUriEncode,
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,

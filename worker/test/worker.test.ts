@@ -11,7 +11,9 @@ import {
   verifyJwt,
   extractToken,
   getCorsHeaders,
+  createPresignedUrl,
   downloadContentDisposition,
+  awsUriEncode,
   getUploadLimit,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
@@ -223,6 +225,18 @@ describe('upload validation', () => {
 });
 
 describe('download access', () => {
+  it('uses AWS RFC 3986 encoding for signed response parameters', () => {
+    expect(awsUriEncode("attachment; filename*=UTF-8''lecture 1.pdf"))
+      .toBe('attachment%3B%20filename%2A%3DUTF-8%27%27lecture%201.pdf');
+  });
+  it('signs the forced-download disposition as part of the R2 URL', async () => {
+    const disposition = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pdf' }));
+    const url = await createPresignedUrl(mockEnv, 'user/file.pdf', 'GET', 300, disposition);
+    const parsed = new URL(url);
+    expect(parsed.searchParams.get('response-content-disposition')).toBe(disposition);
+    expect(url).toContain('response-content-disposition=attachment%3B%20filename%3D%22Lecture%201.pdf%22%3B%20filename%2A%3D');
+    expect(parsed.searchParams.get('X-Amz-Signature')).toMatch(/^[a-f0-9]{64}$/);
+  });
   it('preserves the stored upload name in the download response', () => {
     const value = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pptx' }));
     expect(value).toContain('filename="Lecture 1.pptx"');
