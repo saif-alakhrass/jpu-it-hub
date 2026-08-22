@@ -123,7 +123,7 @@ export function HomePage() {
       <section className="mb-8 border-b border-ink-600 pb-8 pt-3 md:pb-10">
         <div className="max-w-3xl">
           <p className="mb-3 text-sm font-semibold text-brand-600">جامعة جرش · كلية تكنولوجيا المعلومات</p>
-          <h1 className="text-3xl font-bold text-slate-100 md:text-5xl leading-tight">
+          <h1 className="text-3xl font-extrabold text-slate-100 md:text-5xl leading-tight">
             مكتبة <span className="text-brand-600">JPU-IT</span> الأكاديمية
           </h1>
           <p className="mt-3 max-w-2xl text-slate-400 md:text-lg">
