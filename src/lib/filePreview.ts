@@ -3,6 +3,10 @@ export function officePreviewUrl(fileUrl: string, embedded: boolean): string {
   return `https://view.officeapps.live.com/op/${mode}.aspx?src=${encodeURIComponent(fileUrl)}`;
 }
 
+export function mobileOfficePreviewUrl(fileUrl: string): string {
+  return `https://docs.google.com/gview?url=${encodeURIComponent(fileUrl)}`;
+}
+
 /**
  * Nested Office iframes do not handle touch gestures reliably. Phones and
  * touch-first tablets use Microsoft's full-page viewer instead.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { officePreviewUrl, shouldUseFullPageOfficePreview } from './filePreview';
+import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPageOfficePreview } from './filePreview';
 
 describe('Office file preview', () => {
   it('uses the full-page viewer on phones and touch-first tablets', () => {
@@ -13,5 +13,12 @@ describe('Office file preview', () => {
     expect(officePreviewUrl(signedUrl, true)).toContain('/op/embed.aspx?src=');
     expect(officePreviewUrl(signedUrl, false)).toContain('/op/view.aspx?src=');
     expect(officePreviewUrl(signedUrl, false)).toContain(encodeURIComponent(signedUrl));
+  });
+
+  it('uses the Google document viewer for touch-device Office previews', () => {
+    const signedUrl = 'https://example.com/file.pptx?signature=a&expires=1';
+    expect(mobileOfficePreviewUrl(signedUrl)).toBe(
+      `https://docs.google.com/gview?url=${encodeURIComponent(signedUrl)}`,
+    );
   });
 });

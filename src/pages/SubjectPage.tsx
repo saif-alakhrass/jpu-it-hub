@@ -24,7 +24,7 @@ import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { useSubject } from '@/hooks/useSubjects';
 import { useSubjectFiles } from '@/hooks/useFiles';
-import { officePreviewUrl, shouldUseFullPageOfficePreview } from '@/lib/filePreview';
+import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPageOfficePreview } from '@/lib/filePreview';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -303,7 +303,7 @@ export function SubjectPage() {
     if (isOfficeFile(file) && shouldUseFullPageOfficePreview(window.innerWidth, navigator.maxTouchPoints)) {
       // A top-level Office viewer receives touch gestures directly, so slide
       // navigation works instead of the surrounding modal zooming the page.
-      window.location.assign(officePreviewUrl(url, false));
+      window.location.assign(mobileOfficePreviewUrl(url));
       return;
     }
     setPreview({ file, url });
