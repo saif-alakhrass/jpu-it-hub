@@ -242,7 +242,7 @@ export async function requestOfficePreview(
     if (pdf.type && pdf.type !== 'application/pdf') {
       throw new WorkerRequestError('خدمة المعاينة أعادت نوع ملف غير متوقع.');
     }
-    return { status: 'ready', pdf: new Blob([pdf], { type: 'application/pdf' }) };
+    return { status: 'ready', pdf };
   }
 
   if (res.status === 202) {
