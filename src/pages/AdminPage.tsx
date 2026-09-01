@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, type FileStatus, TABS } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
-import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { deleteFileViaWorker, isR2Configured, requestDownloadPresign, requestOfficePreview } from '@/lib/r2Client';
 import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
@@ -52,6 +52,9 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>('overview');
   const [preview, setPreview] = useState<FileRow | null>(null);
   const [signedPreviewUrl, setSignedPreviewUrl] = useState<string | null>(null);
+  const [previewConversion, setPreviewConversion] = useState<'queued' | 'processing' | 'failed' | null>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
+  const previewObjectUrlRef = useRef<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
@@ -257,28 +260,83 @@ export function AdminPage() {
   }
 
   async function openPreview(file: FileRow) {
+    previewAbortRef.current?.abort();
+    if (previewObjectUrlRef.current) {
+      URL.revokeObjectURL(previewObjectUrlRef.current);
+      previewObjectUrlRef.current = null;
+    }
     setPreview(file);
     setSignedPreviewUrl(null);
+    setPreviewConversion(null);
     try {
       let url: string | null = null;
       if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
         if (token) {
-          const result = await requestDownloadPresign(token, file.id);
-          if (result?.download_url) url = result.download_url;
-          else if (result?.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
+          if (isOfficeFile(file.file_type)) {
+            const controller = new AbortController();
+            previewAbortRef.current = controller;
+            setPreviewConversion('queued');
+            for (let attempt = 0; attempt < 60 && !controller.signal.aborted; attempt += 1) {
+              const result = await requestOfficePreview(token, file.id, controller.signal);
+              if (result.status === 'ready') {
+                url = URL.createObjectURL(result.pdf);
+                previewObjectUrlRef.current = url;
+                setPreviewConversion(null);
+                break;
+              }
+              if (result.status === 'failed') {
+                setPreviewConversion('failed');
+                return;
+              }
+              setPreviewConversion(result.status);
+              await new Promise<void>((resolve, reject) => {
+                const timer = window.setTimeout(resolve, result.retryAfterSeconds * 1000);
+                controller.signal.addEventListener('abort', () => {
+                  window.clearTimeout(timer);
+                  reject(new DOMException('Aborted', 'AbortError'));
+                }, { once: true });
+              });
+            }
+            if (!url && !controller.signal.aborted) {
+              setPreviewConversion('failed');
+              return;
+            }
+          } else {
+            const result = await requestDownloadPresign(token, file.id);
+            if (result?.download_url) url = result.download_url;
+            else if (result?.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
+          }
         }
       } else {
         url = await getSignedFileUrl(file.storage_path);
       }
       if (!url) throw new Error('preview URL unavailable');
       setSignedPreviewUrl(url);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       setPreview(null);
       setToast({ message: 'تعذر إنشاء رابط معاينة آمن للملف.', type: 'error' });
     }
   }
+
+  const closeAdminPreview = useCallback(() => {
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    if (previewObjectUrlRef.current) {
+      URL.revokeObjectURL(previewObjectUrlRef.current);
+      previewObjectUrlRef.current = null;
+    }
+    setPreview(null);
+    setSignedPreviewUrl(null);
+    setPreviewConversion(null);
+  }, []);
+
+  useEffect(() => () => {
+    previewAbortRef.current?.abort();
+    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
+  }, []);
 
   if (authLoading) {
     return <div className="py-20 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>;
@@ -372,14 +430,14 @@ export function AdminPage() {
         <AdminUsers users={students} requestRoleChange={(user, toRole) => setConfirmRole({ user, toRole })} busyId={busyId} />
       )}
 
-      <Modal open={!!preview} onClose={() => { setPreview(null); setSignedPreviewUrl(null); }} title="معاينة الملف" maxWidth="max-w-3xl">
+      <Modal open={!!preview} onClose={closeAdminPreview} title="معاينة الملف" maxWidth="max-w-3xl">
         {preview && (
           <div className="space-y-4">
             <div className="rounded-xl border border-white/10 bg-ink-900 p-3">
               {signedPreviewUrl ? (
                 isImageFile(preview.file_type) ? (
                   <img src={signedPreviewUrl} alt={preview.title} className="max-h-[60vh] mx-auto rounded-lg" />
-                ) : isPdfFile(preview.file_type) ? (
+                ) : isPdfFile(preview.file_type) || isOfficeFile(preview.file_type) ? (
                   <iframe src={signedPreviewUrl} title={preview.title} className="h-[60vh] w-full rounded-lg" />
                 ) : (
                   <div className="py-12 text-center">
@@ -388,9 +446,19 @@ export function AdminPage() {
                     <a href={signedPreviewUrl} target="_blank" rel="noreferrer" className="btn-ghost mt-4"><Icon name="Download" className="h-4 w-4" /> فتح الملف</a>
                   </div>
                 )
+              ) : previewConversion === 'failed' ? (
+                <div className="flex h-[40vh] flex-col items-center justify-center px-4 text-center">
+                  <Icon name="FileWarning" className="mb-3 h-10 w-10 text-amber-400" />
+                  <p className="font-bold text-slate-200">تعذر تجهيز معاينة PDF</p>
+                  <p className="mt-1 text-sm text-slate-400">الملف الأصلي محفوظ ولم يتم تعديله. يمكنك المحاولة لاحقًا.</p>
+                  <button onClick={() => void openPreview(preview)} className="btn-ghost mt-4"><Icon name="RefreshCw" className="h-4 w-4" /> إعادة المحاولة</button>
+                </div>
               ) : (
                 <div className="flex h-[40vh] items-center justify-center">
-                  <Icon name="Loader2" className="h-8 w-8 animate-spin text-brand-400" />
+                  <div className="text-center">
+                    <Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" />
+                    {previewConversion && <p className="mt-3 text-sm text-slate-400">جاري تجهيز معاينة PDF المتوافقة مع الهاتف…</p>}
+                  </div>
                 </div>
               )}
             </div>
@@ -783,4 +851,7 @@ function isImageFile(type?: string | null) {
 }
 function isPdfFile(type?: string | null) {
   return !!type && type.toLowerCase() === 'pdf';
+}
+function isOfficeFile(type?: string | null) {
+  return ['doc', 'docx', 'ppt', 'pptx'].includes(type?.toLowerCase() ?? '');
 }

@@ -203,6 +203,11 @@ export async function downloadR2File(accessToken: string, fileId: string): Promi
   return originalType ? new Blob([blob], { type: originalType }) : blob;
 }
 
+export type OfficePreviewResult =
+  | { status: 'ready'; pdf: Blob }
+  | { status: 'queued' | 'processing'; retryAfterSeconds: number }
+  | { status: 'failed'; errorCode: string };
+
 export async function requestNativeDownloadUrl(accessToken: string, fileId: string): Promise<string> {
   const res = await fetch(`${WORKER_URL}/download-ticket`, {
     method: 'POST',
@@ -213,6 +218,49 @@ export async function requestNativeDownloadUrl(accessToken: string, fileId: stri
   const data = await res.json() as { download_url?: string };
   if (!data.download_url) throw new WorkerRequestError('تعذر إنشاء رابط التنزيل.');
   return data.download_url;
+}
+
+/**
+ * Request the private PDF preview for an Office document. The first request
+ * starts the asynchronous conversion; later requests stream the cached PDF.
+ * No R2 URL or storage credential is exposed to the browser.
+ */
+export async function requestOfficePreview(
+  accessToken: string,
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<OfficePreviewResult> {
+  const res = await fetch(`${WORKER_URL}/office-preview`, {
+    method: 'POST',
+    headers: getAuthHeaders(accessToken),
+    body: JSON.stringify({ file_id: fileId }),
+    signal,
+  });
+
+  if (res.status === 200) {
+    const pdf = await res.blob();
+    if (pdf.type && pdf.type !== 'application/pdf') {
+      throw new WorkerRequestError('خدمة المعاينة أعادت نوع ملف غير متوقع.');
+    }
+    return { status: 'ready', pdf: new Blob([pdf], { type: 'application/pdf' }) };
+  }
+
+  if (res.status === 202) {
+    const body = await res.json() as { status?: string; retry_after_seconds?: number };
+    return {
+      status: body.status === 'processing' ? 'processing' : 'queued',
+      retryAfterSeconds: Math.max(2, Math.min(Number(body.retry_after_seconds) || 2, 10)),
+    };
+  }
+
+  if (res.status === 422) {
+    const body = await res.json() as { status?: string; error_code?: string };
+    if (body.status === 'failed') {
+      return { status: 'failed', errorCode: body.error_code || 'conversion_failed' };
+    }
+  }
+
+  return throwWorkerError(res);
 }
 
 /**

@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import type { FileRow } from '@/lib/types';
-import { mobileOfficePreviewUrl } from '@/lib/filePreview';
 import { Icon } from './Icon';
 
 interface MobileFileReaderProps {
@@ -13,11 +12,10 @@ interface MobileFileReaderProps {
   onDownload: () => void;
 }
 
-function fileKind(file: FileRow): 'image' | 'pdf' | 'office' | 'unsupported' {
+function fileKind(file: FileRow): 'image' | 'pdf' | 'unsupported' {
   const extension = (file.file_type ?? '').toLowerCase();
   if ((file.mime_type ?? '').startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extension)) return 'image';
   if (file.mime_type === 'application/pdf' || extension === 'pdf') return 'pdf';
-  if (['doc', 'docx', 'ppt', 'pptx'].includes(extension)) return 'office';
   return 'unsupported';
 }
 
@@ -72,7 +70,6 @@ export function MobileFileReader({ file, url, onClose, onDownload }: MobileFileR
       <main className="min-h-0 flex-1 bg-[#090f1c]">
         {kind === 'pdf' && <PdfReader url={url} />}
         {kind === 'image' && <ImageReader url={url} title={file.title} />}
-        {kind === 'office' && <OfficeReader url={url} title={file.title} />}
         {kind === 'unsupported' && <UnsupportedReader onDownload={onDownload} />}
       </main>
     </div>,
@@ -217,15 +214,6 @@ function ImageReader({ url, title }: { url: string; title: string }) {
   return (
     <div className="h-full overflow-auto overscroll-contain p-3 [touch-action:pan-x_pan-y_pinch-zoom]">
       <img src={url} alt={title} className="mx-auto block h-auto max-w-full rounded-lg object-contain shadow-2xl shadow-black/30" />
-    </div>
-  );
-}
-
-function OfficeReader({ url, title }: { url: string; title: string }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-white/5 bg-ink-900/60 px-3 py-2 text-center text-[11px] text-slate-400">استخدم أدوات العارض للتنقّل بين الصفحات والشرائح</div>
-      <iframe src={mobileOfficePreviewUrl(url)} title={title} className="min-h-0 w-full flex-1 border-0 bg-white" allowFullScreen />
     </div>
   );
 }

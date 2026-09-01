@@ -47,11 +47,10 @@ describe('MobileFileReader', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('embeds Office documents inside the mobile reader', () => {
+  it('never sends raw Office files to an external iframe', () => {
     render(<MobileFileReader file={makeFile({ file_type: 'pptx', mime_type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', title: 'محاضرة 1' })} url="https://example.com/slides.pptx?token=1" onClose={vi.fn()} onDownload={vi.fn()} />);
 
-    const frame = screen.getAllByTitle('محاضرة 1').find((element) => element.tagName === 'IFRAME');
-    expect(frame).toBeDefined();
-    expect(frame?.getAttribute('src')).toContain('https://docs.google.com/gview?embedded=true');
+    expect(document.querySelector('iframe')).toBeNull();
+    expect(screen.getByText('لا تتوفر معاينة لهذا النوع')).toBeDefined();
   });
 });

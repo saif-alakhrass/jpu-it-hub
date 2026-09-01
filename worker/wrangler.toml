@@ -8,6 +8,10 @@ compatibility_flags = ["nodejs_compat"]
 binding = "FILES_BUCKET"
 bucket_name = "jpu-it-hub-files"
 
+[[queues.producers]]
+binding = "OFFICE_PREVIEW_QUEUE"
+queue = "jpu-it-hub-office-previews"
+
 # Environment variables (non-secret). Secrets are set via:
 #   wrangler secret put SUPABASE_URL
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY

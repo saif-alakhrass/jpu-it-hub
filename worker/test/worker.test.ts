@@ -18,11 +18,14 @@ import {
   createDownloadTicket,
   verifyDownloadTicket,
   getUploadLimit,
+  validatePreviewObjectKey,
+  officePreviewPdfResponse,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
 const mockEnv: Env = {
   FILES_BUCKET: {} as R2Bucket,
+  OFFICE_PREVIEW_QUEUE: {} as Queue,
   SUPABASE_URL: 'https://test.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
   JWT_SECRET: 'test-jwt-secret-at-least-32-characters-long',
@@ -51,6 +54,12 @@ function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
     mime_type: 'application/pdf',
     file_hash: 'abc123',
     batch_id: null,
+    preview_status: 'none',
+    preview_object_key: null,
+    preview_source_hash: null,
+    preview_converter_version: null,
+    preview_error_code: null,
+    preview_attempts: 0,
     ...overrides,
   };
 }
@@ -124,6 +133,33 @@ describe('object key sanitization', () => {
   });
   it('rejects extra path segments', () => {
     expect(validateObjectKey(`a/${uid}/${fid}.pdf`)).toBe(false);
+  });
+});
+
+describe('Office preview object isolation', () => {
+  const fileId = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
+  const hash = 'a'.repeat(64);
+
+  it('accepts only immutable PDF keys for the requested file', () => {
+    expect(validatePreviewObjectKey(`previews/${fileId}/${hash}-v1.pdf`, fileId)).toBe(true);
+    expect(validatePreviewObjectKey(`previews/${fileId}/${hash}-v1.pdf`, 'a1b2c3d4-e5f6-7890-abcd-ef1234567890')).toBe(false);
+    expect(validatePreviewObjectKey(`previews/${fileId}/../../secret.pdf`, fileId)).toBe(false);
+    expect(validatePreviewObjectKey(`previews/${fileId}/${hash}-v1.pptx`, fileId)).toBe(false);
+  });
+
+  it('streams previews inline with private no-store headers', async () => {
+    const bytes = new TextEncoder().encode('%PDF-preview');
+    const object = { body: new Blob([bytes]).stream(), size: bytes.byteLength } as unknown as R2ObjectBody;
+    const response = officePreviewPdfResponse(
+      mockEnv,
+      new Request('https://worker.test/office-preview', { headers: { Origin: 'http://localhost:5173' } }),
+      makeFile({ title: 'Lecture 1' }),
+      object,
+    );
+    expect(response.headers.get('Content-Type')).toBe('application/pdf');
+    expect(response.headers.get('Content-Disposition')).toContain('inline;');
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(await response.text()).toBe('%PDF-preview');
   });
 });
 

@@ -50,7 +50,11 @@ Frontend (Vercel)          Cloudflare Worker           Cloudflare R2
 - The **frontend** talks to Supabase for Auth and database queries (with RLS).
 - The **Cloudflare Worker** is the only component with R2 credentials. It verifies the Supabase JWT on every request, issues short-lived presigned URLs, and manages file lifecycle.
 - **R2** is fully private — no public bucket, no r2.dev URLs.
-- The **database** stores only `object_key`, never signed URLs.
+- The **database** stores only private object keys, never signed URLs.
+- Office documents are previewed through a lazy, asynchronous pipeline: the
+  original remains private in R2, a Cloudflare Queue invokes a sandboxed
+  LibreOffice Container once, and the generated private PDF is reused by the
+  built-in mobile reader. Downloads always return the original file.
 
 ## Setup
 
@@ -130,6 +134,37 @@ Edit `worker/wrangler.toml` → `CORS_ALLOWED_ORIGINS` to include your productio
 CORS_ALLOWED_ORIGINS = "http://localhost:5173,https://jpu-it-hub.vercel.app,https://your-preview-url.vercel.app"
 ```
 
+#### Deploy private Office-to-PDF previews
+
+Office previews require a Cloudflare Workers Paid plan because they use
+Containers. Apply `supabase/migrations/20260901010000_office_pdf_previews.sql`
+before deploying either Worker. The migration is additive and does not convert,
+move, or delete existing files.
+
+```bash
+# Create the queue and its dead-letter queue once.
+cd converter
+npx wrangler queues create jpu-it-hub-office-previews
+npx wrangler queues create jpu-it-hub-office-previews-dlq
+
+# Server-only secrets used by the queue consumer. Do not put these in Vercel.
+npx wrangler secret put SUPABASE_URL
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+
+# Builds the pinned LibreOffice image and deploys the queue consumer/container.
+npx wrangler deploy
+
+# Then deploy the storage Worker that produces conversion jobs.
+cd ../worker
+npx wrangler deploy
+```
+
+The Container never receives Supabase or R2 credentials. The queue consumer
+streams one authorized source object into the Container, validates the PDF
+result, and writes it back through the R2 binding. Conversion is requested only
+on first preview, runs outside the upload request, retries transient failures,
+and sends exhausted jobs to the dead-letter queue.
+
 ### 4. Vercel environment variables
 
 In the Vercel dashboard for your project, set:
@@ -152,7 +187,7 @@ Do NOT set `SUPABASE_SERVICE_ROLE_KEY` or any R2 secrets in Vercel — those liv
 - **Supabase JWT verified on every Worker request** — upload, download, and delete
 - **File type validated at three layers**: frontend (extension + MIME), Worker (magic bytes), database (extension CHECK constraint)
 - **Path traversal protection**: object keys are validated as `{uuid}/{uuid}.{ext}` format at both Worker and database level
-- **Rate limiting**: 5 files per user per 10-minute window (in-memory + database trigger with advisory lock)
+- **Rate limiting**: per-user 10-minute windows enforced by role (student 10, trusted 20, admin 50), with database-side locking
 - **Deduplication**: SHA-256 hash prevents identical files within the same subject (partial unique index)
 - **Signed URLs**: short-lived (5 minutes), never stored in the database
 - **Rollback safety**: if DB record save fails after R2 upload, the R2 object is automatically deleted; if R2 delete fails, a cleanup record is queued for retry
@@ -179,6 +214,16 @@ npm run typecheck
 npm test
 ```
 
+### Office preview converter
+
+```bash
+cd converter
+npm ci
+npm run typecheck
+npm run test:coverage
+docker build --tag jpu-it-hub-office-converter:local .
+```
+
 ## Migrating legacy files from Supabase Storage to R2
 
 A separate migration script is provided at `scripts/migrate-supabase-to-r2.ts`. Run it manually after verifying the R2 setup works:
@@ -202,3 +247,9 @@ If the R2 integration needs to be reverted:
 4. **New uploads**: Without the Worker URL, the frontend automatically uses the Supabase Storage upload path.
 
 No database rollback migration is needed — the new columns are additive and nullable.
+
+To roll back only Office previews, deploy the previous frontend and storage
+Worker versions first, then disable the `jpu-it-hub-office-previews` consumer.
+Keep the additive preview columns and generated `previews/` objects until the
+rollback is verified; they are not used by older application versions and can
+be cleaned up later without touching original objects.

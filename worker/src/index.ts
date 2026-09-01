@@ -18,6 +18,7 @@
 
 export interface Env {
   FILES_BUCKET: R2Bucket;
+  OFFICE_PREVIEW_QUEUE: Queue<OfficePreviewJob>;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_ANON_KEY?: string;
@@ -93,6 +94,18 @@ interface FileRecord {
   mime_type: string | null;
   file_hash: string | null;
   batch_id: string | null;
+  preview_status: 'none' | 'queued' | 'processing' | 'ready' | 'failed';
+  preview_object_key: string | null;
+  preview_source_hash: string | null;
+  preview_converter_version: string | null;
+  preview_error_code: string | null;
+  preview_attempts: number;
+}
+
+interface OfficePreviewJob {
+  file_id: string;
+  source_hash: string;
+  converter_version: string;
 }
 
 interface Profile {
@@ -105,6 +118,9 @@ const UPLOAD_LIMITS_BY_ROLE: Record<Profile['role'], number> = {
   trusted: 20,
   admin: 50,
 };
+
+const OFFICE_CONVERTER_VERSION = 'v1';
+const OFFICE_EXTENSIONS = new Set(['doc', 'docx', 'ppt', 'pptx']);
 
 function getUploadLimit(role: Profile['role']): number {
   return UPLOAD_LIMITS_BY_ROLE[role];
@@ -325,11 +341,25 @@ async function authenticateWithProfile(env: Env, token: string): Promise<Profile
 }
 
 async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | null> {
-  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,tab,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
+  const url = `${env.SUPABASE_URL}/rest/v1/files?id=eq.${fileId}&select=id,title,subject_id,tab,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id,preview_status,preview_object_key,preview_source_hash,preview_converter_version,preview_error_code,preview_attempts`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return null;
   const data = await res.json() as FileRecord[];
   return data[0] ?? null;
+}
+
+async function callSupabaseRpc<T>(env: Env, name: string, body: Record<string, unknown>): Promise<T | null> {
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: supabaseHeaders(env),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    console.error(`Supabase RPC ${name} failed`, response.status, await response.text());
+    return null;
+  }
+  const payload = await response.text();
+  return payload ? JSON.parse(payload) as T : null;
 }
 
 async function insertFileRecord(env: Env, record: Record<string, unknown>): Promise<FileRecord | null> {
@@ -550,6 +580,12 @@ function validateObjectKey(key: string): boolean {
   return UUID_RE.test(fileId) && isAllowedExtension(ext);
 }
 
+function validatePreviewObjectKey(key: string, fileId?: string): boolean {
+  const match = key.match(/^previews\/([0-9a-f-]{36})\/([0-9a-f]{64})-(v[0-9]+)\.pdf$/);
+  if (!match || !UUID_RE.test(match[1] ?? '')) return false;
+  return !fileId || match[1]?.toLowerCase() === fileId.toLowerCase();
+}
+
 // ---------------------------------------------------------------------------
 // SHA-256 hash
 // ---------------------------------------------------------------------------
@@ -669,6 +705,12 @@ export default {
         return handleDownloadTicket(env, request, userId, isAdmin, profile.role);
       }
 
+      // Route: POST /office-preview — lazily queue an Office-to-PDF job, or
+      // stream the already-generated private PDF preview.
+      if (path === '/office-preview' && request.method === 'POST') {
+        return handleOfficePreview(env, request, userId, isAdmin, profile.role);
+      }
+
       // Route: POST /delete — delete an R2 object + DB record
       if (path === '/delete' && request.method === 'POST') {
         return handleDelete(env, request, userId, isAdmin);
@@ -703,6 +745,119 @@ interface UploadPresignRequest {
   subject_id: string;
   tab: string;
   batch_id?: string | null;
+}
+
+interface PreviewRequestBody {
+  file_id?: string;
+}
+
+interface PreviewStateRow {
+  status: FileRecord['preview_status'];
+  object_key: string | null;
+  should_enqueue: boolean;
+  retry_after_seconds: number;
+  error_code: string | null;
+}
+
+async function handleOfficePreview(
+  env: Env,
+  request: Request,
+  userId: string,
+  isAdmin: boolean,
+  role: Profile['role'],
+): Promise<Response> {
+  const { file_id } = await request.json() as PreviewRequestBody;
+  if (!file_id || !UUID_RE.test(file_id)) return corsError(env, request, 400, 'Invalid file_id');
+
+  const file = await fetchFileRecord(env, file_id);
+  if (!file) return corsError(env, request, 404, 'File not found');
+  if (file.tab === 'exams' && role === 'student') return corsError(env, request, 403, 'Access denied');
+  if (!canAccessFile(file, userId, isAdmin)) return corsError(env, request, 403, 'Access denied');
+
+  const extension = (file.file_type ?? '').toLowerCase();
+  if (!OFFICE_EXTENSIONS.has(extension)) return corsError(env, request, 400, 'File is not an Office document');
+  if (file.storage_provider !== 'r2' || !file.object_key || !validateObjectKey(file.object_key)) {
+    return corsError(env, request, 422, 'Office preview requires a valid R2 source object');
+  }
+  if (!file.file_hash || !/^[0-9a-f]{64}$/.test(file.file_hash)) {
+    return corsError(env, request, 422, 'Source file hash is unavailable');
+  }
+
+  const rows = await callSupabaseRpc<PreviewStateRow[]>(env, 'request_office_preview', {
+    p_file_id: file.id,
+    p_source_hash: file.file_hash,
+    p_converter_version: OFFICE_CONVERTER_VERSION,
+  });
+  const state = rows?.[0];
+  if (!state) return corsError(env, request, 503, 'Preview state service unavailable');
+
+  if (state.status === 'ready' && state.object_key) {
+    if (!validatePreviewObjectKey(state.object_key, file.id)) {
+      return corsError(env, request, 500, 'Invalid preview object key');
+    }
+    const preview = await env.FILES_BUCKET.get(state.object_key);
+    if (!preview) {
+      await callSupabaseRpc(env, 'fail_office_preview', {
+        p_file_id: file.id,
+        p_source_hash: file.file_hash,
+        p_converter_version: OFFICE_CONVERTER_VERSION,
+        p_error_code: 'preview_object_missing',
+      });
+      return corsError(env, request, 409, 'Preview object is missing');
+    }
+    return officePreviewPdfResponse(env, request, file, preview);
+  }
+
+  if (state.should_enqueue) {
+    // Converter upgrades or source replacements make the previous derivative
+    // obsolete. Remove only a validated preview key; never touch the original.
+    if (file.preview_object_key && validatePreviewObjectKey(file.preview_object_key, file.id)) {
+      try {
+        await env.FILES_BUCKET.delete(file.preview_object_key);
+      } catch {
+        await insertCleanupRecord(env, file.preview_object_key, 'stale_preview_delete_failed');
+      }
+    }
+    try {
+      await env.OFFICE_PREVIEW_QUEUE.send({
+        file_id: file.id,
+        source_hash: file.file_hash,
+        converter_version: OFFICE_CONVERTER_VERSION,
+      });
+    } catch (error) {
+      console.error('Failed to enqueue Office preview', error);
+      await callSupabaseRpc(env, 'fail_office_preview', {
+        p_file_id: file.id,
+        p_source_hash: file.file_hash,
+        p_converter_version: OFFICE_CONVERTER_VERSION,
+        p_error_code: 'queue_unavailable',
+      });
+      return corsError(env, request, 503, 'Preview queue unavailable');
+    }
+  }
+
+  if (state.status === 'failed') {
+    return corsResponse(env, request, 422, {
+      status: 'failed',
+      error_code: state.error_code || 'conversion_failed',
+    });
+  }
+
+  return corsResponse(env, request, 202, {
+    status: state.status === 'processing' ? 'processing' : 'queued',
+    retry_after_seconds: Math.max(2, Math.min(state.retry_after_seconds || 2, 10)),
+  });
+}
+
+function officePreviewPdfResponse(env: Env, request: Request, file: FileRecord, object: R2ObjectBody): Response {
+  const headers = getCorsHeaders(env, request.headers.get('Origin'));
+  const safeTitle = (file.title || 'preview').replace(/[\r\n"\\/]/g, ' ').trim().slice(0, 140) || 'preview';
+  headers.set('Content-Type', 'application/pdf');
+  headers.set('Content-Disposition', `inline; filename="preview.pdf"; filename*=UTF-8''${encodeURIComponent(`${safeTitle}.pdf`)}`);
+  headers.set('Content-Length', String(object.size));
+  headers.set('Cache-Control', 'private, no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  return new Response(object.body, { status: 200, headers });
 }
 
 async function handleUploadPresign(
@@ -1084,22 +1239,34 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
     return corsError(env, request, 403, 'Only administrators can delete files');
   }
 
+  const objectKey = file.object_key || file.storage_path;
+  if (objectKey && file.storage_provider === 'r2' && !validateObjectKey(objectKey)) {
+    return corsError(env, request, 500, 'Invalid object key in database');
+  }
+  if (file.preview_object_key && !validatePreviewObjectKey(file.preview_object_key, file.id)) {
+    return corsError(env, request, 500, 'Invalid preview object key in database');
+  }
+
   // Delete the DB record first
   const dbDeleted = await deleteFileRecord(env, file_id);
   if (!dbDeleted) {
     return corsError(env, request, 500, 'Failed to delete file record');
   }
 
-  // Delete the R2 object
-  const objectKey = file.object_key || file.storage_path;
+  // Delete the original and its derived preview together. A conversion message
+  // delivered after this point observes the missing DB row and becomes a no-op.
   let r2Deleted = true;
 
   if (objectKey && file.storage_provider === 'r2') {
+    const keys = [objectKey];
+    if (file.preview_object_key) {
+      keys.push(file.preview_object_key);
+    }
     try {
-      await env.FILES_BUCKET.delete(objectKey);
+      await env.FILES_BUCKET.delete(keys);
     } catch {
       r2Deleted = false;
-      await insertCleanupRecord(env, objectKey, 'delete_failed');
+      await Promise.all(keys.map((key) => insertCleanupRecord(env, key, 'delete_failed')));
     }
   } else if (objectKey && file.storage_provider !== 'r2') {
     // Old Supabase Storage file — frontend handles Supabase storage deletion
@@ -1164,5 +1331,7 @@ export {
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,
+  validatePreviewObjectKey,
+  officePreviewPdfResponse,
 };
-export type { FileRecord, Profile, JwtPayload };
+export type { FileRecord, Profile, JwtPayload, OfficePreviewJob };
