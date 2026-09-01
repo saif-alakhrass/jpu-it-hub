@@ -11,7 +11,8 @@ import { addBookmark, removeBookmark, getUserFolders } from '@/services/bookmark
 import { getBookmarkedIds } from '@/services/bookmarks';
 import { TABS, RESTRICTED_TABS, getVisibleTabs, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
-import { deleteFileViaWorker, isR2Configured, requestOfficePreview } from '@/lib/r2Client';
+import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
+import { requestOfficePreview } from '@/lib/officePreviewApi';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';

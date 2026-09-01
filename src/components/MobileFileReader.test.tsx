@@ -1,7 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileRow } from '@/lib/types';
 import { MobileFileReader } from './MobileFileReader';
+
+const pdfMocks = vi.hoisted(() => ({ getDocument: vi.fn() }));
+
+vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+  GlobalWorkerOptions: { workerSrc: '' },
+  getDocument: pdfMocks.getDocument,
+}));
 
 function makeFile(overrides: Partial<FileRow> = {}): FileRow {
   return {
@@ -31,6 +38,23 @@ function makeFile(overrides: Partial<FileRow> = {}): FileRow {
 describe('MobileFileReader', () => {
   beforeEach(() => {
     vi.stubGlobal('scrollTo', vi.fn());
+    vi.stubGlobal('HTMLElement', window.HTMLElement);
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() });
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe() { this.callback([{ contentRect: { width: 400 } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      disconnect() {}
+      unobserve() {}
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as CanvasRenderingContext2D);
+    const renderTask = { promise: Promise.resolve(), cancel: vi.fn() };
+    const page = {
+      getViewport: ({ scale }: { scale: number }) => ({ width: 200 * scale, height: 300 * scale }),
+      render: vi.fn(() => renderTask),
+    };
+    pdfMocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 3, getPage: vi.fn().mockResolvedValue(page), destroy: vi.fn() }),
+    });
   });
 
   it('keeps preview and download as distinct actions', () => {
@@ -52,5 +76,26 @@ describe('MobileFileReader', () => {
 
     expect(document.querySelector('iframe')).toBeNull();
     expect(screen.getByText('لا تتوفر معاينة لهذا النوع')).toBeDefined();
+  });
+
+  it('renders generated PDFs and supports mobile page navigation and zoom', async () => {
+    render(<MobileFileReader file={makeFile({ file_type: 'pdf', mime_type: 'application/pdf', title: 'نسخة المعاينة' })} url="blob:preview-pdf" onClose={vi.fn()} onDownload={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('1 / 3')).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: /التالي/ }));
+    await waitFor(() => expect(screen.getByText('2 / 3')).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: 'تكبير' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'ملاءمة العرض' }).textContent).toBe('125%'));
+    fireEvent.click(screen.getByRole('button', { name: 'ملاءمة العرض' }));
+    expect(screen.getByRole('button', { name: 'ملاءمة العرض' }).textContent).toBe('100%');
+    fireEvent.click(screen.getByRole('button', { name: /السابق/ }));
+    await waitFor(() => expect(screen.getByText('1 / 3')).toBeDefined());
+  });
+
+  it('shows a safe fallback when a PDF cannot be decoded', async () => {
+    pdfMocks.getDocument.mockReturnValueOnce({ promise: Promise.reject(new Error('corrupt')) });
+    render(<MobileFileReader file={makeFile({ file_type: 'pdf', mime_type: 'application/pdf' })} url="blob:broken" onClose={vi.fn()} onDownload={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('تعذّر عرض ملف PDF')).toBeDefined());
+    expect(screen.getByText('PDF_LOAD')).toBeDefined();
   });
 });

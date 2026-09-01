@@ -6,7 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, type FileStatus, TABS } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
-import { deleteFileViaWorker, isR2Configured, requestDownloadPresign, requestOfficePreview } from '@/lib/r2Client';
+import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { requestOfficePreview } from '@/lib/officePreviewApi';
 import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
