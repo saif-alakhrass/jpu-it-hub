@@ -305,6 +305,10 @@ export function SubjectPage() {
 
   async function handlePreview(file: FileRow) {
     if (getBrowserOfficePreviewKind(file.file_type)) {
+      if (!session) {
+        setToast({ message: 'سجّل الدخول لعرض هذا الملف.', type: 'error' });
+        return;
+      }
       // OOXML files are decoded locally so the viewer remains private and its
       // navigation/zoom controls work consistently on phones.
       setPreview({ file, url: '' });

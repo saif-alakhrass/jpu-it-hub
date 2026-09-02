@@ -153,29 +153,32 @@ export function BrowserOfficeViewer({ file, loadDocument, onDownload, onOpenExte
 
   return (
     <div ref={viewerRef} className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-ink-950">
-      <div className="flex shrink-0 flex-wrap items-center justify-center gap-1.5 border-b border-white/10 bg-ink-900/95 p-2 sm:justify-between">
-        <div className="flex items-center gap-1" dir="ltr">
-          <button type="button" className="btn-ghost p-2" onClick={() => goToPage(page - 1)} disabled={status !== 'ready' || page <= 1} aria-label="الصفحة السابقة" title="السابق">
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-gradient-to-b from-ink-800 to-ink-900 p-2.5 sm:justify-between">
+        <div className="flex h-11 items-center overflow-hidden rounded-xl border border-white/10 bg-black/20 shadow-inner" dir="ltr">
+          <button type="button" className="grid h-11 w-11 place-items-center text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30" onClick={() => goToPage(page - 1)} disabled={status !== 'ready' || page <= 1} aria-label="الصفحة السابقة" title="السابق">
             <Icon name="ChevronLeft" className="h-4 w-4" />
           </button>
-          <span className="min-w-16 text-center text-xs tabular-nums text-slate-300" aria-live="polite">{page} / {pageCount}</span>
-          <button type="button" className="btn-ghost p-2" onClick={() => goToPage(page + 1)} disabled={status !== 'ready' || page >= pageCount} aria-label="الصفحة التالية" title="التالي">
+          <span className="min-w-16 border-x border-white/10 px-2 text-center text-xs font-bold tabular-nums text-slate-200" aria-live="polite">{page} / {pageCount}</span>
+          <button type="button" className="grid h-11 w-11 place-items-center text-slate-300 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30" onClick={() => goToPage(page + 1)} disabled={status !== 'ready' || page >= pageCount} aria-label="الصفحة التالية" title="التالي">
             <Icon name="ChevronRight" className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex items-center gap-1" dir="ltr">
-          <button type="button" className="btn-ghost p-2" onClick={() => setZoom((value) => clampOfficeZoom(value - 10))} disabled={status !== 'ready' || zoom <= 50} aria-label="تصغير" title="تصغير">
-            <Icon name="ZoomOut" className="h-4 w-4" />
-          </button>
-          <button type="button" className="min-w-14 rounded-lg px-2 py-2 text-xs font-bold text-slate-300 hover:bg-white/5" onClick={() => setZoom(100)} disabled={status !== 'ready'} title="ملاءمة الشاشة">
-            {zoom}%
-          </button>
-          <button type="button" className="btn-ghost p-2" onClick={() => setZoom((value) => clampOfficeZoom(value + 10))} disabled={status !== 'ready' || zoom >= 200} aria-label="تكبير" title="تكبير">
-            <Icon name="ZoomIn" className="h-4 w-4" />
-          </button>
-          <button type="button" className="btn-ghost p-2" onClick={() => void toggleFullscreen()} aria-label="ملء الشاشة" title="ملء الشاشة">
+        <div className="flex items-center gap-2" dir="ltr">
+          <div className="flex h-11 items-center overflow-hidden rounded-xl border border-brand-400/20 bg-brand-500/10 shadow-inner">
+            <button type="button" className="grid h-11 w-11 place-items-center text-brand-200 transition hover:bg-brand-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-30" onClick={() => setZoom((value) => clampOfficeZoom(value - 10))} disabled={status !== 'ready' || zoom <= 50} aria-label="تصغير" title="تصغير">
+              <Icon name="Minus" className="h-4 w-4" />
+            </button>
+            <button type="button" className="h-11 min-w-16 border-x border-brand-400/20 px-2 text-xs font-extrabold tabular-nums text-brand-100 transition hover:bg-brand-400/10 disabled:opacity-40" onClick={() => setZoom(100)} disabled={status !== 'ready'} aria-label="ملاءمة العرض للشاشة" title="ملاءمة الشاشة">
+              {zoom}%
+            </button>
+            <button type="button" className="grid h-11 w-11 place-items-center text-brand-200 transition hover:bg-brand-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-30" onClick={() => setZoom((value) => clampOfficeZoom(value + 10))} disabled={status !== 'ready' || zoom >= 200} aria-label="تكبير" title="تكبير">
+              <Icon name="Plus" className="h-4 w-4" />
+            </button>
+          </div>
+          <button type="button" className="flex h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 text-sm font-bold text-slate-200 shadow-sm transition hover:border-brand-400/30 hover:bg-brand-500/10 hover:text-brand-100 active:scale-[0.97]" onClick={() => void toggleFullscreen()} aria-label="ملء الشاشة" title="ملء الشاشة">
             <Icon name="Maximize2" className="h-4 w-4" />
+            <span className="hidden sm:inline">ملء الشاشة</span>
           </button>
         </div>
       </div>
