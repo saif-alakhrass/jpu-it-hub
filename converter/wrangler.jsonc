@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jpu-it-hub-office-converter",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [
+    {
+      "binding": "FILES_BUCKET",
+      "bucket_name": "jpu-it-hub-files"
+    }
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "jpu-it-hub-office-previews",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "retry_delay": 30,
+        "dead_letter_queue": "jpu-it-hub-office-previews-dlq",
+        "max_concurrency": 2
+      }
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "OfficeConverter",
+      "image": "./Dockerfile",
+      "max_instances": 2,
+      "instance_type": "basic"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OFFICE_CONVERTER",
+        "class_name": "OfficeConverter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["OfficeConverter"]
+    }
+  ]
+}

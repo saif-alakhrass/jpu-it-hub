@@ -12,6 +12,7 @@ import {
   ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning, SearchX,
   WifiOff, RefreshCw, Bell, FolderPlus, FolderCog,
   BadgeCheck, HelpCircle, TrendingUp,
+  ZoomIn, ZoomOut,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -29,6 +30,7 @@ const map: Record<string, LucideIcon> = {
   ExternalLink, ChevronRight, ArrowRight, BarChart3, FileWarning, SearchX,
   WifiOff, RefreshCw, Bell, FolderPlus, FolderCog,
   BadgeCheck, HelpCircle, TrendingUp,
+  ZoomIn, ZoomOut,
 };
 
 export function Icon({ name, className }: { name: string; className?: string }) {

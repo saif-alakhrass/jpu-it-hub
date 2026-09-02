@@ -71,3 +71,34 @@ jobs:
 
       - name: Worker build
         run: npm run build
+
+  office-preview-converter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: converter
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: converter/package-lock.json
+
+      - name: Install converter dependencies
+        run: npm ci
+
+      - name: Converter typecheck
+        run: npm run typecheck
+
+      - name: Converter tests with coverage
+        run: npm run test:coverage
+
+      - name: Build LibreOffice container
+        run: docker build --tag jpu-it-hub-office-converter:ci .
+
+      - name: Block critical production vulnerabilities
+        run: npm audit --omit=dev --audit-level=critical
