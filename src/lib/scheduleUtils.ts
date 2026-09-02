@@ -9,6 +9,9 @@ export const WEEK_DAYS = [
   'الجمعة',
   'السبت',
 ];
+export function campusDate(now: number): string {
+  return new Date(now + 3 * 3_600_000).toISOString().slice(0, 10);
+}
 export function minutes(time: string): number | null {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return null;
   return Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
@@ -137,6 +140,7 @@ export function buildSemesterCalendar(
     start: number,
     end: number,
     rule?: string,
+    room?: string,
   ) => {
     lines.push(
       'BEGIN:VEVENT',
@@ -147,6 +151,7 @@ export function buildSemesterCalendar(
       `SUMMARY:${escapeText(title)}`,
     );
     if (rule) lines.push(rule);
+    if (room?.trim()) lines.push(`LOCATION:${escapeText(room.trim())}`);
     lines.push('END:VEVENT');
   };
   for (const c of state.courses) {
@@ -164,6 +169,7 @@ export function buildSemesterCalendar(
           campusTimestamp(`${date}T${m.start}`)!,
           campusTimestamp(`${date}T${m.end}`)!,
           `RRULE:FREQ=WEEKLY;UNTIL=${stamp(campusTimestamp(`${state.endsOn}T23:59`)!)}`,
+          m.room,
         );
       }
     for (const d of c.deadlines) {
@@ -175,6 +181,8 @@ export function buildSemesterCalendar(
         `${c.name || 'مادة'} — ${d.title || { midterm: 'ميد', final: 'فاينل', project: 'تسليم مشروع' }[d.kind]}`,
         at,
         at + 60_000,
+        undefined,
+        d.room,
       );
     }
   }

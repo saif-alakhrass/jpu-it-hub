@@ -6,6 +6,7 @@ import { ScheduleTab } from '@/components/assistant/ScheduleTab';
 import { SemesterSummaryCard } from '@/components/assistant/SemesterSummaryCard';
 import { useStudentStorage } from '@/hooks/useStudentStorage';
 import { useAllSubjects } from '@/hooks/useSubjects';
+import { StudentAgenda } from '@/components/assistant/StudentAgenda';
 
 const tabs = [
   { id: 'calculator', name: 'المعدل والمواد', icon: 'TrendingUp' },
@@ -35,6 +36,7 @@ export function StudentAssistantPage() {
           مسح بيانات المتصفح يحذفه، وقد يراه غيرك على الجهاز المشترك.
         </p>
       </header>
+      <StudentAgenda data={data} />
       {error && (
         <p
           role="alert"

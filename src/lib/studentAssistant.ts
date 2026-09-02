@@ -3,12 +3,14 @@ export interface Meeting {
   days: number[];
   start: string;
   end: string;
+  room?: string;
 }
 export interface Deadline {
   id: string;
   title: string;
   kind: 'midterm' | 'final' | 'project';
   at: string;
+  room?: string;
 }
 export interface EnrolledCourse {
   id: string;
@@ -109,12 +111,14 @@ export function parseSemester(raw: string): StudentSemester {
         !id(m.id) ||
         !str(m.start, 5) ||
         !str(m.end, 5) ||
+        (m.room !== undefined && !str(m.room, 100)) ||
         !Array.isArray(m.days) ||
         m.days.length > 7 ||
         m.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6) ||
         new Set(m.days).size !== m.days.length
       )
         throw new Error('Invalid meeting');
+      m.room ??= '';
     }
     for (const d of c.deadlines) {
       if (
@@ -122,9 +126,11 @@ export function parseSemester(raw: string): StudentSemester {
         !id(d.id) ||
         !str(d.title) ||
         !str(d.at, 16) ||
+        (d.room !== undefined && !str(d.room, 100)) ||
         !['midterm', 'final', 'project'].includes(String(d.kind))
       )
         throw new Error('Invalid deadline');
+      d.room ??= '';
     }
     if (!unique(c.meetings as Meeting[]) || !unique(c.deadlines as Deadline[]))
       throw new Error('Duplicate event');

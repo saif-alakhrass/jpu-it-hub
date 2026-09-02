@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Icon } from '@/components/Icon';
 import {
   buildSemesterCalendar,
-  campusTimestamp,
-  countdown,
   dailyMeetings,
   scheduleConflicts,
   scheduleErrors,
@@ -65,6 +63,11 @@ export function WeeklySchedule({
                     <p className="mt-1 text-xs" dir="ltr">
                       {meeting.start} – {meeting.end}
                     </p>
+                    {meeting.room?.trim() && (
+                      <p className="mt-1 break-words text-xs">
+                        القاعة: {meeting.room}
+                      </p>
+                    )}
                     {overlap && (
                       <p className="mt-1 text-xs font-bold text-red-800">
                         تعارض زمني
@@ -89,27 +92,8 @@ export function ScheduleTab({
   onChange: (data: StudentSemester) => void;
 }) {
   const [error, setError] = useState('');
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const refresh = () => {
-      if (!document.hidden) setNow(Date.now());
-    };
-    const timer = window.setInterval(refresh, 60_000);
-    document.addEventListener('visibilitychange', refresh);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', refresh);
-    };
-  }, []);
   const conflicts = scheduleConflicts(data.courses);
   const errors = scheduleErrors(data);
-  const deadlines = data.courses
-    .flatMap((c) => c.deadlines.map((d) => ({ ...d, courseName: c.name })))
-    .sort(
-      (a, b) =>
-        (campusTimestamp(a.at) ?? Infinity) -
-        (campusTimestamp(b.at) ?? Infinity),
-    );
   function changeCourse(id: string, patch: Partial<EnrolledCourse>) {
     onChange({
       ...data,
@@ -140,7 +124,9 @@ export function ScheduleTab({
         </div>
         <p className="mt-2 text-sm text-slate-400">
           جميع الأوقات بتوقيت عمّان (UTC+03). المحاضرات تتكرر أسبوعيًا بين
-          تاريخي الفصل. لا نرسل إشعارات منبثقة؛ العدادات داخل هذه الصفحة فقط.
+          تاريخي الفصل اللذين تدخلهما. إن تركتهما فارغين، يعرض العدّاد أقرب
+          محاضرة حسب أيام جدولك فقط. لا نرسل إشعارات منبثقة؛ العدادات داخل هذه
+          الصفحة فقط.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="space-y-1 text-sm">
@@ -194,42 +180,6 @@ export function ScheduleTab({
         </div>
       )}
       <WeeklySchedule courses={data.courses} />
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold">المواعيد القادمة</h2>
-        {!deadlines.length && (
-          <p className="text-sm text-slate-400">
-            أضف موعد الميد أو الفاينل أو المشروع من المادة أدناه.
-          </p>
-        )}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {deadlines.map((d) => {
-            const at = campusTimestamp(d.at);
-            const soon = at !== null && at > now && at - now < 48 * 3_600_000;
-            return (
-              <div
-                key={d.id}
-                className={`card p-4 ${soon ? 'border-amber-300 bg-amber-50' : ''}`}
-              >
-                <p className="font-bold">
-                  {d.courseName || 'مادة'} —{' '}
-                  {d.title ||
-                    { midterm: 'ميد', final: 'فاينل', project: 'مشروع' }[
-                      d.kind
-                    ]}
-                </p>
-                <p className="mt-1 text-xs text-slate-400" dir="ltr">
-                  {d.at.replace('T', ' ')}
-                </p>
-                <p
-                  className={`mt-2 text-sm ${soon ? 'text-amber-800' : 'text-brand-800'}`}
-                >
-                  {countdown(d.at, now)}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </section>
       <section className="space-y-3">
         <h2 className="text-lg font-bold">أوقات المواد</h2>
         {!data.courses.length && (
@@ -314,6 +264,22 @@ export function ScheduleTab({
                       />
                     </label>
                   </div>
+                  <label className="mt-3 block space-y-1 text-sm">
+                    القاعة (اختياري)
+                    <input
+                      className="input"
+                      value={m.room ?? ''}
+                      maxLength={100}
+                      placeholder="مثال: مبنى IT، قاعة 203"
+                      onChange={(e) =>
+                        changeCourse(c.id, {
+                          meetings: c.meetings.map((x) =>
+                            x.id === m.id ? { ...x, room: e.target.value } : x,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
                   <button
                     className="mt-2 min-h-11 text-sm text-red-700"
                     onClick={() =>
@@ -333,7 +299,13 @@ export function ScheduleTab({
                   changeCourse(c.id, {
                     meetings: [
                       ...c.meetings,
-                      { id: crypto.randomUUID(), days: [], start: '', end: '' },
+                      {
+                        id: crypto.randomUUID(),
+                        days: [],
+                        start: '',
+                        end: '',
+                        room: '',
+                      },
                     ],
                   })
                 }
@@ -403,6 +375,23 @@ export function ScheduleTab({
                         }}
                       />
                     </label>
+                    <label className="text-sm sm:col-span-2">
+                      قاعة الاختبار أو مكان التسليم (اختياري)
+                      <input
+                        className="input"
+                        value={d.room ?? ''}
+                        maxLength={100}
+                        onChange={(e) =>
+                          changeCourse(c.id, {
+                            deadlines: c.deadlines.map((x) =>
+                              x.id === d.id
+                                ? { ...x, room: e.target.value }
+                                : x,
+                            ),
+                          })
+                        }
+                      />
+                    </label>
                   </div>
                   <button
                     className="mt-2 min-h-11 text-sm text-red-700"
@@ -428,6 +417,7 @@ export function ScheduleTab({
                         kind: 'midterm',
                         title: '',
                         at: '',
+                        room: '',
                       },
                     ],
                   })

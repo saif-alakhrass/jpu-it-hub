@@ -118,13 +118,20 @@ describe('interconnected student assistant', () => {
     fireEvent.input(screen.getByLabelText('إلى'), {
       target: { value: '11:00' },
     });
-    expect(screen.getByText('10:00 – 11:00')).toBeTruthy();
+    expect(screen.getAllByText('10:00 – 11:00').length).toBeGreaterThan(0);
+    const room = screen.getByLabelText('القاعة (اختياري)');
+    room.focus();
+    fireEvent.change(room, { target: { value: 'IT 203' } });
+    expect(document.activeElement).toBe(room);
     fireEvent.click(screen.getByRole('tab', { name: 'بطاقة الفصل' }));
-    expect(screen.getByText('10:00 – 11:00')).toBeTruthy();
+    expect(screen.getAllByText('10:00 – 11:00').length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('tab', { name: 'الجدول والمواعيد' }));
     expect(
       (screen.getByLabelText('بداية الفصل') as HTMLInputElement).value,
     ).toBe('2026-09-01');
+    expect(
+      (screen.getByLabelText('القاعة (اختياري)') as HTMLInputElement).value,
+    ).toBe('IT 203');
   });
   it('asks anonymous visitors to sign in rather than showing false zero counts', () => {
     auth.signedIn = false;

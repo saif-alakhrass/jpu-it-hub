@@ -63,7 +63,7 @@ export async function renderSemesterCard(data: StudentSemester): Promise<Blob> {
       .slice(0, 4)
       .map(
         ({ course, meeting }) =>
-          `${course.name || 'مادة'} (\u2066${meeting.start}–${meeting.end}\u2069)`,
+          `${course.name || 'مادة'} (\u2066${meeting.start}–${meeting.end}\u2069)${meeting.room?.trim() ? ` — قاعة ${meeting.room.trim()}` : ''}`,
       );
     text(
       summaries.slice(0, 2).join(' · ') || 'لا توجد محاضرات',

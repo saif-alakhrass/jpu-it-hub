@@ -55,13 +55,14 @@ describe('student schedule', () => {
         {
           ...newCourse(),
           name: 'برمجة; Python, 1\nBEGIN:VEVENT',
-          meetings: [meeting()],
+          meetings: [{ ...meeting(), room: 'IT; 203, A\nBEGIN:VEVENT' }],
           deadlines: [
             {
               id: 'exam-1',
               title: 'فاينل',
               kind: 'final' as const,
               at: '2026-12-20T12:00',
+              room: 'مختبر 2',
             },
           ],
         },
@@ -72,6 +73,10 @@ describe('student schedule', () => {
     expect(ics).toContain('DTSTART:20260901T070000Z'); // Tuesday, first day
     expect(ics).toContain('UNTIL=20261231T205900Z');
     expect(ics).toContain('DTSTART:20261220T090000Z');
+    expect(ics.replace(/\r\n /g, '')).toContain(
+      'LOCATION:IT\\; 203\\, A\\nBEGIN:VEVENT',
+    );
+    expect(ics).toContain('LOCATION:مختبر 2');
     expect(ics.replace(/\r\n /g, '')).toContain(
       'برمجة\\; Python\\, 1\\nBEGIN:VEVENT',
     );
