@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { FileRow } from '@/lib/types';
-import { downloadFileViaStorage, getSignedFileUrl, isIosDevice, saveBlob } from '@/lib/storage';
+import { downloadFileViaStorage, getFileBlobViaStorage, getSignedFileUrl, isIosDevice, saveBlob } from '@/lib/storage';
 import { downloadR2File, isR2Configured, requestDownloadPresign, requestNativeDownloadUrl } from '@/lib/r2Client';
 
 // R2 URLs currently expire after five minutes. Keep the cache shorter so a
@@ -82,5 +82,25 @@ export function useSignedFileAccess(onError: (message: string) => void) {
     }
   }, [onError]);
 
-  return { accessingFileId, accessFile };
+  const getFileBlob = useCallback(async (file: FileRow): Promise<Blob | undefined> => {
+    setAccessingFileId(file.id);
+    try {
+      if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) {
+          onError('يجب تسجيل الدخول للوصول إلى الملفات.');
+          return;
+        }
+        return await downloadR2File(accessToken, file.id);
+      }
+      return await getFileBlobViaStorage(file.storage_path);
+    } catch {
+      onError('تعذر تحميل الملف للمعاينة. حاول مجددًا.');
+    } finally {
+      setAccessingFileId(null);
+    }
+  }, [onError]);
+
+  return { accessingFileId, accessFile, getFileBlob };
 }

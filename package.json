@@ -17,7 +17,9 @@
     "@fontsource/ibm-plex-sans-arabic": "^4.5.11",
     "@supabase/supabase-js": "^2.57.4",
     "@tanstack/react-query": "^5.101.4",
+    "docx-preview": "^0.4.0",
     "lucide-react": "^0.344.0",
+    "pptx-preview": "^1.0.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "7.18.2"
@@ -43,5 +45,9 @@
     "typescript-eslint": "^8.3.0",
     "vite": "8.2.0",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "echarts": "^6.1.0",
+    "uuid": "^13.0.0"
   }
 }

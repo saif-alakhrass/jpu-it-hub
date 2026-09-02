@@ -15,6 +15,7 @@ import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
+import { BrowserOfficeViewer } from '@/components/BrowserOfficeViewer';
 import {
   deleteFile,
   removeStorageObjects,
@@ -24,7 +25,12 @@ import { smartMatch } from '@/lib/arabicSearch';
 import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { useSubject } from '@/hooks/useSubjects';
 import { useSubjectFiles } from '@/hooks/useFiles';
-import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPagePreview } from '@/lib/filePreview';
+import {
+  getBrowserOfficePreviewKind,
+  mobileOfficePreviewUrl,
+  officePreviewUrl,
+  shouldUseFullPagePreview,
+} from '@/lib/filePreview';
 
 type DeleteTarget =
   | { kind: 'file'; file: FileRow; batchId?: string | null }
@@ -71,7 +77,7 @@ export function SubjectPage() {
   const reportFileAccessError = useCallback((message: string) => {
     setToast({ message, type: 'error' });
   }, []);
-  const { accessingFileId, accessFile } = useSignedFileAccess(reportFileAccessError);
+  const { accessingFileId, accessFile, getFileBlob } = useSignedFileAccess(reportFileAccessError);
   const [preview, setPreview] = useState<{ file: FileRow; url: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -298,6 +304,16 @@ export function SubjectPage() {
   }
 
   async function handlePreview(file: FileRow) {
+    if (getBrowserOfficePreviewKind(file.file_type)) {
+      if (!session) {
+        setToast({ message: 'سجّل الدخول لعرض هذا الملف.', type: 'error' });
+        return;
+      }
+      // OOXML files are decoded locally so the viewer remains private and its
+      // navigation/zoom controls work consistently on phones.
+      setPreview({ file, url: '' });
+      return;
+    }
     const url = await accessFile(file, 'preview');
     if (!url) return;
     const fullPageMobilePreview = shouldUseFullPagePreview(window.innerWidth, navigator.maxTouchPoints);
@@ -542,6 +558,17 @@ export function SubjectPage() {
               </div>
             ) : isPdfFile(preview.file) ? (
               <iframe src={preview.url} title={preview.file.title} className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white" />
+            ) : getBrowserOfficePreviewKind(preview.file.file_type) ? (
+              <BrowserOfficeViewer
+                file={preview.file}
+                loadDocument={getFileBlob}
+                onDownload={() => void accessFile(preview.file, 'download')}
+                onOpenExternal={() => {
+                  void accessFile(preview.file, 'preview').then((url) => {
+                    if (url) window.location.assign(officePreviewUrl(url, false));
+                  });
+                }}
+              />
             ) : isOfficeFile(preview.file) ? (
               <iframe
                 src={officePreviewUrl(preview.url, true)}
