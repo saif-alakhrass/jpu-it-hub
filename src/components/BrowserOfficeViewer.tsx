@@ -65,7 +65,9 @@ export function BrowserOfficeViewer({ file, loadDocument, onDownload, onOpenExte
           new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
         ]);
         if (cancelled) return;
-        const previewer = init(root, { width: PPTX_WIDTH, height: PPTX_HEIGHT, mode: 'slide' }) as PptxPreviewerHandle;
+        // Render one slide in normal flow; slide mode vertically centers against
+        // a fixed 16:9 viewport and clips presentations with other aspect ratios.
+        const previewer = init(root, { width: PPTX_WIDTH, height: PPTX_HEIGHT, mode: 'list' }) as PptxPreviewerHandle;
         pptxRef.current = previewer;
         await previewer.load(await blob.arrayBuffer());
         if (cancelled) {
@@ -217,10 +219,10 @@ export function BrowserOfficeViewer({ file, loadDocument, onDownload, onOpenExte
         )}
 
         {kind === 'pptx' ? (
-          <div className="mx-auto" style={{ width: PPTX_WIDTH * pptxScale, height: pptxHeight * pptxScale }}>
+          <div dir="ltr" className="relative mx-auto" style={{ width: PPTX_WIDTH * pptxScale, height: pptxHeight * pptxScale }}>
             <div
               ref={documentRef}
-              className="origin-top-left overflow-hidden bg-white shadow-2xl"
+              className="absolute left-0 top-0 origin-top-left overflow-hidden bg-white shadow-2xl"
               style={{ width: PPTX_WIDTH, height: pptxHeight, transform: `scale(${pptxScale})` }}
             />
           </div>
