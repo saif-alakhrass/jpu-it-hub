@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { Toast } from '@/components/Toast';
@@ -62,6 +63,12 @@ export function SubjectPage() {
   const { navigate, goBack, route } = useRouter();
   const subjectId = route.params.id ?? '';
   const [activeTab, setActiveTab] = useState<FileTab>('summaries');
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  useEffect(() => {
+    const allowed = getVisibleTabs(role).find(t => t.key === requestedTab);
+    if (allowed) setActiveTab(allowed.key);
+  }, [requestedTab, role, subjectId]);
   const visibleTabs = getVisibleTabs(role);
   const subjectQuery = useSubject(subjectId);
   const { files, batches, loading: filesLoading, error: filesError, reload: reloadFiles, setFiles, setBatches } = useSubjectFiles(subjectId);

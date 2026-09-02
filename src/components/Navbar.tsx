@@ -75,12 +75,15 @@ export function Navbar() {
             <div className="text-[11px] text-slate-400">جامعة جرش - كلية الـ IT</div>
           </div>
         </button>
-        <nav className="hidden items-center gap-2 md:flex">
+        <nav className="hidden items-center gap-2 xl:flex">
           <button onClick={() => navigate('/')} className={`btn-ghost ${route.path === '/' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Home" className="h-4 w-4" /> الرئيسية
           </button>
           <button onClick={() => navigate('/faq')} className={`btn-ghost ${route.path === '/faq' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
+          </button>
+          <button onClick={() => navigate('/assistant')} className={`btn-ghost ${route.path === '/assistant' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
+            <Icon name="TrendingUp" className="h-4 w-4" /> مساعد الطالب
           </button>
           <button onClick={openAbout} className={`btn-ghost ${route.path === '/about' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Info" className="h-4 w-4" /> من نحن
@@ -91,7 +94,7 @@ export function Navbar() {
             </button>
           )}
         </nav>
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 xl:flex">
           {session ? (
             <>
             <NotificationBell />
@@ -132,7 +135,7 @@ export function Navbar() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-1 md:hidden">
+        <div className="flex items-center gap-1 xl:hidden">
           {session && <NotificationBell />}
           <button className="rounded-lg p-2 text-slate-300 hover:bg-white/5" onClick={() => setOpen((v) => !v)} aria-label="القائمة">
             <Icon name="Menu" className="h-6 w-6" />
@@ -140,13 +143,16 @@ export function Navbar() {
         </div>
       </div>
       {open && (
-        <div className="border-t border-white/5 bg-ink-900/95 px-4 py-4 md:hidden">
+        <div className="border-t border-white/5 bg-ink-900/95 px-4 py-4 xl:hidden">
           <div className="flex flex-col gap-2">
             <button onClick={() => { navigate('/'); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Home" className="h-4 w-4" /> الرئيسية
             </button>
             <button onClick={() => { navigate('/faq'); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
+            </button>
+            <button onClick={() => { navigate('/assistant'); setOpen(false); }} className="btn-ghost justify-start">
+              <Icon name="TrendingUp" className="h-4 w-4" /> مساعد الطالب
             </button>
             <button onClick={() => { openAbout(); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Info" className="h-4 w-4" /> من نحن

@@ -19,6 +19,7 @@ const AdminPage = lazy(() => import('@/pages/AdminPage').then((module) => ({ def
 const AboutPage = lazy(() => loadAboutPage().then((module) => ({ default: module.AboutPage })));
 const ProfilePage = lazy(() => loadProfilePage().then((module) => ({ default: module.ProfilePage })));
 const FaqPage = lazy(() => loadFaqPage().then((module) => ({ default: module.FaqPage })));
+const StudentAssistantPage = lazy(() => import('@/pages/StudentAssistantPage').then((module) => ({ default: module.StudentAssistantPage })));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
               <Route path="/about" element={<AboutPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/faq" element={<FaqPage />} />
+              <Route path="/assistant" element={<StudentAssistantPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
