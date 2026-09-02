@@ -60,11 +60,13 @@ describe('MobileFileReader', () => {
   it('keeps preview and download as distinct actions', () => {
     const onClose = vi.fn();
     const onDownload = vi.fn();
-    render(<MobileFileReader file={makeFile()} url="https://example.com/image.png" onClose={onClose} onDownload={onDownload} />);
+    const originalFile = makeFile();
+    render(<MobileFileReader file={originalFile} url="https://example.com/image.png" onClose={onClose} onDownload={onDownload} />);
 
     expect(screen.getByRole('img', { name: 'مخطط الشبكات' }).getAttribute('src')).toBe('https://example.com/image.png');
     fireEvent.click(screen.getByRole('button', { name: 'تحميل' }));
     expect(onDownload).toHaveBeenCalledOnce();
+    expect(onDownload).toHaveBeenCalledWith(originalFile);
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'إغلاق العارض' }));
@@ -76,6 +78,29 @@ describe('MobileFileReader', () => {
 
     expect(document.querySelector('iframe')).toBeNull();
     expect(screen.getByText('لا تتوفر معاينة لهذا النوع')).toBeDefined();
+  });
+
+  it.each([
+    ['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'lecture.pptx'],
+    ['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'notes.docx'],
+  ])('renders a generated PDF without changing the original %s download identity', async (fileType, mimeType, title) => {
+    const originalFile = makeFile({ file_type: fileType, mime_type: mimeType, title });
+    const onDownload = vi.fn();
+    render(
+      <MobileFileReader
+        file={originalFile}
+        previewKind="pdf"
+        url="blob:generated-preview"
+        onClose={vi.fn()}
+        onDownload={onDownload}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('1 / 3')).toBeDefined());
+    expect(screen.getByRole('dialog').getAttribute('aria-label')).toBe(`عرض ${title}`);
+    fireEvent.click(screen.getByRole('button', { name: 'تحميل' }));
+    expect(onDownload).toHaveBeenCalledWith(originalFile);
+    expect(onDownload.mock.calls[0]?.[0]).toMatchObject({ file_type: fileType, mime_type: mimeType, title });
   });
 
   it('renders generated PDFs and supports mobile page navigation and zoom', async () => {

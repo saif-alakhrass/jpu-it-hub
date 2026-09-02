@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { requestOfficePreview } from './officePreviewApi';
+import { getOfficePreviewStrategy, requestOfficePreview } from './officePreviewApi';
+
+describe('Office preview storage compatibility', () => {
+  it('uses conversion only for R2 files with a valid source key', () => {
+    expect(getOfficePreviewStrategy({ storage_provider: 'r2', object_key: 'user/lecture.pptx' })).toBe('r2-conversion');
+    expect(getOfficePreviewStrategy({ storage_provider: 'r2', object_key: null })).toBe('legacy-fallback');
+  });
+
+  it.each(['pptx', 'docx'])('keeps legacy Supabase %s files on the safe fallback path', () => {
+    expect(getOfficePreviewStrategy({ storage_provider: 'supabase', object_key: null })).toBe('legacy-fallback');
+  });
+});
 
 describe('requestOfficePreview', () => {
   afterEach(() => vi.unstubAllGlobals());

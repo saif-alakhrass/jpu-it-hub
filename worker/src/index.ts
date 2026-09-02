@@ -860,6 +860,14 @@ function officePreviewPdfResponse(env: Env, request: Request, file: FileRecord, 
   return new Response(object.body, { status: 200, headers });
 }
 
+function collectR2DeletionKeys(file: FileRecord): string[] {
+  if (file.storage_provider !== 'r2') return [];
+  const originalKey = file.object_key || file.storage_path;
+  const keys = originalKey ? [originalKey] : [];
+  if (file.preview_object_key) keys.push(file.preview_object_key);
+  return keys;
+}
+
 async function handleUploadPresign(
   env: Env,
   request: Request,
@@ -1258,10 +1266,7 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
   let r2Deleted = true;
 
   if (objectKey && file.storage_provider === 'r2') {
-    const keys = [objectKey];
-    if (file.preview_object_key) {
-      keys.push(file.preview_object_key);
-    }
+    const keys = collectR2DeletionKeys(file);
     try {
       await env.FILES_BUCKET.delete(keys);
     } catch {
@@ -1333,5 +1338,6 @@ export {
   getUploadLimit,
   validatePreviewObjectKey,
   officePreviewPdfResponse,
+  collectR2DeletionKeys,
 };
 export type { FileRecord, Profile, JwtPayload, OfficePreviewJob };

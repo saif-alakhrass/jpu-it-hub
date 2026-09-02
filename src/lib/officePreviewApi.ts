@@ -1,9 +1,19 @@
+import type { FileRow } from './types';
+
 const WORKER_URL = (import.meta.env.VITE_R2_WORKER_URL as string) || '';
 
 export type OfficePreviewResult =
   | { status: 'ready'; pdf: Blob }
   | { status: 'queued' | 'processing'; retryAfterSeconds: number }
   | { status: 'failed'; errorCode: string };
+
+export function getOfficePreviewStrategy(
+  file: Pick<FileRow, 'storage_provider' | 'object_key'>,
+): 'r2-conversion' | 'legacy-fallback' {
+  return file.storage_provider === 'r2' && Boolean(file.object_key)
+    ? 'r2-conversion'
+    : 'legacy-fallback';
+}
 
 async function responseError(response: Response): Promise<Error> {
   let message = `تعذر الاتصال بخدمة المعاينة (${response.status})`;

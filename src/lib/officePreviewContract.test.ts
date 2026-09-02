@@ -30,7 +30,18 @@ describe('private Office preview database contract', () => {
 
   it('keeps all state transitions server-only', () => {
     expect(migration).toContain("auth.role() IS DISTINCT FROM 'service_role'");
-    expect(migration).toContain('REVOKE ALL ON FUNCTION public.request_office_preview(uuid, text, text) FROM PUBLIC, anon, authenticated');
-    expect(migration).toContain('GRANT EXECUTE ON FUNCTION public.request_office_preview(uuid, text, text) TO service_role');
+    const serverFunctions = [
+      'request_office_preview(uuid, text, text)',
+      'claim_office_preview_conversion(uuid, text, text, integer)',
+      'release_office_preview_for_retry(uuid, text, text, text)',
+      'complete_office_preview(uuid, text, text, text, bigint)',
+      'fail_office_preview(uuid, text, text, text)',
+    ];
+    for (const signature of serverFunctions) {
+      expect(migration).toContain(`REVOKE ALL ON FUNCTION public.${signature} FROM PUBLIC, anon, authenticated`);
+      expect(migration).toContain(`GRANT EXECUTE ON FUNCTION public.${signature} TO service_role`);
+    }
+    expect(migration.match(/SECURITY DEFINER/g)?.length).toBeGreaterThanOrEqual(serverFunctions.length);
+    expect(migration.match(/SET search_path = public/g)?.length).toBeGreaterThanOrEqual(serverFunctions.length);
   });
 });

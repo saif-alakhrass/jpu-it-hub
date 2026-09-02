@@ -6,10 +6,13 @@ import type { FileRow } from '@/lib/types';
 import { Icon } from './Icon';
 
 interface MobileFileReaderProps {
+  /** The original database row. Its identity is never rewritten for a preview. */
   file: FileRow;
   url: string;
+  /** Describes the bytes at `url` when they differ from the original file. */
+  previewKind?: 'image' | 'pdf';
   onClose: () => void;
-  onDownload: () => void;
+  onDownload: (originalFile: FileRow) => void;
 }
 
 function fileKind(file: FileRow): 'image' | 'pdf' | 'unsupported' {
@@ -19,8 +22,8 @@ function fileKind(file: FileRow): 'image' | 'pdf' | 'unsupported' {
   return 'unsupported';
 }
 
-export function MobileFileReader({ file, url, onClose, onDownload }: MobileFileReaderProps) {
-  const kind = fileKind(file);
+export function MobileFileReader({ file, url, previewKind, onClose, onDownload }: MobileFileReaderProps) {
+  const kind = previewKind ?? fileKind(file);
   const onCloseRef = useRef(onClose);
 
   useEffect(() => {
@@ -61,7 +64,7 @@ export function MobileFileReader({ file, url, onClose, onDownload }: MobileFileR
           <h2 className="truncate text-sm font-semibold" title={file.title}>{file.title}</h2>
           <p className="text-[11px] text-slate-400">وضع القراءة</p>
         </div>
-        <button onClick={onDownload} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-brand-500/15 px-3 text-xs font-medium text-brand-200 transition active:bg-brand-500/25">
+        <button onClick={() => onDownload(file)} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-brand-500/15 px-3 text-xs font-medium text-brand-200 transition active:bg-brand-500/25">
           <Icon name="Download" className="h-4 w-4" />
           تحميل
         </button>
@@ -70,7 +73,7 @@ export function MobileFileReader({ file, url, onClose, onDownload }: MobileFileR
       <main className="min-h-0 flex-1 bg-[#090f1c]">
         {kind === 'pdf' && <PdfReader url={url} />}
         {kind === 'image' && <ImageReader url={url} title={file.title} />}
-        {kind === 'unsupported' && <UnsupportedReader onDownload={onDownload} />}
+        {kind === 'unsupported' && <UnsupportedReader onDownload={() => onDownload(file)} />}
       </main>
     </div>,
     document.body,

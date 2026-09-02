@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { buildPreviewKey, hasPdfSignature, isPermanentConversionError, isValidPreviewJob, safeErrorCode } from '../src/core';
 
 const job = {
@@ -30,5 +32,31 @@ describe('Office conversion job contract', () => {
     expect(isPermanentConversionError('source_signature_mismatch')).toBe(true);
     expect(isPermanentConversionError('database_unavailable')).toBe(false);
     expect(safeErrorCode('Timeout: upstream failed!')).toBe('timeout__upstream_failed_');
+  });
+});
+
+describe('container resource contract', () => {
+  const serverSource = readFileSync(resolve(process.cwd(), 'server.mjs'), 'utf8');
+  const config = JSON.parse(readFileSync(resolve(process.cwd(), 'wrangler.jsonc'), 'utf8')) as {
+    queues: { consumers: Array<{ max_batch_size: number; max_concurrency: number }> };
+    containers: Array<{ max_instances: number }>;
+  };
+
+  it('caps declared and streamed input before conversion and output before buffering', () => {
+    expect(serverSource).toContain("request.headers['content-length']");
+    expect(serverSource.indexOf('declaredLength > MAX_INPUT_BYTES')).toBeLessThan(serverSource.indexOf("mkdtemp(join(tmpdir(), 'office-preview-'))"));
+    expect(serverSource.indexOf('pdfStats.size > MAX_OUTPUT_BYTES')).toBeLessThan(serverSource.indexOf('const pdf = await readFile(pdfPath)'));
+    expect(serverSource).toContain("pdf.subarray(0, 5).toString('ascii') !== '%PDF-'");
+  });
+
+  it('always removes temporary workspaces and waits for timed-out LibreOffice to exit', () => {
+    expect(serverSource).toContain("await rm(workspace, { recursive: true, force: true })");
+    expect(serverSource).toContain("child.kill('SIGKILL')");
+    expect(serverSource).toContain("child.once('exit'");
+  });
+
+  it('limits both queue and container concurrency to two single-file jobs', () => {
+    expect(config.queues.consumers[0]).toMatchObject({ max_batch_size: 1, max_concurrency: 2 });
+    expect(config.containers[0]?.max_instances).toBe(2);
   });
 });

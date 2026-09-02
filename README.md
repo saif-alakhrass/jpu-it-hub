@@ -165,6 +165,11 @@ result, and writes it back through the R2 binding. Conversion is requested only
 on first preview, runs outside the upload request, retries transient failures,
 and sends exhausted jobs to the dead-letter queue.
 
+Legacy Office files whose `storage_provider` is `supabase` are never submitted
+to the R2 converter. The UI shows an explicit compatibility fallback and keeps
+the original download available. Running the separate legacy migration below
+enables lazy PDF previews for those files; preview requests never migrate data.
+
 ### 4. Vercel environment variables
 
 In the Vercel dashboard for your project, set:

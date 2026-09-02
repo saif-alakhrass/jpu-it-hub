@@ -1,8 +1,8 @@
 import { Container, getRandom } from '@cloudflare/containers';
 import { buildPreviewKey, hasPdfSignature, isPermanentConversionError, isValidPreviewJob, safeErrorCode, type OfficePreviewJob } from './core';
 
-const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
-const MAX_PREVIEW_BYTES = 50 * 1024 * 1024;
+export const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+export const MAX_PREVIEW_BYTES = 50 * 1024 * 1024;
 const CONVERTER_INSTANCES = 2;
 
 interface Env {
@@ -116,8 +116,15 @@ async function convertJob(env: Env, job: OfficePreviewJob): Promise<'done' | 'st
     const code = safeErrorCode(response.headers.get('X-Conversion-Error'));
     throw Object.assign(new Error(code), { code });
   }
-  const contentLength = Number(response.headers.get('Content-Length') || 0);
+  const rawContentLength = response.headers.get('Content-Length');
+  const contentLength = rawContentLength === null ? 0 : Number(rawContentLength);
+  if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+    throw Object.assign(new Error('invalid_output_length'), { code: 'invalid_pdf_output' });
+  }
   if (contentLength > MAX_PREVIEW_BYTES) throw Object.assign(new Error('output_too_large'), { code: 'output_too_large' });
+  // The generated PDF is bounded to 50 MB and intentionally buffered once.
+  // This permits signature validation and prevents an unverified partial
+  // derivative from being persisted in R2. Container concurrency is capped at 2.
   const pdf = new Uint8Array(await response.arrayBuffer());
   if (pdf.byteLength > MAX_PREVIEW_BYTES) throw Object.assign(new Error('output_too_large'), { code: 'output_too_large' });
   if (!hasPdfSignature(pdf)) throw Object.assign(new Error('invalid_pdf_output'), { code: 'invalid_pdf_output' });

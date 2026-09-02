@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,6 +21,16 @@ function sendError(response, status, code) {
 }
 
 async function readRequestBody(request) {
+  const rawLength = request.headers['content-length'];
+  if (rawLength !== undefined) {
+    const declaredLength = Number(rawLength);
+    if (!Number.isSafeInteger(declaredLength) || declaredLength < 0) {
+      throw Object.assign(new Error('invalid_content_length'), { code: 'invalid_request' });
+    }
+    if (declaredLength > MAX_INPUT_BYTES) {
+      throw Object.assign(new Error('input_too_large'), { code: 'input_too_large' });
+    }
+  }
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
@@ -29,6 +39,11 @@ async function readRequestBody(request) {
     chunks.push(chunk);
   }
   if (size < 4) throw Object.assign(new Error('empty_input'), { code: 'empty_input' });
+  if (rawLength !== undefined && size !== Number(rawLength)) {
+    throw Object.assign(new Error('input_length_mismatch'), { code: 'source_mismatch' });
+  }
+  // A 20 MB source is intentionally buffered once for signature validation
+  // and an atomic temp-file write. Queue/container concurrency is capped at 2.
   return Buffer.concat(chunks, size);
 }
 
@@ -58,18 +73,29 @@ function runLibreOffice(inputPath, outputDirectory, profileDirectory) {
     let diagnostics = '';
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => { diagnostics = `${diagnostics}${chunk}`.slice(-8192); });
+    let timedOut = false;
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill('SIGKILL');
-      reject(Object.assign(new Error('conversion_timeout'), { code: 'conversion_timeout' }));
     }, CONVERSION_TIMEOUT_MS);
     child.once('error', () => {
-      clearTimeout(timer);
-      reject(Object.assign(new Error('converter_unavailable'), { code: 'converter_unavailable' }));
+      finish(() => reject(Object.assign(new Error('converter_unavailable'), { code: 'converter_unavailable' })));
     });
     child.once('exit', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(Object.assign(new Error(`conversion_failed:${diagnostics}`), { code: 'conversion_failed' }));
+      if (timedOut) {
+        finish(() => reject(Object.assign(new Error('conversion_timeout'), { code: 'conversion_timeout' })));
+      } else if (code === 0) {
+        finish(resolve);
+      } else {
+        finish(() => reject(Object.assign(new Error(`conversion_failed:${diagnostics}`), { code: 'conversion_failed' })));
+      }
     });
   });
 }
@@ -79,6 +105,17 @@ async function convert(request, response) {
   const extension = String(request.headers['x-file-extension'] || '').toLowerCase();
   if (!UUID_RE.test(String(fileId || '')) || !OFFICE_EXTENSIONS.has(extension)) {
     sendError(response, 400, 'invalid_request');
+    return;
+  }
+
+  const rawLength = request.headers['content-length'];
+  const declaredLength = rawLength === undefined ? null : Number(rawLength);
+  if (declaredLength !== null && (!Number.isSafeInteger(declaredLength) || declaredLength < 0)) {
+    sendError(response, 400, 'invalid_request');
+    return;
+  }
+  if (declaredLength !== null && declaredLength > MAX_INPUT_BYTES) {
+    sendError(response, 413, 'input_too_large');
     return;
   }
 
@@ -99,7 +136,12 @@ async function convert(request, response) {
     const inputPath = join(inputDirectory, `${fileId}.${extension}`);
     await writeFile(inputPath, input, { mode: 0o600 });
     await runLibreOffice(inputPath, outputDirectory, profileDirectory);
-    const pdf = await readFile(join(outputDirectory, `${fileId}.pdf`));
+    const pdfPath = join(outputDirectory, `${fileId}.pdf`);
+    const pdfStats = await stat(pdfPath);
+    if (pdfStats.size > MAX_OUTPUT_BYTES) throw Object.assign(new Error('output_too_large'), { code: 'output_too_large' });
+    // LibreOffice output is capped at 50 MB and intentionally buffered once so
+    // its signature and exact length are verified before any R2 write occurs.
+    const pdf = await readFile(pdfPath);
     if (pdf.length > MAX_OUTPUT_BYTES) throw Object.assign(new Error('output_too_large'), { code: 'output_too_large' });
     if (pdf.length < 5 || pdf.subarray(0, 5).toString('ascii') !== '%PDF-') {
       throw Object.assign(new Error('invalid_pdf_output'), { code: 'invalid_pdf_output' });

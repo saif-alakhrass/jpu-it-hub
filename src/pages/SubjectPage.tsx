@@ -12,7 +12,8 @@ import { getBookmarkedIds } from '@/services/bookmarks';
 import { TABS, RESTRICTED_TABS, getVisibleTabs, type Bookmark, type FileBatch, type FileRow, type FileTab, type Difficulty } from '@/lib/types';
 import { formatFileSize } from '@/lib/storage';
 import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
-import { requestOfficePreview } from '@/lib/officePreviewApi';
+import { getOfficePreviewStrategy, requestOfficePreview } from '@/lib/officePreviewApi';
+import { pollOfficePreview } from '@/lib/officePreviewPolling';
 import { FileCardSkeletonList } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { MultiFileUpload } from '@/components/MultiFileUpload';
@@ -74,31 +75,38 @@ export function SubjectPage() {
     setToast({ message, type: 'error' });
   }, []);
   const { accessingFileId, accessFile, accessFileBlob } = useSignedFileAccess(reportFileAccessError);
-  const [preview, setPreview] = useState<{ file: FileRow; url: string } | null>(null);
-  const [officePreview, setOfficePreview] = useState<{ file: FileRow; status: 'queued' | 'processing' | 'failed'; errorCode?: string } | null>(null);
+  const [preview, setPreview] = useState<{ originalFile: FileRow; url: string; previewKind?: 'image' | 'pdf' } | null>(null);
+  const [officePreview, setOfficePreview] = useState<{ file: FileRow; status: 'legacy' | 'queued' | 'processing' | 'failed'; errorCode?: string } | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
   const previewAbortRef = useRef<AbortController | null>(null);
+  const previewRequestIdRef = useRef(0);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
-  const closePreview = useCallback(() => {
-    previewAbortRef.current?.abort();
-    previewAbortRef.current = null;
-    if (previewObjectUrlRef.current) {
-      URL.revokeObjectURL(previewObjectUrlRef.current);
-      previewObjectUrlRef.current = null;
-    }
-    setPreview(null);
-    setOfficePreview(null);
+  const releasePreviewObjectUrl = useCallback(() => {
+    const objectUrl = previewObjectUrlRef.current;
+    if (!objectUrl) return;
+    previewObjectUrlRef.current = null;
+    URL.revokeObjectURL(objectUrl);
   }, []);
 
-  useEffect(() => () => {
+  const closePreview = useCallback(() => {
+    previewRequestIdRef.current += 1;
     previewAbortRef.current?.abort();
-    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
-  }, []);
+    previewAbortRef.current = null;
+    releasePreviewObjectUrl();
+    setPreview(null);
+    setOfficePreview(null);
+  }, [releasePreviewObjectUrl]);
+
+  useEffect(() => () => {
+    previewRequestIdRef.current += 1;
+    previewAbortRef.current?.abort();
+    releasePreviewObjectUrl();
+  }, [releasePreviewObjectUrl]);
 
   const loadPage = useCallback(async () => {
     await Promise.all([subjectQuery.refetch(), reloadFiles()]);
@@ -323,71 +331,86 @@ export function SubjectPage() {
       await loadOfficePreview(file);
       return;
     }
+    previewRequestIdRef.current += 1;
+    const requestId = previewRequestIdRef.current;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    releasePreviewObjectUrl();
+    setOfficePreview(null);
     const mobileReader = shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints);
     const needsReadableBytes = mobileReader && (isPdfFile(file) || isImageFile(file));
     const url = needsReadableBytes
       ? await accessFileBlob(file)
       : await accessFile(file, 'preview');
     if (!url) return;
+    if (previewRequestIdRef.current !== requestId) {
+      if (needsReadableBytes) URL.revokeObjectURL(url);
+      return;
+    }
     if (needsReadableBytes) previewObjectUrlRef.current = url;
-    setPreview({ file, url });
+    setPreview({
+      originalFile: file,
+      url,
+      previewKind: isPdfFile(file) ? 'pdf' : isImageFile(file) ? 'image' : undefined,
+    });
   }
 
   async function loadOfficePreview(file: FileRow) {
+    previewRequestIdRef.current += 1;
+    const requestId = previewRequestIdRef.current;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    releasePreviewObjectUrl();
+    setPreview(null);
+
+    // Legacy Supabase Office objects cannot be consumed by the R2 converter.
+    // Keep the original downloadable and communicate the limitation explicitly.
+    if (getOfficePreviewStrategy(file) === 'legacy-fallback') {
+      setOfficePreview({ file, status: 'legacy' });
+      return;
+    }
+
     const token = session?.access_token;
     if (!token || !isR2Configured()) {
       setToast({ message: 'سجّل الدخول لعرض هذا الملف بأمان.', type: 'error' });
       return;
     }
 
-    previewAbortRef.current?.abort();
     const controller = new AbortController();
     previewAbortRef.current = controller;
     setOfficePreview({ file, status: 'queued' });
 
     try {
-      // Poll only while this dialog is open. The server-side queue performs the
-      // expensive work once; these lightweight requests only read its state.
-      for (let attempt = 0; attempt < 60 && !controller.signal.aborted; attempt += 1) {
-        const result = await requestOfficePreview(token, file.id, controller.signal);
-        if (result.status === 'ready') {
-          const url = URL.createObjectURL(result.pdf);
-          if (controller.signal.aborted) {
-            URL.revokeObjectURL(url);
-            return;
-          }
-          if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
-          previewObjectUrlRef.current = url;
-          // The reader receives the generated PDF, while download actions keep
-          // the original Office file and its original filename.
-          setPreview({
-            file: { ...file, file_type: 'pdf', mime_type: 'application/pdf' },
-            url,
-          });
-          setOfficePreview(null);
-          previewAbortRef.current = null;
+      const result = await pollOfficePreview({
+        signal: controller.signal,
+        request: (signal) => requestOfficePreview(token, file.id, signal),
+        onPending: (status) => {
+          if (previewRequestIdRef.current === requestId) setOfficePreview({ file, status });
+        },
+      });
+      if (controller.signal.aborted || previewRequestIdRef.current !== requestId) return;
+      if (result.status === 'ready') {
+        const url = URL.createObjectURL(result.pdf);
+        if (controller.signal.aborted || previewRequestIdRef.current !== requestId) {
+          URL.revokeObjectURL(url);
           return;
         }
-        if (result.status === 'failed') {
-          setOfficePreview({ file, status: 'failed', errorCode: result.errorCode });
-          previewAbortRef.current = null;
-          return;
-        }
-        setOfficePreview({ file, status: result.status });
-        await new Promise<void>((resolve, reject) => {
-          const timer = window.setTimeout(resolve, result.retryAfterSeconds * 1000);
-          controller.signal.addEventListener('abort', () => {
-            window.clearTimeout(timer);
-            reject(new DOMException('Aborted', 'AbortError'));
-          }, { once: true });
-        });
+        releasePreviewObjectUrl();
+        previewObjectUrlRef.current = url;
+        // The generated PDF describes only the preview bytes. The original
+        // FileRow remains intact so download always gets PPTX/DOCX metadata.
+        setPreview({ originalFile: file, url, previewKind: 'pdf' });
+        setOfficePreview(null);
+        return;
       }
-      if (!controller.signal.aborted) {
+      if (result.status === 'failed') {
+        setOfficePreview({ file, status: 'failed', errorCode: result.errorCode });
+      } else {
         setOfficePreview({ file, status: 'failed', errorCode: 'preview_timeout' });
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      setOfficePreview({ file, status: 'failed', errorCode: 'preview_unavailable' });
+      if (previewRequestIdRef.current === requestId) setOfficePreview({ file, status: 'failed', errorCode: 'preview_unavailable' });
     } finally {
       if (previewAbortRef.current === controller) previewAbortRef.current = null;
     }
@@ -614,30 +637,33 @@ export function SubjectPage() {
 
       {preview && shouldUseMobileReader(window.innerWidth, navigator.maxTouchPoints) && (
         <MobileFileReader
-          file={preview.file}
+          file={preview.originalFile}
           url={preview.url}
+          previewKind={preview.previewKind}
           onClose={closePreview}
-          onDownload={() => { void accessFile(preview.file, 'download'); }}
+          onDownload={(originalFile) => { void accessFile(originalFile, 'download'); }}
         />
       )}
 
       <Modal open={!!officePreview} onClose={closePreview} title="معاينة الملف" maxWidth="max-w-md">
         {officePreview && (
           <div className="flex min-h-72 flex-col items-center justify-center px-2 py-8 text-center">
-            {officePreview.status === 'failed' ? (
+            {officePreview.status === 'failed' || officePreview.status === 'legacy' ? (
               <Icon name="FileWarning" className="mb-4 h-11 w-11 text-amber-400" />
             ) : (
               <Icon name="Loader2" className="mb-4 h-11 w-11 animate-spin text-brand-400" />
             )}
             <h4 className="max-w-full truncate text-base font-bold text-slate-100" title={officePreview.file.title}>{officePreview.file.title}</h4>
             <p className="mt-3 max-w-sm text-sm leading-6 text-slate-400">
-              {officePreview.status === 'failed'
+              {officePreview.status === 'legacy'
+                ? 'هذا ملف قديم محفوظ في Supabase Storage، لذلك لا تتوفر له معاينة PDF حاليًا. يمكنك تنزيل الملف الأصلي.'
+                : officePreview.status === 'failed'
                 ? ['preview_timeout', 'preview_unavailable'].includes(officePreview.errorCode ?? '')
                   ? 'تعذر الوصول إلى خدمة المعاينة الآن. تستطيع تنزيل النسخة الأصلية، أو المحاولة مرة أخرى.'
-                  : 'تعذر إنشاء نسخة PDF لهذا الملف. النسخة الأصلية ما زالت محفوظة ومتاحة للتنزيل.'
+                  : 'تعذر إنشاء معاينة PDF. الملف الأصلي ما زال محفوظًا.'
                 : officePreview.status === 'processing'
-                  ? 'نجهّز نسخة PDF خفيفة ومتوافقة مع الهاتف. يمكنك إغلاق النافذة والعودة لاحقًا.'
-                  : 'تمت إضافة الملف إلى قائمة تجهيز المعاينة. لن يتأثر الملف الأصلي.'}
+                  ? 'جاري تجهيز نسخة PDF متوافقة مع الهاتف... يمكنك إغلاق النافذة والعودة لاحقًا.'
+                  : 'تمت إضافة الملف إلى قائمة تجهيز المعاينة. يمكنك تنزيل الملف الأصلي أثناء الانتظار.'}
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               {officePreview.status === 'failed' && ['preview_timeout', 'preview_unavailable'].includes(officePreview.errorCode ?? '') && (
@@ -657,15 +683,15 @@ export function SubjectPage() {
         {preview && (
           <div className="flex h-[calc(100dvh-5.5rem)] min-h-0 flex-col gap-3 sm:h-[min(82vh,56rem)]">
             <div className="shrink-0 px-1">
-              <h4 className="truncate font-bold text-slate-100" title={preview.file.title}>{preview.file.title}</h4>
+              <h4 className="truncate font-bold text-slate-100" title={preview.originalFile.title}>{preview.originalFile.title}</h4>
               <p className="mt-0.5 text-xs text-slate-400 sm:text-sm">وضع قراءة فقط — حرّك وكبّر داخل مساحة العرض.</p>
             </div>
-            {isImageFile(preview.file) ? (
+            {preview.previewKind === 'image' || isImageFile(preview.originalFile) ? (
               <div className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-xl border border-white/10 bg-black/20 p-2">
-                <img src={preview.url} alt={preview.file.title} className="m-auto h-auto max-h-full max-w-full rounded-lg object-contain" />
+                <img src={preview.url} alt={preview.originalFile.title} className="m-auto h-auto max-h-full max-w-full rounded-lg object-contain" />
               </div>
-            ) : isPdfFile(preview.file) ? (
-              <iframe src={preview.url} title={preview.file.title} className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white" />
+            ) : preview.previewKind === 'pdf' || isPdfFile(preview.originalFile) ? (
+              <iframe src={preview.url} title={preview.originalFile.title} className="min-h-0 w-full flex-1 rounded-xl border border-white/10 bg-white" />
             ) : (
               <div className="rounded-xl border border-white/10 bg-ink-800/50 p-6 text-center">
                 <Icon name="FileText" className="mx-auto mb-3 h-9 w-9 text-brand-400" />

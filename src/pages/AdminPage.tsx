@@ -7,7 +7,9 @@ import { type FileRow, type Profile, type Subject, type Role, type Difficulty, t
 import { MAJORS } from '@/lib/types';
 import { getSignedFileUrl } from '@/lib/storage';
 import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
-import { requestOfficePreview } from '@/lib/officePreviewApi';
+import { getOfficePreviewStrategy, requestOfficePreview } from '@/lib/officePreviewApi';
+import { pollOfficePreview } from '@/lib/officePreviewPolling';
+import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
 import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
@@ -53,9 +55,10 @@ export function AdminPage() {
   const [tab, setTab] = useState<AdminTab>('overview');
   const [preview, setPreview] = useState<FileRow | null>(null);
   const [signedPreviewUrl, setSignedPreviewUrl] = useState<string | null>(null);
-  const [previewConversion, setPreviewConversion] = useState<'queued' | 'processing' | 'failed' | null>(null);
+  const [previewConversion, setPreviewConversion] = useState<'legacy' | 'queued' | 'processing' | 'failed' | null>(null);
   const previewAbortRef = useRef<AbortController | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
+  const previewRequestIdRef = useRef(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<FileRow | null>(null);
@@ -68,6 +71,15 @@ export function AdminPage() {
   const [groupManaged, setGroupManaged] = useState<FileRow[] | null>(null);
   const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
+  const reportFileAccessError = useCallback((message: string) => setToast({ message, type: 'error' }), []);
+  const { accessFile } = useSignedFileAccess(reportFileAccessError);
+
+  const releasePreviewObjectUrl = useCallback(() => {
+    const objectUrl = previewObjectUrlRef.current;
+    if (!objectUrl) return;
+    previewObjectUrlRef.current = null;
+    URL.revokeObjectURL(objectUrl);
+  }, []);
 
   const loadPending = useCallback(async () => {
     const result = await fetchPendingFilesPaged(pendingPage);
@@ -261,16 +273,19 @@ export function AdminPage() {
   }
 
   async function openPreview(file: FileRow) {
+    previewRequestIdRef.current += 1;
+    const requestId = previewRequestIdRef.current;
     previewAbortRef.current?.abort();
-    if (previewObjectUrlRef.current) {
-      URL.revokeObjectURL(previewObjectUrlRef.current);
-      previewObjectUrlRef.current = null;
-    }
+    releasePreviewObjectUrl();
     setPreview(file);
     setSignedPreviewUrl(null);
     setPreviewConversion(null);
     try {
       let url: string | null = null;
+      if (isOfficeFile(file.file_type) && getOfficePreviewStrategy(file) === 'legacy-fallback') {
+        setPreviewConversion('legacy');
+        return;
+      }
       if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
@@ -279,28 +294,24 @@ export function AdminPage() {
             const controller = new AbortController();
             previewAbortRef.current = controller;
             setPreviewConversion('queued');
-            for (let attempt = 0; attempt < 60 && !controller.signal.aborted; attempt += 1) {
-              const result = await requestOfficePreview(token, file.id, controller.signal);
-              if (result.status === 'ready') {
-                url = URL.createObjectURL(result.pdf);
-                previewObjectUrlRef.current = url;
-                setPreviewConversion(null);
-                break;
-              }
-              if (result.status === 'failed') {
-                setPreviewConversion('failed');
+            const result = await pollOfficePreview({
+              signal: controller.signal,
+              request: (signal) => requestOfficePreview(token, file.id, signal),
+              onPending: (status) => {
+                if (previewRequestIdRef.current === requestId) setPreviewConversion(status);
+              },
+            });
+            if (controller.signal.aborted || previewRequestIdRef.current !== requestId) return;
+            if (result.status === 'ready') {
+              url = URL.createObjectURL(result.pdf);
+              if (controller.signal.aborted || previewRequestIdRef.current !== requestId) {
+                URL.revokeObjectURL(url);
                 return;
               }
-              setPreviewConversion(result.status);
-              await new Promise<void>((resolve, reject) => {
-                const timer = window.setTimeout(resolve, result.retryAfterSeconds * 1000);
-                controller.signal.addEventListener('abort', () => {
-                  window.clearTimeout(timer);
-                  reject(new DOMException('Aborted', 'AbortError'));
-                }, { once: true });
-              });
-            }
-            if (!url && !controller.signal.aborted) {
+              releasePreviewObjectUrl();
+              previewObjectUrlRef.current = url;
+              setPreviewConversion(null);
+            } else {
               setPreviewConversion('failed');
               return;
             }
@@ -313,31 +324,32 @@ export function AdminPage() {
       } else {
         url = await getSignedFileUrl(file.storage_path);
       }
+      if (previewRequestIdRef.current !== requestId) return;
       if (!url) throw new Error('preview URL unavailable');
       setSignedPreviewUrl(url);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
+      if (previewRequestIdRef.current !== requestId) return;
       setPreview(null);
       setToast({ message: 'تعذر إنشاء رابط معاينة آمن للملف.', type: 'error' });
     }
   }
 
   const closeAdminPreview = useCallback(() => {
+    previewRequestIdRef.current += 1;
     previewAbortRef.current?.abort();
     previewAbortRef.current = null;
-    if (previewObjectUrlRef.current) {
-      URL.revokeObjectURL(previewObjectUrlRef.current);
-      previewObjectUrlRef.current = null;
-    }
+    releasePreviewObjectUrl();
     setPreview(null);
     setSignedPreviewUrl(null);
     setPreviewConversion(null);
-  }, []);
+  }, [releasePreviewObjectUrl]);
 
   useEffect(() => () => {
+    previewRequestIdRef.current += 1;
     previewAbortRef.current?.abort();
-    if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
-  }, []);
+    releasePreviewObjectUrl();
+  }, [releasePreviewObjectUrl]);
 
   if (authLoading) {
     return <div className="py-20 text-center"><Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" /></div>;
@@ -447,18 +459,32 @@ export function AdminPage() {
                     <a href={signedPreviewUrl} target="_blank" rel="noreferrer" className="btn-ghost mt-4"><Icon name="Download" className="h-4 w-4" /> فتح الملف</a>
                   </div>
                 )
-              ) : previewConversion === 'failed' ? (
+              ) : previewConversion === 'failed' || previewConversion === 'legacy' ? (
                 <div className="flex h-[40vh] flex-col items-center justify-center px-4 text-center">
                   <Icon name="FileWarning" className="mb-3 h-10 w-10 text-amber-400" />
-                  <p className="font-bold text-slate-200">تعذر تجهيز معاينة PDF</p>
-                  <p className="mt-1 text-sm text-slate-400">الملف الأصلي محفوظ ولم يتم تعديله. يمكنك المحاولة لاحقًا.</p>
-                  <button onClick={() => void openPreview(preview)} className="btn-ghost mt-4"><Icon name="RefreshCw" className="h-4 w-4" /> إعادة المحاولة</button>
+                  <p className="font-bold text-slate-200">
+                    {previewConversion === 'legacy' ? 'المعاينة غير متاحة لهذا الملف القديم' : 'تعذر تجهيز معاينة PDF'}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {previewConversion === 'legacy'
+                      ? 'الملف محفوظ في Supabase Storage. انقله إلى R2 لتفعيل معاينة PDF، أو نزّل النسخة الأصلية الآن.'
+                      : 'الملف الأصلي محفوظ ولم يتم تعديله. يمكنك المحاولة لاحقًا.'}
+                  </p>
+                  {previewConversion === 'failed' && (
+                    <button onClick={() => void openPreview(preview)} className="btn-ghost mt-4"><Icon name="RefreshCw" className="h-4 w-4" /> إعادة المحاولة</button>
+                  )}
                 </div>
               ) : (
                 <div className="flex h-[40vh] items-center justify-center">
                   <div className="text-center">
                     <Icon name="Loader2" className="mx-auto h-8 w-8 animate-spin text-brand-400" />
-                    {previewConversion && <p className="mt-3 text-sm text-slate-400">جاري تجهيز معاينة PDF المتوافقة مع الهاتف…</p>}
+                    {previewConversion && (
+                      <p className="mt-3 text-sm text-slate-400">
+                        {previewConversion === 'processing'
+                          ? 'جاري تجهيز نسخة PDF متوافقة مع الهاتف...'
+                          : 'تمت إضافة الملف إلى قائمة تجهيز المعاينة.'}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -468,6 +494,9 @@ export function AdminPage() {
               <p className="text-sm text-slate-400">{preview.uploader?.full_name} · {preview.subject?.name} {preview.subject?.code && <span className="font-mono text-slate-500">({preview.subject.code})</span>}</p>
             </div>
             <div className="flex justify-end gap-2">
+              <button onClick={() => void accessFile(preview, 'download')} className="btn-ghost" disabled={busyId === preview.id}>
+                <Icon name="Download" className="h-4 w-4" /> تحميل الملف الأصلي
+              </button>
               <button onClick={() => { setRejectionReason(''); setConfirmReject(preview); }} className="btn-danger" disabled={busyId === preview.id}>
                 {busyId === preview.id ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Trash2" className="h-4 w-4" />} رفض وحذف
               </button>

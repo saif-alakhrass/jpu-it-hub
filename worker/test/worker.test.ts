@@ -20,6 +20,7 @@ import {
   getUploadLimit,
   validatePreviewObjectKey,
   officePreviewPdfResponse,
+  collectR2DeletionKeys,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
@@ -160,6 +161,23 @@ describe('Office preview object isolation', () => {
     expect(response.headers.get('Content-Disposition')).toContain('inline;');
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(await response.text()).toBe('%PDF-preview');
+  });
+
+  it('deletes the original and its generated derivative as separate objects', () => {
+    const previewKey = `previews/${fileId}/${hash}-v1.pdf`;
+    const file = makeFile({
+      id: fileId,
+      object_key: `a1b2c3d4-e5f6-7890-abcd-ef1234567890/${fileId}.pptx`,
+      storage_path: `a1b2c3d4-e5f6-7890-abcd-ef1234567890/${fileId}.pptx`,
+      preview_object_key: previewKey,
+    });
+    expect(collectR2DeletionKeys(file)).toEqual([file.object_key, previewKey]);
+  });
+
+  it('never sends legacy Supabase objects to R2 deletion', () => {
+    expect(collectR2DeletionKeys(makeFile({
+      storage_provider: 'supabase', object_key: null, storage_path: 'legacy/lecture.pptx',
+    }))).toEqual([]);
   });
 });
 
