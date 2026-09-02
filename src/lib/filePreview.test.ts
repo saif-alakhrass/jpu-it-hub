@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mobileOfficePreviewUrl, officePreviewUrl, shouldUseFullPagePreview } from './filePreview';
+import {
+  clampOfficeZoom,
+  getBrowserOfficePreviewKind,
+  mobileOfficePreviewUrl,
+  officePreviewUrl,
+  shouldUseFullPagePreview,
+} from './filePreview';
 
 describe('Office file preview', () => {
   it('uses the full-page viewer on phones and touch-first tablets', () => {
@@ -20,5 +26,18 @@ describe('Office file preview', () => {
     expect(mobileOfficePreviewUrl(signedUrl)).toBe(
       `https://docs.google.com/gview?url=${encodeURIComponent(signedUrl)}`,
     );
+  });
+
+  it('selects the internal viewer only for browser-readable OOXML files', () => {
+    expect(getBrowserOfficePreviewKind('PPTX')).toBe('pptx');
+    expect(getBrowserOfficePreviewKind('.docx')).toBe('docx');
+    expect(getBrowserOfficePreviewKind('ppt')).toBeNull();
+    expect(getBrowserOfficePreviewKind('pdf')).toBeNull();
+  });
+
+  it('keeps viewer zoom within usable mobile limits', () => {
+    expect(clampOfficeZoom(21)).toBe(50);
+    expect(clampOfficeZoom(137)).toBe(140);
+    expect(clampOfficeZoom(260)).toBe(200);
   });
 });

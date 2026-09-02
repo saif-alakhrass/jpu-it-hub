@@ -5,8 +5,7 @@ import { Toast } from '@/components/Toast';
 import { useAuth } from '@/hooks/useAuth';
 import { type FileRow, type Profile, type Subject, type Role, type Difficulty, type FileTab, type FileStatus, TABS } from '@/lib/types';
 import { MAJORS } from '@/lib/types';
-import { getSignedFileUrl } from '@/lib/storage';
-import { deleteFileViaWorker, isR2Configured, requestDownloadPresign } from '@/lib/r2Client';
+import { deleteFileViaWorker, isR2Configured } from '@/lib/r2Client';
 import { supabase } from '@/lib/supabase';
 import {
   fetchPendingFilesPaged,
@@ -30,6 +29,9 @@ import { AdminOverview } from '@/components/admin/AdminOverview';
 import { AdminFileQueue } from '@/components/admin/AdminFileQueue';
 import { AdminFileLibrary } from '@/components/admin/AdminFileLibrary';
 import { AdminUsers } from '@/components/admin/AdminUsers';
+import { BrowserOfficeViewer } from '@/components/BrowserOfficeViewer';
+import { useSignedFileAccess } from '@/hooks/useSignedFileAccess';
+import { getBrowserOfficePreviewKind, officePreviewUrl } from '@/lib/filePreview';
 
 type AdminTab = 'overview' | 'pending' | 'files' | 'subjects' | 'users';
 
@@ -64,6 +66,10 @@ export function AdminPage() {
   const [groupManaged, setGroupManaged] = useState<FileRow[] | null>(null);
   const [confirmDeleteRejected, setConfirmDeleteRejected] = useState<FileRow | null>(null);
   const [confirmRole, setConfirmRole] = useState<{ user: Profile; toRole: Role } | null>(null);
+  const reportFileAccessError = useCallback((message: string) => {
+    setToast({ message, type: 'error' });
+  }, []);
+  const { accessFile, getFileBlob } = useSignedFileAccess(reportFileAccessError);
 
   const loadPending = useCallback(async () => {
     const result = await fetchPendingFilesPaged(pendingPage);
@@ -259,19 +265,9 @@ export function AdminPage() {
   async function openPreview(file: FileRow) {
     setPreview(file);
     setSignedPreviewUrl(null);
+    if (getBrowserOfficePreviewKind(file.file_type)) return;
     try {
-      let url: string | null = null;
-      if (file.storage_provider === 'r2' && file.object_key && isR2Configured()) {
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
-        if (token) {
-          const result = await requestDownloadPresign(token, file.id);
-          if (result?.download_url) url = result.download_url;
-          else if (result?.provider === 'supabase' && result.storage_path) url = await getSignedFileUrl(result.storage_path);
-        }
-      } else {
-        url = await getSignedFileUrl(file.storage_path);
-      }
+      const url = await accessFile(file, 'preview') ?? null;
       if (!url) throw new Error('preview URL unavailable');
       setSignedPreviewUrl(url);
     } catch {
@@ -372,11 +368,24 @@ export function AdminPage() {
         <AdminUsers users={students} requestRoleChange={(user, toRole) => setConfirmRole({ user, toRole })} busyId={busyId} />
       )}
 
-      <Modal open={!!preview} onClose={() => { setPreview(null); setSignedPreviewUrl(null); }} title="معاينة الملف" maxWidth="max-w-3xl">
+      <Modal open={!!preview} onClose={() => { setPreview(null); setSignedPreviewUrl(null); }} title="معاينة الملف" maxWidth="max-w-6xl">
         {preview && (
           <div className="space-y-4">
             <div className="rounded-xl border border-white/10 bg-ink-900 p-3">
-              {signedPreviewUrl ? (
+              {getBrowserOfficePreviewKind(preview.file_type) ? (
+                <div className="flex h-[calc(100dvh-10rem)] min-h-[24rem] flex-col sm:h-[70vh]">
+                  <BrowserOfficeViewer
+                    file={preview}
+                    loadDocument={getFileBlob}
+                    onDownload={() => void accessFile(preview, 'download')}
+                    onOpenExternal={() => {
+                      void accessFile(preview, 'preview').then((url) => {
+                        if (url) window.location.assign(officePreviewUrl(url, false));
+                      });
+                    }}
+                  />
+                </div>
+              ) : signedPreviewUrl ? (
                 isImageFile(preview.file_type) ? (
                   <img src={signedPreviewUrl} alt={preview.title} className="max-h-[60vh] mx-auto rounded-lg" />
                 ) : isPdfFile(preview.file_type) ? (

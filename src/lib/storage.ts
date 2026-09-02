@@ -22,9 +22,13 @@ export async function getSignedFileUrl(storagePath: string): Promise<string | nu
 }
 
 export async function downloadFileViaStorage(storagePath: string, fallbackName: string): Promise<void> {
+  saveBlob(await getFileBlobViaStorage(storagePath), fallbackName);
+}
+
+export async function getFileBlobViaStorage(storagePath: string): Promise<Blob> {
   const { data, error } = await supabase.storage.from('files').download(storagePath);
   if (error || !data) throw error ?? new Error('Download failed');
-  saveBlob(data, fallbackName);
+  return data;
 }
 
 export function openFilePreview(url: string): void {
