@@ -1,8 +1,8 @@
-import type { StudentSemester } from './studentAssistant';
+import type { Meeting, StudentSemester } from './studentAssistant';
 import {
   campusDate,
   campusTimestamp,
-  dailyMeetings,
+  minutes,
   validDate,
 } from './scheduleUtils';
 
@@ -22,35 +22,52 @@ export function remainingTime(milliseconds: number): string {
     .join(' و');
 }
 
-export function nearestLecture(state: StudentSemester, now: number) {
-  const { startsOn, endsOn } = state;
+type LectureStatus =
+  | { kind: 'active'; endsAt: number }
+  | { kind: 'upcoming'; startsAt: number; date: string }
+  | { kind: 'finished' | 'outside-term' | 'invalid' };
+
+// Status belongs to each meeting, not just the next course in the schedule.
+// Keep today's completed lecture visible until campus midnight.
+export function lectureStatus(
+  meeting: Meeting,
+  { startsOn, endsOn }: Pick<StudentSemester, 'startsOn' | 'endsOn'>,
+  now: number,
+): LectureStatus {
+  const start = minutes(meeting.start),
+    end = minutes(meeting.end);
   if (
+    !meeting.days.length ||
+    start === null ||
+    end === null ||
+    end <= start ||
     (startsOn && !validDate(startsOn)) ||
     (endsOn && !validDate(endsOn)) ||
     (startsOn && endsOn && endsOn < startsOn)
   )
-    return null;
+    return { kind: 'invalid' };
   const today = campusDate(now);
-  if (endsOn && today > endsOn) return null;
+  if (endsOn && today > endsOn) return { kind: 'outside-term' };
+  const todayDay = new Date(`${today}T12:00:00Z`).getUTCDay();
+  if (
+    (!startsOn || today >= startsOn) &&
+    meeting.days.includes(todayDay) &&
+    now >= campusTimestamp(`${today}T${meeting.end}`)!
+  )
+    return { kind: 'finished' };
   const first = new Date(`${today < startsOn ? startsOn : today}T12:00:00Z`);
   // Weekly schedule, no unconfirmed academic dates or automatic cancellations.
   for (let offset = 0; offset <= 7; offset++) {
     const day = new Date(first.getTime() + offset * 86_400_000);
     const date = day.toISOString().slice(0, 10);
     if (endsOn && date > endsOn) break;
-    const entries = dailyMeetings(state.courses, day.getUTCDay())
-      .map((entry) => ({
-        ...entry,
-        date,
-        startsAt: campusTimestamp(`${date}T${entry.meeting.start}`)!,
-        endsAt: campusTimestamp(`${date}T${entry.meeting.end}`)!,
-      }))
-      .filter((entry) => entry.endsAt > now);
-    const current = entries.find((entry) => entry.startsAt <= now);
-    const next = current ?? entries[0];
-    if (next) return { ...next, active: next.startsAt <= now };
+    if (!meeting.days.includes(day.getUTCDay())) continue;
+    const startsAt = campusTimestamp(`${date}T${meeting.start}`)!;
+    const endsAt = campusTimestamp(`${date}T${meeting.end}`)!;
+    if (startsAt <= now && now < endsAt) return { kind: 'active', endsAt };
+    if (startsAt > now) return { kind: 'upcoming', startsAt, date };
   }
-  return null;
+  return { kind: 'outside-term' };
 }
 
 export function nearestDeadline(state: StudentSemester, now: number) {

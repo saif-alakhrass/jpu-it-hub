@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon } from '@/components/Icon';
+import { LectureSchedule } from './LectureSchedule';
 import {
   buildSemesterCalendar,
   dailyMeetings,
@@ -115,6 +116,7 @@ export function ScheduleTab({
   }
   return (
     <div className="space-y-5">
+      <LectureSchedule data={data} />
       <section className="card p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-bold">جدول الفصل</h2>
@@ -124,9 +126,9 @@ export function ScheduleTab({
         </div>
         <p className="mt-2 text-sm text-slate-400">
           جميع الأوقات بتوقيت عمّان (UTC+03). المحاضرات تتكرر أسبوعيًا بين
-          تاريخي الفصل اللذين تدخلهما. إن تركتهما فارغين، يعرض العدّاد أقرب
-          محاضرة حسب أيام جدولك فقط. لا نرسل إشعارات منبثقة؛ العدادات داخل هذه
-          الصفحة فقط.
+          تاريخي الفصل اللذين تدخلهما. إن تركتهما فارغين، تعرض البطاقات حالة
+          المحاضرات حسب أيام جدولك فقط. لا نرسل إشعارات منبثقة؛ العدادات داخل
+          هذه الصفحة فقط.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="space-y-1 text-sm">
@@ -179,7 +181,14 @@ export function ScheduleTab({
           </ul>
         </div>
       )}
-      <WeeklySchedule courses={data.courses} />
+      <details className="card p-4">
+        <summary className="cursor-pointer font-bold">
+          عرض الجدول الأسبوعي
+        </summary>
+        <div className="mt-4">
+          <WeeklySchedule courses={data.courses} />
+        </div>
+      </details>
       <section className="space-y-3">
         <h2 className="text-lg font-bold">أوقات المواد</h2>
         {!data.courses.length && (

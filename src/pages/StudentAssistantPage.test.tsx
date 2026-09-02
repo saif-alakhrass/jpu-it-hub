@@ -57,6 +57,15 @@ function mount() {
   );
 }
 describe('interconnected student assistant', () => {
+  it('shows lecture cards only in the schedule tab, without the removed overview', () => {
+    mount();
+    expect(screen.queryByRole('region', { name: 'محاضراتي' })).toBeNull();
+    expect(screen.queryByText('الآن والقادم')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'الجدول والمواعيد' }));
+    expect(screen.getByRole('region', { name: 'محاضراتي' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'المعدل والمواد' }));
+    expect(screen.queryByRole('region', { name: 'محاضراتي' })).toBeNull();
+  });
   it('keeps focus while editing and shares one course across tabs and reloads', async () => {
     const { unmount } = mount();
     fireEvent.click(screen.getByRole('button', { name: 'أضف مادة' }));

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  nearestDeadline,
-  nearestLecture,
-  remainingTime,
-} from './studentAgenda';
+import { nearestDeadline, lectureStatus, remainingTime } from './studentAgenda';
 import { campusDate, campusTimestamp } from './scheduleUtils';
 import { FIXED_HOLIDAYS, nearestFixedHoliday } from './fixedHolidays';
 import { emptySemester, newCourse, parseSemester } from './studentAssistant';
@@ -27,54 +23,117 @@ const state = () => ({
     },
   ],
 });
-describe('nearest agenda and room compatibility', () => {
-  it('counts down to the lecture, then its end, then chooses the next day', () => {
+describe('per-lecture status and room compatibility', () => {
+  it('counts down to the lecture, then its end, then keeps it completed today', () => {
     const data = state();
-    const next = nearestLecture(data, at('2026-09-06T09:00'))!;
-    expect(next.active).toBe(false);
-    expect(next.meeting.room).toBe('IT 203');
-    expect(remainingTime(next.startsAt - at('2026-09-06T09:00'))).toBe(
-      '1 ساعة',
-    );
-    expect(nearestLecture(data, at('2026-09-06T10:00'))?.active).toBe(true);
-    const current = nearestLecture(data, at('2026-09-06T10:30'))!;
-    expect(remainingTime(current.endsAt - at('2026-09-06T10:30'))).toBe(
-      '30 دقيقة',
-    );
-    expect(nearestLecture(data, at('2026-09-06T11:00'))?.date).toBe(
-      '2026-09-08',
-    );
+    const meeting = data.courses[0]!.meetings[0]!;
+    expect(lectureStatus(meeting, data, at('2026-09-06T09:00'))).toEqual({
+      kind: 'upcoming',
+      startsAt: at('2026-09-06T10:00'),
+      date: '2026-09-06',
+    });
+    expect(lectureStatus(meeting, data, at('2026-09-06T10:00'))).toEqual({
+      kind: 'active',
+      endsAt: at('2026-09-06T11:00'),
+    });
+    expect(lectureStatus(meeting, data, at('2026-09-06T10:59'))).toEqual({
+      kind: 'active',
+      endsAt: at('2026-09-06T11:00'),
+    });
+    expect(lectureStatus(meeting, data, at('2026-09-06T11:00'))).toEqual({
+      kind: 'finished',
+    });
+    expect(lectureStatus(meeting, data, at('2026-09-06T23:59'))).toEqual({
+      kind: 'finished',
+    });
+    expect(lectureStatus(meeting, data, at('2026-09-07T00:00'))).toMatchObject({
+      kind: 'upcoming',
+      date: '2026-09-08',
+    });
   });
   it('honors user bounds only, never assumes the discarded university term', () => {
     const data = state();
-    expect(nearestLecture(data, at('2030-06-01T10:00'))).not.toBeNull();
+    const meeting = data.courses[0]!.meetings[0]!;
+    expect(lectureStatus(meeting, data, at('2030-06-01T10:00')).kind).toBe(
+      'upcoming',
+    );
     data.startsOn = '2026-10-01';
     data.endsOn = '2026-10-31';
-    expect(nearestLecture(data, at('2026-09-06T09:00'))?.date).toBe(
-      '2026-10-04',
+    expect(lectureStatus(meeting, data, at('2026-09-06T09:00'))).toMatchObject({
+      kind: 'upcoming',
+      date: '2026-10-04',
+    });
+    expect(lectureStatus(meeting, data, at('2026-11-01T09:00')).kind).toBe(
+      'outside-term',
     );
-    expect(nearestLecture(data, at('2026-11-01T09:00'))).toBeNull();
     data.endsOn = '2026-09-30';
-    expect(nearestLecture(data, at('2026-09-06T09:00'))).toBeNull();
+    expect(lectureStatus(meeting, data, at('2026-09-06T09:00')).kind).toBe(
+      'invalid',
+    );
     data.startsOn = '2026-02-30';
-    expect(nearestLecture(data, at('2026-09-06T09:00'))).toBeNull();
+    expect(lectureStatus(meeting, data, at('2026-09-06T09:00')).kind).toBe(
+      'invalid',
+    );
   });
   it('uses Amman dates and wraps a weekly meeting after its end', () => {
     const data = state();
     data.courses[0]!.meetings[0]!.days = [0];
     expect(campusDate(Date.parse('2026-09-05T21:15:00Z'))).toBe('2026-09-06');
-    expect(nearestLecture(data, at('2026-09-06T11:00'))?.date).toBe(
-      '2026-09-13',
-    );
+    const meeting = data.courses[0]!.meetings[0]!;
+    expect(lectureStatus(meeting, data, at('2026-09-07T00:00'))).toMatchObject({
+      kind: 'upcoming',
+      date: '2026-09-13',
+    });
     data.courses[0]!.meetings[0]!.end = '09:00';
-    expect(nearestLecture(data, at('2026-09-06T09:00'))).toBeNull();
+    expect(lectureStatus(meeting, data, at('2026-09-06T09:00')).kind).toBe(
+      'invalid',
+    );
   });
   it('does not silently cancel a lecture on a fixed occasion', () => {
     const data = state();
     data.courses[0]!.meetings[0]!.days = [5];
-    expect(nearestLecture(data, at('2027-01-01T09:00'))?.date).toBe(
-      '2027-01-01',
+    expect(
+      lectureStatus(
+        data.courses[0]!.meetings[0]!,
+        data,
+        at('2027-01-01T09:00'),
+      ),
+    ).toMatchObject({ kind: 'upcoming', date: '2027-01-01' });
+  });
+  it('keeps states independent for multiple slots and never treats another weekday as finished', () => {
+    const data = state();
+    const meeting = data.courses[0]!.meetings[0]!;
+    const now = at('2026-09-06T10:30');
+    expect(
+      lectureStatus({ ...meeting, start: '08:00', end: '09:00' }, data, now)
+        .kind,
+    ).toBe('finished');
+    expect(lectureStatus(meeting, data, now).kind).toBe('active');
+    expect(
+      lectureStatus({ ...meeting, start: '11:00', end: '12:00' }, data, now)
+        .kind,
+    ).toBe('upcoming');
+    expect(
+      lectureStatus(
+        { ...meeting, days: [1], start: '08:00', end: '09:00' },
+        data,
+        now,
+      ).kind,
+    ).toBe('upcoming');
+    expect(lectureStatus({ ...meeting, days: [] }, data, now).kind).toBe(
+      'invalid',
     );
+    expect(
+      lectureStatus({ ...meeting, start: '23:00', end: '01:00' }, data, now)
+        .kind,
+    ).toBe('invalid');
+    expect(
+      lectureStatus(
+        meeting,
+        { startsOn: '2026-09-07', endsOn: '2026-09-07' },
+        now,
+      ).kind,
+    ).toBe('outside-term');
   });
   it('selects only the nearest valid personal deadline, excluding elapsed ones', () => {
     const data = {
