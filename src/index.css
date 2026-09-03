@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+.semester-card-print-root { display: none; }
+
+@media print {
+  body.semester-card-printing {
+    height: auto;
+    overflow: visible;
+    background: white;
+    color: #263551;
+  }
+  body.semester-card-printing > :not(.semester-card-print-root) {
+    display: none !important;
+  }
+  body.semester-card-printing > .semester-card-print-root {
+    display: block;
+    padding: 12mm;
+    font-family: 'IBM Plex Sans Arabic', sans-serif;
+  }
+}
+
 :root {
   color-scheme: light;
 }

@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -11,6 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudentAssistantPage } from './StudentAssistantPage';
 import { matchSubject } from '@/lib/assistantSubjects';
 import type { Subject } from '@/lib/types';
+import {
+  emptySemester,
+  newCourse,
+  parseSemester,
+  STUDENT_STORAGE_KEY,
+} from '@/lib/studentAssistant';
 vi.mock('@/hooks/useSubjects', () => ({
   useAllSubjects: () => ({
     subjects: [
@@ -57,14 +64,81 @@ function mount() {
   );
 }
 describe('interconnected student assistant', () => {
-  it('shows lecture cards only in the schedule tab, without the removed overview', () => {
+  it('keeps advanced course fields optional without losing edits or input focus', () => {
     mount();
-    expect(screen.queryByRole('region', { name: 'محاضراتي' })).toBeNull();
-    expect(screen.queryByText('الآن والقادم')).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: 'الجدول والمواعيد' }));
-    expect(screen.getByRole('region', { name: 'محاضراتي' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'المعدل والمواد' }));
-    expect(screen.queryByRole('region', { name: 'محاضراتي' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'أضف مادة' }));
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    const toggle = screen.getByRole('button', {
+      name: 'الربط بالمكتبة وإعادة المادة',
+    });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('checkbox'));
+    const oldGrade = screen.getByLabelText('العلامة القديمة');
+    oldGrade.focus();
+    fireEvent.change(oldGrade, { target: { value: '55' } });
+    expect(document.activeElement).toBe(oldGrade);
+    fireEvent.click(toggle);
+    expect(screen.queryByLabelText('العلامة القديمة')).toBeNull();
+    fireEvent.click(toggle);
+    expect(
+      (screen.getByLabelText('العلامة القديمة') as HTMLInputElement).value,
+    ).toBe('55');
+    fireEvent.click(screen.getByRole('tab', { name: 'مكتبة فصلي' }));
+    fireEvent.click(screen.getByRole('button', { name: 'تعديل مواد الفصل' }));
+    expect(
+      (screen.getByLabelText('العلامة القديمة') as HTMLInputElement).value,
+    ).toBe('55');
+    expect(document.activeElement).toBe(
+      screen.getByRole('tab', { name: 'المعدل والمواد' }),
+    );
+  });
+  it('keeps the redesigned tabs keyboard accessible with the correct panel relationship', () => {
+    mount();
+    const calculator = screen.getByRole('tab', { name: 'المعدل والمواد' });
+    const library = screen.getByRole('tab', { name: 'مكتبة فصلي' });
+    expect(calculator.getAttribute('aria-controls')).toBe(
+      'assistant-panel-calculator',
+    );
+    expect(library.getAttribute('aria-controls')).toBe(
+      'assistant-panel-library',
+    );
+    fireEvent.keyDown(calculator, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(library);
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(
+      library.id,
+    );
+    fireEvent.keyDown(library, { key: 'Home' });
+    expect(document.activeElement).toBe(calculator);
+  });
+  it('keeps only calculator and library tabs, with card export under the GPA result', () => {
+    mount();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByRole('tab', { name: 'الجدول والمواعيد' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'بطاقة الفصل' })).toBeNull();
+    expect(
+      screen.queryByRole('region', { name: 'معاينة بطاقة الفصل' }),
+    ).toBeNull();
+    fireEvent.click(
+      within(screen.getByRole('region', { name: 'توقعات الفصل' })).getByRole(
+        'button',
+        { name: 'طباعة / حفظ بطاقة الفصل' },
+      ),
+    );
+    expect(
+      screen.getByRole('region', { name: 'معاينة بطاقة الفصل' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'طباعة بطاقة الفصل' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'حفظ البطاقة PNG' }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'مكتبة فصلي' }));
+    expect(document.querySelector('.semester-card-print-root')).toBeNull();
+    expect(document.body.classList.contains('semester-card-printing')).toBe(
+      false,
+    );
   });
   it('keeps focus while editing and shares one course across tabs and reloads', async () => {
     const { unmount } = mount();
@@ -84,8 +158,6 @@ describe('interconnected student assistant', () => {
     expect(
       screen.queryByRole('link', { name: /امتحانات وسنوات سابقة/ }),
     ).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: 'الجدول والمواعيد' }));
-    expect(screen.getByText(/برمجة بايثون/)).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: 'المعدل والمواد' }));
     expect(
       (screen.getByLabelText('اسم المادة') as HTMLInputElement).value,
@@ -111,36 +183,66 @@ describe('interconnected student assistant', () => {
       ]),
     ).toBeNull();
   });
-  it('updates date/time inputs immediately and retains them across tabs', () => {
-    mount();
-    fireEvent.click(screen.getByRole('button', { name: 'أضف مادة' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'الجدول والمواعيد' }));
-    fireEvent.input(screen.getByLabelText('بداية الفصل'), {
-      target: { value: '2026-09-01' },
-    });
-    fireEvent.click(screen.getByText(/مادة بدون اسم/));
-    fireEvent.click(screen.getByRole('button', { name: 'إضافة وقت محاضرة' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'الأحد' }));
-    fireEvent.input(screen.getByLabelText('من'), {
-      target: { value: '10:00' },
-    });
-    fireEvent.input(screen.getByLabelText('إلى'), {
-      target: { value: '11:00' },
-    });
-    expect(screen.getAllByText('10:00 – 11:00').length).toBeGreaterThan(0);
-    const room = screen.getByLabelText('القاعة (اختياري)');
-    room.focus();
-    fireEvent.change(room, { target: { value: 'IT 203' } });
-    expect(document.activeElement).toBe(room);
-    fireEvent.click(screen.getByRole('tab', { name: 'بطاقة الفصل' }));
-    expect(screen.getAllByText('10:00 – 11:00').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('tab', { name: 'الجدول والمواعيد' }));
+  it('preserves legacy schedule data without displaying it and shares card edits across tabs', () => {
+    const legacy = {
+      ...emptySemester(),
+      startsOn: '2026-09-01',
+      endsOn: '2026-12-31',
+      courses: [
+        {
+          ...newCourse(),
+          name: 'شبكات',
+          grade: '90',
+          meetings: [
+            {
+              id: 'm1',
+              days: [0],
+              start: '10:00',
+              end: '11:00',
+              room: 'IT 203',
+            },
+          ],
+          deadlines: [
+            {
+              id: 'd1',
+              kind: 'midterm' as const,
+              title: 'ميد',
+              at: '2026-11-01T10:00',
+            },
+          ],
+        },
+      ],
+    };
+    localStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(legacy));
+    const { unmount } = mount();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'طباعة / حفظ بطاقة الفصل' }),
+    );
+    const name = screen.getByLabelText('اسم الطالب (اختياري)');
+    name.focus();
+    fireEvent.change(name, { target: { value: 'طالب تجريبي' } });
+    expect(document.activeElement).toBe(name);
     expect(
-      (screen.getByLabelText('بداية الفصل') as HTMLInputElement).value,
-    ).toBe('2026-09-01');
+      within(
+        screen.getByRole('region', { name: 'معاينة بطاقة الفصل' }),
+      ).getByText('طالب تجريبي'),
+    ).toBeTruthy();
+    expect(screen.queryByText('IT 203')).toBeNull();
+    expect(screen.queryByText('10:00 – 11:00')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'مكتبة فصلي' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'المعدل والمواد' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'طباعة / حفظ بطاقة الفصل' }),
+    );
     expect(
-      (screen.getByLabelText('القاعة (اختياري)') as HTMLInputElement).value,
-    ).toBe('IT 203');
+      (screen.getByLabelText('اسم الطالب (اختياري)') as HTMLInputElement).value,
+    ).toBe('طالب تجريبي');
+    unmount();
+    const saved = parseSemester(localStorage.getItem(STUDENT_STORAGE_KEY)!);
+    expect(saved.name).toBe('طالب تجريبي');
+    expect(saved.startsOn).toBe(legacy.startsOn);
+    expect(saved.courses[0]?.meetings).toEqual(legacy.courses[0]?.meetings);
+    expect(saved.courses[0]?.deadlines[0]?.id).toBe('d1');
   });
   it('asks anonymous visitors to sign in rather than showing false zero counts', () => {
     auth.signedIn = false;

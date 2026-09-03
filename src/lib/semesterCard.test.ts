@@ -30,7 +30,17 @@ it('renders a bounded local PNG including the student data and disclaimer', asyn
     })),
   });
   expect(blob.type).toBe('image/png');
-  expect(pixels).toBeLessThan(4_000_000);
+  expect(pixels).toBeLessThan(3_000_000);
+  expect(
+    fillText.mock.calls.some((args) =>
+      String(args[0]).includes('المعدل الفصلي المتوقع: 90.00%'),
+    ),
+  ).toBe(true);
+  expect(
+    fillText.mock.calls.some((args) =>
+      /الجدول|محاضرات|القاعة/.test(String(args[0])),
+    ),
+  ).toBe(false);
   expect(fillText.mock.calls.some((args) => args[0] === 'سيف')).toBe(true);
   expect(
     fillText.mock.calls.some((args) =>

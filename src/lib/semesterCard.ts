@@ -1,12 +1,11 @@
 import { calculateGpa, classifyAverage } from './gpaEngine';
-import { dailyMeetings, WEEK_DAYS } from './scheduleUtils';
 import type { StudentSemester } from './studentAssistant';
 
 export async function renderSemesterCard(data: StudentSemester): Promise<Blob> {
   await document.fonts.ready;
   const results = calculateGpa(data);
   const width = 1000;
-  const height = 510 + data.courses.length * 66 + 7 * 116;
+  const height = 540 + data.courses.length * 66;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -45,8 +44,15 @@ export async function renderSemesterCard(data: StudentSemester): Promise<Blob> {
     26,
     '#1e3a8a',
   );
-  text('مواد الفصل', 940, 354, 26);
-  let y = 405;
+  text(
+    `المعدل الفصلي المتوقع: ${results.semester === null ? 'غير مكتمل' : `${results.semester.toFixed(2)}%`}`,
+    940,
+    340,
+    26,
+    '#1e3a8a',
+  );
+  text('مواد الفصل', 940, 394, 26);
+  let y = 445;
   for (const c of data.courses) {
     ctx.fillStyle = '#eff6ff';
     ctx.fillRect(60, y - 32, 880, 54);
@@ -54,34 +60,6 @@ export async function renderSemesterCard(data: StudentSemester): Promise<Blob> {
     text(`${c.hours || '—'} ساعات`, 230, y, 21, '#1e3a8a', 145);
     y += 66;
   }
-  text('الجدول الأسبوعي · توقيت عمّان', 940, y + 28, 26);
-  y += 75;
-  WEEK_DAYS.forEach((day, index) => {
-    const meetings = dailyMeetings(data.courses, index);
-    text(day, 940, y, 23, '#1e3a8a');
-    const summaries = meetings
-      .slice(0, 4)
-      .map(
-        ({ course, meeting }) =>
-          `${course.name || 'مادة'} (\u2066${meeting.start}–${meeting.end}\u2069)${meeting.room?.trim() ? ` — قاعة ${meeting.room.trim()}` : ''}`,
-      );
-    text(
-      summaries.slice(0, 2).join(' · ') || 'لا توجد محاضرات',
-      940,
-      y + 32,
-      19,
-      '#43536d',
-    );
-    text(
-      summaries.slice(2).join(' · ') +
-        (meetings.length > 4 ? ` · و${meetings.length - 4} محاضرات أخرى` : ''),
-      940,
-      y + 62,
-      19,
-      '#43536d',
-    );
-    y += 116;
-  });
   text(
     'محاكاة شخصية وليست كشف علامات رسميًا · jpu-it-hub.fyi',
     940,

@@ -79,11 +79,11 @@ export function Navbar() {
           <button onClick={() => navigate('/')} className={`btn-ghost ${route.path === '/' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Home" className="h-4 w-4" /> الرئيسية
           </button>
-          <button onClick={() => navigate('/faq')} className={`btn-ghost ${route.path === '/faq' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
-            <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
-          </button>
           <button onClick={() => navigate('/assistant')} className={`btn-ghost ${route.path === '/assistant' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="TrendingUp" className="h-4 w-4" /> مساعد الطالب
+          </button>
+          <button onClick={() => navigate('/faq')} className={`btn-ghost ${route.path === '/faq' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
+            <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
           </button>
           <button onClick={openAbout} className={`btn-ghost ${route.path === '/about' ? 'border-brand-200 bg-brand-50 text-brand-700' : ''}`}>
             <Icon name="Info" className="h-4 w-4" /> من نحن
@@ -148,11 +148,11 @@ export function Navbar() {
             <button onClick={() => { navigate('/'); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Home" className="h-4 w-4" /> الرئيسية
             </button>
-            <button onClick={() => { navigate('/faq'); setOpen(false); }} className="btn-ghost justify-start">
-              <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
-            </button>
             <button onClick={() => { navigate('/assistant'); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="TrendingUp" className="h-4 w-4" /> مساعد الطالب
+            </button>
+            <button onClick={() => { navigate('/faq'); setOpen(false); }} className="btn-ghost justify-start">
+              <Icon name="HelpCircle" className="h-4 w-4" /> الأسئلة الشائعة
             </button>
             <button onClick={() => { openAbout(); setOpen(false); }} className="btn-ghost justify-start">
               <Icon name="Info" className="h-4 w-4" /> من نحن

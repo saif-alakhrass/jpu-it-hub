@@ -2,38 +2,43 @@ import { useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { GPACalculatorTab } from '@/components/assistant/GPACalculatorTab';
 import { EnrolledCoursesHub } from '@/components/assistant/EnrolledCoursesHub';
-import { ScheduleTab } from '@/components/assistant/ScheduleTab';
-import { SemesterSummaryCard } from '@/components/assistant/SemesterSummaryCard';
 import { useStudentStorage } from '@/hooks/useStudentStorage';
 import { useAllSubjects } from '@/hooks/useSubjects';
+import '@/components/assistant/assistant.css';
 
 const tabs = [
   { id: 'calculator', name: 'المعدل والمواد', icon: 'TrendingUp' },
   { id: 'library', name: 'مكتبة فصلي', icon: 'BookOpen' },
-  { id: 'schedule', name: 'الجدول والمواعيد', icon: 'Clock' },
-  { id: 'card', name: 'بطاقة الفصل', icon: 'Image' },
 ] as const;
 export function StudentAssistantPage() {
   const { data, update, error } = useStudentStorage();
   const { subjects, loading, error: libraryError } = useAllSubjects();
   const [tab, setTab] = useState<(typeof tabs)[number]['id']>('calculator');
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:py-10" dir="rtl">
-      <header className="mb-6 rounded-2xl border border-brand-200 bg-gradient-to-bl from-brand-100 via-brand-50 to-white p-5 sm:p-8">
-        <p className="text-xs font-bold text-brand-700">
-          فصل واحد · أدوات مترابطة
-        </p>
-        <h1 className="mt-2 text-2xl font-extrabold sm:text-3xl">
-          مساعد الطالب
-        </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-300">
-          أدخل موادك مرة واحدة، جرّب معدلك المتوقع، ورتّب مواعيدك. بياناتك تبقى
-          في هذا المتصفح ولا تحتاج تسجيل دخول للحاسبة والجدول.
-        </p>
-        <p className="mt-2 text-xs leading-6 text-slate-400">
-          الحفظ محلي على الجهاز، وليس مرتبطًا بالحساب أو متزامنًا بين الأجهزة.
-          مسح بيانات المتصفح يحذفه، وقد يراه غيرك على الجهاز المشترك.
-        </p>
+    <div className="assistant-workspace" dir="rtl">
+      <header className="assistant-header">
+        <div>
+          <p className="assistant-eyebrow">
+            <span /> مساحة فصلك الدراسي
+          </p>
+          <h1>
+            مساعد الطالب<span className="assistant-title-dot">.</span>
+          </h1>
+          <p className="assistant-intro">
+            رتّب موادك، جرّب معدلك، ووصل لملفاتك من مكان واحد.
+          </p>
+        </div>
+        <details className="assistant-privacy">
+          <summary>
+            <Icon name="ShieldCheck" /> محفوظ على جهازك{' '}
+            <Icon name="ChevronDown" />
+          </summary>
+          <p>
+            الحاسبة لا تحتاج تسجيل دخول. الحفظ محلي في هذا المتصفح، وليس مرتبطًا
+            بالحساب أو متزامنًا بين الأجهزة. مسح بيانات المتصفح يحذفه، وقد يراه
+            غيرك على الجهاز المشترك.
+          </p>
+        </details>
       </header>
       {error && (
         <p
@@ -46,7 +51,7 @@ export function StudentAssistantPage() {
       <div
         role="tablist"
         aria-label="أدوات مساعد الطالب"
-        className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4"
+        className="assistant-tabs"
       >
         {tabs.map((t, index) => (
           <button
@@ -55,9 +60,9 @@ export function StudentAssistantPage() {
             type="button"
             role="tab"
             aria-selected={tab === t.id}
-            aria-controls={`assistant-panel-${tab}`}
+            aria-controls={`assistant-panel-${t.id}`}
             tabIndex={tab === t.id ? 0 : -1}
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-xl border p-3 text-sm font-bold transition-colors ${tab === t.id ? 'border-brand-600 bg-brand-600 text-white' : 'border-ink-600 bg-white text-slate-200 hover:bg-brand-50'}`}
+            className="assistant-tab"
             onClick={() => setTab(t.id)}
             onKeyDown={(e) => {
               const next =
@@ -79,8 +84,11 @@ export function StudentAssistantPage() {
               }
             }}
           >
-            <Icon name={t.icon} className="h-4 w-4 shrink-0" />
-            {t.name}
+            <Icon name={t.icon} />
+            <span>{t.name}</span>
+            <span className="assistant-tab-index" aria-hidden="true">
+              0{index + 1}
+            </span>
           </button>
         ))}
       </div>
@@ -98,11 +106,11 @@ export function StudentAssistantPage() {
             subjects={subjects}
             loading={loading}
             error={libraryError}
+            onEditCourses={() => {
+              setTab('calculator');
+              document.getElementById('assistant-tab-calculator')?.focus();
+            }}
           />
-        )}
-        {tab === 'schedule' && <ScheduleTab data={data} onChange={update} />}
-        {tab === 'card' && (
-          <SemesterSummaryCard data={data} onChange={update} />
         )}
       </div>
     </div>
