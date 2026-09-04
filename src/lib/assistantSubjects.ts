@@ -1,0 +1,1 @@
+export { matchSubject } from './subjectSearch';
