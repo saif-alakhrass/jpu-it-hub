@@ -33,6 +33,7 @@ export interface StudentSemester {
   startsOn: string;
   endsOn: string;
   courses: EnrolledCourse[];
+  futurePlan?: { semesterHours: string; average: string };
 }
 export const STUDENT_STORAGE_KEY = 'jpu-it-hub:student-semester:v1';
 export const MAX_COURSES = 30;
@@ -137,5 +138,11 @@ export function parseSemester(raw: string): StudentSemester {
   }
   if (!unique(value.courses as EnrolledCourse[]))
     throw new Error('Duplicate course');
+  const plan = value.futurePlan;
+  if (
+    plan !== undefined &&
+    (!obj(plan) || !['semesterHours', 'average'].every((k) => str(plan[k])))
+  )
+    throw new Error('Invalid future plan');
   return value as unknown as StudentSemester;
 }
