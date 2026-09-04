@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { Subject, Difficulty } from '@/lib/types';
 import { PAGE_SIZE } from '@/lib/constants';
 import { failService } from '@/lib/serviceError';
+import { searchSubjects } from '@/lib/subjectSearch';
 
 export interface PaginatedSubjects {
   items: Subject[];
@@ -14,14 +15,12 @@ const SUBJECT_COLUMNS =
   'id, name, code, description, major, departments, created_by, created_at, difficulty, course_description';
 
 export async function fetchSubjectsPaged(page: number, search?: string, major?: string): Promise<PaginatedSubjects> {
+  if (search?.trim()) return searchSubjectsPaged(await fetchAllSubjects(), page, search, major);
   const from = page * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
   let query = supabase.from('subjects').select(SUBJECT_COLUMNS, { count: 'exact' });
 
-  if (search) {
-    query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
-  }
   if (major) {
     query = query.contains('departments', [major]);
   }
@@ -43,12 +42,24 @@ export async function fetchSubjectsPaged(page: number, search?: string, major?: 
 }
 
 export async function fetchAllSubjects(): Promise<Subject[]> {
-  const { data, error } = await supabase
-    .from('subjects')
-    .select(SUBJECT_COLUMNS)
-    .order('created_at', { ascending: false });
-  if (error) failService('fetch all subjects', error);
-  return (data ?? []) as Subject[];
+  const subjects: Subject[] = [];
+  const batchSize = 500;
+  // Explicit pages avoid silently searching only Supabase's first result page.
+  for (let from = 0; ; from += batchSize) {
+    const { data, error } = await supabase.from('subjects').select(SUBJECT_COLUMNS)
+      .order('created_at', { ascending: false }).order('id', { ascending: true })
+      .range(from, from + batchSize - 1);
+    if (error) failService('fetch all subjects', error);
+    const batch = (data ?? []) as Subject[];
+    subjects.push(...batch);
+    if (batch.length < batchSize) return subjects;
+  }
+}
+
+export function searchSubjectsPaged(subjects: Subject[], page: number, search: string, major?: string): PaginatedSubjects {
+  const available = major ? subjects.filter((s) => s.departments?.includes(major)) : subjects;
+  const matches = searchSubjects(available, search, true);
+  return { items: matches.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), total: matches.length, page, totalPages: Math.max(1, Math.ceil(matches.length / PAGE_SIZE)) };
 }
 
 export async function fetchSubject(id: string): Promise<Subject | null> {

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { fetchSubjectsPaged, fetchAllSubjects, fetchSubject } from '@/services/subjects';
+import { fetchSubjectsPaged, fetchAllSubjects, fetchSubject, searchSubjectsPaged } from '@/services/subjects';
 
 export const SUBJECT_STALE_TIME = 1000 * 60 * 15;
 
@@ -33,16 +33,26 @@ export function useSubjectsPaged(search: string, major: string | undefined, init
     queryFn: () => fetchSubjectsPaged(page, debouncedSearch || undefined, major),
     placeholderData: keepPreviousData,
     staleTime: SUBJECT_STALE_TIME,
+    enabled: !debouncedSearch,
   });
 
+  // Share the assistant's catalog cache. Keystrokes filter in memory rather
+  // than issuing a new Supabase request, without changing normal pagination.
+  const catalog = useQuery({
+    queryKey: ['subjects', 'all'], queryFn: fetchAllSubjects,
+    staleTime: SUBJECT_STALE_TIME, enabled: Boolean(debouncedSearch),
+  });
+  const searchData = useMemo(() => searchSubjectsPaged(catalog.data ?? [], page, debouncedSearch, major), [catalog.data, page, debouncedSearch, major]);
+  const activeQuery = debouncedSearch ? catalog : query;
+
   return {
-    data: query.data ?? { items: [], total: 0, page, totalPages: 1 },
-    loading: query.isLoading,
-    refreshing: query.isFetching,
-    error: query.error,
+    data: debouncedSearch ? searchData : query.data ?? { items: [], total: 0, page, totalPages: 1 },
+    loading: activeQuery.isLoading,
+    refreshing: activeQuery.isFetching,
+    error: activeQuery.error,
     page,
     setPage,
-    reload: query.refetch,
+    reload: activeQuery.refetch,
   };
 }
 

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { matchSubject } from '@/lib/subjectSearch';
 import { Icon } from '@/components/Icon';
 import { GPACalculatorTab } from '@/components/assistant/GPACalculatorTab';
 import { EnrolledCoursesHub } from '@/components/assistant/EnrolledCoursesHub';
@@ -13,6 +14,18 @@ const tabs = [
 export function StudentAssistantPage() {
   const { data, update, error } = useStudentStorage();
   const { subjects, loading, error: libraryError } = useAllSubjects();
+  // Resolve names entered while offline once the catalog arrives. Keep explicit
+  // selections intact; no effect or extra local-storage write on every render.
+  const resolvedData = useMemo(
+    () => ({
+      ...data,
+      courses: data.courses.map((course) => ({
+        ...course,
+        subjectId: course.subjectId ?? matchSubject(course.name, subjects),
+      })),
+    }),
+    [data, subjects],
+  );
   const [tab, setTab] = useState<(typeof tabs)[number]['id']>('calculator');
   return (
     <div className="assistant-workspace" dir="rtl">
@@ -98,11 +111,15 @@ export function StudentAssistantPage() {
         aria-labelledby={`assistant-tab-${tab}`}
       >
         {tab === 'calculator' && (
-          <GPACalculatorTab data={data} onChange={update} subjects={subjects} />
+          <GPACalculatorTab
+            data={resolvedData}
+            onChange={update}
+            subjects={subjects}
+          />
         )}
         {tab === 'library' && (
           <EnrolledCoursesHub
-            courses={data.courses}
+            courses={resolvedData.courses}
             subjects={subjects}
             loading={loading}
             error={libraryError}

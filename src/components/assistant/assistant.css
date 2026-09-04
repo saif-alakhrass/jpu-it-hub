@@ -1,4 +1,49 @@
 /* Route-scoped workspace styles. Keep the site's font, palette and native scroll. */
+.assistant-subject-search {
+  position: relative;
+  min-width: 0;
+}
+.assistant-subject-search > .input {
+  margin-top: 8px;
+}
+.assistant-subject-results {
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  top: calc(100% + 5px);
+  max-height: 270px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #c5d8f4;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px #1e40af18;
+}
+.assistant-subject-results > li {
+  padding: 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  color: #263551;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.assistant-subject-results > li:hover,
+.assistant-subject-results > li[aria-selected='true'] {
+  background: #eff6ff;
+}
+.assistant-subject-results small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #66758b;
+}
+.assistant-match-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #526786;
+  line-height: 1.8;
+}
 .assistant-workspace {
   --assistant-line: #e1e8f0;
   --assistant-muted: #66758b;

@@ -8,7 +8,7 @@ import {
   type EnrolledCourse,
   type StudentSemester,
 } from '@/lib/studentAssistant';
-import { matchSubject } from '@/lib/assistantSubjects';
+import { SubjectNameInput } from './SubjectNameInput';
 import type { Subject } from '@/lib/types';
 
 const formatAverage = (value: number | null) =>
@@ -112,13 +112,6 @@ export function GPACalculatorTab({ data, onChange, subjects }: Props) {
               <Icon name="Plus" /> أضف مادة
             </button>
           </div>
-          <datalist id="assistant-subjects">
-            {subjects.map((s) => (
-              <option key={s.id} value={s.name}>
-                {s.code} · {s.major}
-              </option>
-            ))}
-          </datalist>
           {!data.courses.length && (
             <div className="assistant-empty">
               <span className="assistant-empty-icon">
@@ -383,22 +376,14 @@ const CourseEditor = memo(function CourseEditor({
         </button>
       </div>
       <div className="assistant-course-fields">
-        <label className="assistant-field assistant-course-name">
-          اسم المادة
-          <input
-            className="input"
-            maxLength={160}
-            list="assistant-subjects"
+        <div className="assistant-course-name">
+          <SubjectNameInput
+            id={c.id}
             value={c.name}
-            onChange={(e) =>
-              onChange({
-                name: e.target.value,
-                subjectId: matchSubject(e.target.value, subjects),
-              })
-            }
-            placeholder="ابحث عن مادة أو اكتب اسمها"
+            subjects={subjects}
+            onChange={onChange}
           />
-        </label>
+        </div>
         <label className="assistant-field">
           الساعات
           <input
@@ -427,6 +412,12 @@ const CourseEditor = memo(function CourseEditor({
           />
         </label>
       </div>
+      {linked && (
+        <p className="assistant-match-hint">
+          المادة المطابقة: {linked.name}
+          {linked.code ? ` (${linked.code})` : ''}
+        </p>
+      )}
       <button
         className="assistant-options-toggle"
         type="button"
@@ -434,26 +425,10 @@ const CourseEditor = memo(function CourseEditor({
         aria-controls={'course-options-' + c.id}
         onClick={() => setOptionsOpen((value) => !value)}
       >
-        <Icon name="Settings" /> الربط بالمكتبة وإعادة المادة{' '}
-        <Icon name="ChevronDown" />
+        <Icon name="RotateCcw" /> إعادة المادة <Icon name="ChevronDown" />
       </button>
       {optionsOpen && (
         <div className="assistant-course-options" id={'course-options-' + c.id}>
-          <label className="assistant-field">
-            ربط بمكتبة الموقع (اختياري؛ اختر المادة الصحيحة عند تشابه الأسماء)
-            <select
-              className="input"
-              value={c.subjectId ?? ''}
-              onChange={(e) => onChange({ subjectId: e.target.value || null })}
-            >
-              <option value="">مادة خاصة / غير مرتبطة</option>
-              {subjects.map((s) => (
-                <option value={s.id} key={s.id}>
-                  {s.name} {s.code ? '(' + s.code + ')' : ''} · {s.major}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="assistant-retake">
             <input
               type="checkbox"

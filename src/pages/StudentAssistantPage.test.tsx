@@ -69,10 +69,13 @@ describe('interconnected student assistant', () => {
     fireEvent.click(screen.getByRole('button', { name: 'أضف مادة' }));
     expect(screen.queryByRole('checkbox')).toBeNull();
     const toggle = screen.getByRole('button', {
-      name: 'الربط بالمكتبة وإعادة المادة',
+      name: 'إعادة المادة',
     });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
+    expect(
+      screen.queryByRole('combobox', { name: /ربط بمكتبة الموقع/ }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole('checkbox'));
     const oldGrade = screen.getByLabelText('العلامة القديمة');
     oldGrade.focus();
@@ -168,14 +171,14 @@ describe('interconnected student assistant', () => {
       (screen.getByLabelText('العلامة المتوقعة') as HTMLInputElement).value,
     ).toBe('90');
   });
-  it('only auto-links unique normalized exact names or codes', () => {
+  it('auto-links unique partial names and codes but not ambiguous names', () => {
     const subjects = [
       { id: 'one', name: 'أمن شبكات', code: 'CS201' },
       { id: 'two', name: 'برمجة' },
     ] as Subject[];
     expect(matchSubject('امن شبكات', subjects)).toBe('one');
     expect(matchSubject('cs201', subjects)).toBe('one');
-    expect(matchSubject('شبكات', subjects)).toBeNull();
+    expect(matchSubject('شبكات', subjects)).toBe('one');
     expect(
       matchSubject('أمن شبكات', [
         ...subjects,
