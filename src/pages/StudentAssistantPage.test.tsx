@@ -7,7 +7,13 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudentAssistantPage } from './StudentAssistantPage';
 import { matchSubject } from '@/lib/assistantSubjects';
@@ -26,6 +32,12 @@ vi.mock('@/hooks/useSubjects', () => ({
         name: 'برمجة بايثون',
         major: 'علم الحاسوب',
         code: 'CS101',
+      },
+      {
+        id: 'networks-id',
+        name: 'شبكات الحاسوب',
+        major: 'علم الحاسوب',
+        code: 'CS201',
       },
     ],
     loading: false,
@@ -50,20 +62,116 @@ beforeEach(() => {
   auth.signedIn = true;
 });
 afterEach(cleanup);
-function mount() {
+function NavigationControls() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <>
+      <button onClick={() => navigate(-1)}>Browser back</button>
+      <button onClick={() => navigate(1)}>Browser forward</button>
+      <output data-testid="location">
+        {location.pathname}
+        {location.search}
+      </output>
+    </>
+  );
+}
+function mount(initialEntries = ['/assistant']) {
   return render(
     <QueryClientProvider
       client={
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
       }
     >
-      <MemoryRouter>
-        <StudentAssistantPage />
+      <MemoryRouter
+        initialEntries={initialEntries}
+        initialIndex={initialEntries.length - 1}
+      >
+        <NavigationControls />
+        <Routes>
+          <Route path="/assistant" element={<StudentAssistantPage />} />
+          <Route path="/subject/:id" element={<h1>Subject files</h1>} />
+          <Route path="/" element={<h1>Home</h1>} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 describe('interconnected student assistant', () => {
+  it.each([/فتح المكتبة/, /تلاخيص وشروحات/])(
+    'restores the library and selected course after visiting %s and browser Back/Forward',
+    (linkName) => {
+      const courses = [
+        { ...newCourse(), name: 'برمجة بايثون', subjectId: 'python-id' },
+        { ...newCourse(), name: 'شبكات الحاسوب', subjectId: 'networks-id' },
+      ];
+      localStorage.setItem(
+        STUDENT_STORAGE_KEY,
+        JSON.stringify({ ...emptySemester(), courses }),
+      );
+      mount(['/', '/assistant?source=test']);
+      fireEvent.click(screen.getByRole('tab', { name: 'مكتبة فصلي' }));
+      fireEvent.change(screen.getByLabelText('المادة الحالية'), {
+        target: { value: courses[1]!.id },
+      });
+      fireEvent.click(screen.getByRole('link', { name: linkName }));
+      expect(
+        screen.getByRole('heading', { name: 'Subject files' }),
+      ).toBeTruthy();
+      expect(screen.queryByRole('tab')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Browser back' }));
+      expect(
+        screen
+          .getByRole('tab', { name: 'مكتبة فصلي' })
+          .getAttribute('aria-selected'),
+      ).toBe('true');
+      expect(
+        (screen.getByLabelText('المادة الحالية') as HTMLSelectElement).value,
+      ).toBe(courses[1]!.id);
+      expect(screen.getByTestId('location').textContent).toContain(
+        'source=test',
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Browser forward' }));
+      expect(
+        screen.getByRole('heading', { name: 'Subject files' }),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Browser back' }));
+      expect(
+        (screen.getByLabelText('المادة الحالية') as HTMLSelectElement).value,
+      ).toBe(courses[1]!.id);
+      // Tab/course selection replaces this entry, not a stack of extra Back steps.
+      fireEvent.click(screen.getByRole('button', { name: 'Browser back' }));
+      expect(screen.getByRole('heading', { name: 'Home' })).toBeTruthy();
+    },
+  );
+  it('restores a library URL on reload and safely falls back for a removed course', () => {
+    const course = {
+      ...newCourse(),
+      name: 'برمجة بايثون',
+      subjectId: 'python-id',
+    };
+    localStorage.setItem(
+      STUDENT_STORAGE_KEY,
+      JSON.stringify({ ...emptySemester(), courses: [course] }),
+    );
+    mount(['/assistant?tab=library&course=removed']);
+    expect(
+      screen
+        .getByRole('tab', { name: 'مكتبة فصلي' })
+        .getAttribute('aria-selected'),
+    ).toBe('true');
+    expect(
+      (screen.getByLabelText('المادة الحالية') as HTMLSelectElement).value,
+    ).toBe(course.id);
+  });
+  it('defaults to the calculator for an unknown tab', () => {
+    mount(['/assistant?tab=unknown']);
+    expect(
+      screen
+        .getByRole('tab', { name: 'المعدل والمواد' })
+        .getAttribute('aria-selected'),
+    ).toBe('true');
+  });
   it('keeps advanced course fields optional without losing edits or input focus', () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'أضف مادة' }));

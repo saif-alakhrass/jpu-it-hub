@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Icon } from '@/components/Icon';
 import { useAuth } from '@/hooks/useAuth';
 import { getVisibleTabs, type Subject } from '@/lib/types';
@@ -20,7 +19,18 @@ export function EnrolledCoursesHub({
   error: unknown;
   onEditCourses: () => void;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selected = searchParams.get('course');
+  const setSelected = (courseId: string) => {
+    setSearchParams(
+      (previous) => {
+        const params = new URLSearchParams(previous);
+        params.set('course', courseId);
+        return params;
+      },
+      { replace: true },
+    );
+  };
   const { session, profile } = useAuth();
   // Scope the cache to the signed-in user and current role; RLS stays authoritative.
   const role = session && profile?.id === session.user.id ? profile.role : null;

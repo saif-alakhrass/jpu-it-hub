@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { matchSubject } from '@/lib/subjectSearch';
 import { Icon } from '@/components/Icon';
 import { GPACalculatorTab } from '@/components/assistant/GPACalculatorTab';
@@ -26,7 +27,21 @@ export function StudentAssistantPage() {
     }),
     [data, subjects],
   );
-  const [tab, setTab] = useState<(typeof tabs)[number]['id']>('calculator');
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Keep navigation state in this history entry so Back/Forward (including
+  // phone gestures) restores the library after the page has unmounted.
+  const tab = searchParams.get('tab') === 'library' ? 'library' : 'calculator';
+  const setTab = (next: (typeof tabs)[number]['id']) => {
+    setSearchParams(
+      (previous) => {
+        const params = new URLSearchParams(previous);
+        if (next === 'library') params.set('tab', next);
+        else params.delete('tab');
+        return params;
+      },
+      { replace: true },
+    );
+  };
   return (
     <div className="assistant-workspace" dir="rtl">
       <header className="assistant-header">

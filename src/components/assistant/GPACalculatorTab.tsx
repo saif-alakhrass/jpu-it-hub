@@ -1,6 +1,7 @@
 import { memo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { SemesterSummaryCard } from './SemesterSummaryCard';
+import { FutureGpaPlanner } from './FutureGpaPlanner';
 import { calculateGpa, classifyAverage, numeric } from '@/lib/gpaEngine';
 import {
   MAX_COURSES,
@@ -21,6 +22,7 @@ interface Props {
 
 export function GPACalculatorTab({ data, onChange, subjects }: Props) {
   const [showCard, setShowCard] = useState(false);
+  const [goalScope, setGoalScope] = useState<'semester' | 'future'>('semester');
   const result = calculateGpa(data);
   const rating =
     result.cumulative === null ? null : classifyAverage(result.cumulative);
@@ -265,6 +267,26 @@ export function GPACalculatorTab({ data, onChange, subjects }: Props) {
             <Icon name="ChevronDown" />
           </summary>
           <div className="assistant-target-body">
+            <div
+              className="assistant-goal-switch"
+              role="group"
+              aria-label="مدة تخطيط المعدل"
+            >
+              <button
+                type="button"
+                aria-pressed={goalScope === 'semester'}
+                onClick={() => setGoalScope('semester')}
+              >
+                هذا الفصل
+              </button>
+              <button
+                type="button"
+                aria-pressed={goalScope === 'future'}
+                onClick={() => setGoalScope('future')}
+              >
+                حتى التخرج
+              </button>
+            </div>
             <label className="assistant-field">
               التراكمي المستهدف (%)
               <input
@@ -283,30 +305,34 @@ export function GPACalculatorTab({ data, onChange, subjects }: Props) {
                 الهدف يجب أن يكون بين 0 و100.
               </p>
             )}
-            {result.required === null ? (
-              <p>
-                أدخل الهدف والساعات وبيانات الإعادة؛ لا تحتاج إلى ملء العلامات
-                المتوقعة لحساب الهدف.
-              </p>
-            ) : result.required > 100 ? (
-              <p className="assistant-target-error">
-                لا يمكن بلوغ هذا الهدف في الفصل الحالي. أعلى تراكمي ممكن مع 100%
-                في جميع المواد: <strong>{formatAverage(result.maximum)}</strong>
-                .
-              </p>
-            ) : result.required <= 0 ? (
-              <p>
-                الهدف متحقق حسابيًا حتى مع صفر في مواد هذا الفصل. هذا ليس توصية؛
-                النجاح في المواد ومتطلبات الجامعة يبقيان ضروريين.
-              </p>
-            ) : (
-              <p>
-                تحتاج معدلًا فصليًا موزونًا لا يقل عن{' '}
-                <strong className="assistant-target-value">
-                  {(Math.ceil(result.required * 100) / 100).toFixed(2)}%
-                </strong>{' '}
-                لتحقيق الهدف.
-              </p>
+            {goalScope === 'semester' &&
+              (result.required === null ? (
+                <p>
+                  أدخل الهدف والساعات وبيانات الإعادة؛ لا تحتاج إلى ملء العلامات
+                  المتوقعة لحساب الهدف.
+                </p>
+              ) : result.required > 100 ? (
+                <p className="assistant-target-error">
+                  لا يمكن بلوغ هذا الهدف في الفصل الحالي. أعلى تراكمي ممكن مع
+                  100% في جميع المواد:{' '}
+                  <strong>{formatAverage(result.maximum)}</strong>.
+                </p>
+              ) : result.required <= 0 ? (
+                <p>
+                  الهدف متحقق حسابيًا حتى مع صفر في مواد هذا الفصل. هذا ليس
+                  توصية؛ النجاح في المواد ومتطلبات الجامعة يبقيان ضروريين.
+                </p>
+              ) : (
+                <p>
+                  تحتاج معدلًا فصليًا موزونًا لا يقل عن{' '}
+                  <strong className="assistant-target-value">
+                    {(Math.ceil(result.required * 100) / 100).toFixed(2)}%
+                  </strong>{' '}
+                  لتحقيق الهدف.
+                </p>
+              ))}
+            {goalScope === 'future' && (
+              <FutureGpaPlanner data={data} onChange={onChange} />
             )}
           </div>
         </details>
