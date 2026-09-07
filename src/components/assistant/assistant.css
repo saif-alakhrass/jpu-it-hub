@@ -149,6 +149,488 @@
   margin-bottom: 30px;
   border-bottom: 1px solid #d7e1ef;
 }
+.assistant-now {
+  position: relative;
+  margin-bottom: 30px;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid #d9e6f6;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 8% 0%, #ddecff 0, transparent 28%),
+    linear-gradient(155deg, #fafdff 0%, #f2f7fd 100%);
+  box-shadow: 0 18px 50px #254f8410;
+}
+.assistant-now::after {
+  content: '';
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  inset-inline-end: -90px;
+  top: -105px;
+  border: 28px solid #bfdbfe52;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.assistant-now-heading {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.assistant-now-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-today-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #607493;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.assistant-today-label svg {
+  width: 14px;
+  height: 14px;
+  color: #2f73d7;
+}
+.assistant-now-heading h2 {
+  margin-top: 5px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #203859;
+}
+.assistant-schedule-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 13px;
+  border: 1px solid #d5e2f4;
+  border-radius: 11px;
+  background: #fff;
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    border-color 160ms,
+    box-shadow 160ms;
+}
+.assistant-schedule-edit:hover {
+  border-color: #93b9ef;
+  box-shadow: 0 5px 16px #1e40af0d;
+}
+.assistant-schedule-edit svg {
+  width: 15px;
+  height: 15px;
+}
+.assistant-now-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 20px;
+  min-height: 230px;
+  padding: 28px 30px 38px;
+  overflow: hidden;
+  border: 1px solid #a9c9f5;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 8%, #ffffff 0 5%, transparent 36%),
+    linear-gradient(135deg, #fafdff 0%, #eaf4ff 48%, #d9ebff 100%);
+  box-shadow:
+    0 18px 38px #1e40af18,
+    inset 0 1px #fff;
+}
+.assistant-now-card::before {
+  content: '';
+  position: absolute;
+  width: 360px;
+  height: 160px;
+  left: -100px;
+  top: -90px;
+  border: 36px solid #fff8;
+  border-radius: 50%;
+  transform: rotate(-10deg);
+  pointer-events: none;
+}
+.assistant-now-content {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.assistant-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid #b6e5cd;
+  border-radius: 999px;
+  background: #f0fff7cc;
+  color: #087c48;
+  font-size: 12px;
+  font-weight: 500;
+}
+.assistant-live i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #18a966;
+  box-shadow:
+    0 0 0 4px #18a96618,
+    0 0 18px #18a96675;
+}
+.assistant-now-content h3 {
+  margin-top: 15px;
+  color: #12335f;
+  font-size: clamp(23px, 3vw, 34px);
+  font-weight: 600;
+  line-height: 1.45;
+}
+.assistant-now-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 18px;
+  margin-top: 16px;
+  color: #4f6687;
+  font-size: 13px;
+}
+.assistant-now-details span,
+.assistant-day-course p {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.assistant-now-details svg {
+  width: 16px;
+  height: 16px;
+}
+.assistant-ends {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-top: 20px;
+  padding: 8px 12px;
+  border: 1px solid #c8dcf7;
+  border-radius: 12px;
+  background: #ffffffa8;
+  color: #385579;
+  font-size: 11px;
+}
+.assistant-ends strong {
+  color: #1d4ed8;
+  font-size: 16px;
+}
+.assistant-now-symbol {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  align-self: center;
+  border-radius: 24px;
+  border: 1px solid #fff;
+  background: linear-gradient(145deg, #fff, #eaf3ff);
+  color: #2563eb;
+  box-shadow:
+    0 16px 32px #1e40af18,
+    inset 0 1px #fff;
+}
+.assistant-now-symbol svg {
+  width: 36px;
+  height: 36px;
+}
+.assistant-now-symbol small {
+  position: absolute;
+  bottom: 10px;
+  color: #57749c;
+  font-size: 9px;
+  font-weight: 600;
+}
+.assistant-progress-wrap {
+  position: absolute;
+  inset-inline: 30px;
+  bottom: 20px;
+}
+.assistant-progress {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 99px;
+  border: 1px solid #ffffffba;
+  background: #c7d9ef;
+}
+.assistant-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1d4ed8, #3b82f6 55%, #67c5ff);
+  box-shadow: 0 0 12px #3b82f66b;
+  transform: scaleX(var(--lecture-progress));
+  transform-origin: right center;
+  animation: assistant-lecture-progress var(--lecture-duration) linear forwards;
+  will-change: transform;
+}
+@keyframes assistant-lecture-progress {
+  from {
+    transform: scaleX(var(--lecture-progress));
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-progress span {
+    animation: none;
+    transform: scaleX(var(--lecture-progress));
+  }
+}
+.assistant-no-lecture {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  min-height: 118px;
+  padding: 22px 24px;
+  overflow: hidden;
+  border: 1px solid #cbdff6;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 100% 0%, #d9ebff 0, transparent 40%),
+    linear-gradient(135deg, #fff, #f4f9ff);
+  box-shadow:
+    0 12px 30px #1e40af0d,
+    inset 0 1px #fff;
+}
+.assistant-no-lecture > span {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  flex-shrink: 0;
+  border-radius: 15px;
+  border: 1px solid #d4e5fa;
+  background: linear-gradient(145deg, #f9fcff, #e6f1ff);
+  color: #2563eb;
+  box-shadow: 0 9px 20px #2563eb17;
+}
+.assistant-no-lecture-icon i {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  inset-inline-end: -1px;
+  top: -1px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+.assistant-no-lecture h3 {
+  color: #203859;
+  font-size: 16px;
+  font-weight: 600;
+}
+.assistant-no-lecture p {
+  margin-top: 5px;
+  color: #66758b;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.assistant-day-strip {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(185px, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+  padding: 2px 1px 8px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+  scrollbar-width: thin;
+}
+.assistant-day-course {
+  position: relative;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid #d3e1f1;
+  border-radius: 15px;
+  background: #ffffffde;
+  box-shadow: 0 8px 20px #254f840a;
+  scroll-snap-align: start;
+}
+.assistant-day-course.is-current {
+  border-color: #79adf2;
+  background: #f1f7ff;
+  box-shadow:
+    inset 0 -3px #2563eb,
+    0 10px 24px #2563eb18;
+}
+.assistant-day-course.is-done {
+  opacity: 0.72;
+}
+.assistant-day-state {
+  display: inline-flex;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #64748b;
+  font-size: 10px;
+}
+.assistant-day-course.is-current .assistant-day-state {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.assistant-day-course.is-done .assistant-day-state {
+  background: #e7f8ef;
+  color: #148456;
+}
+.assistant-day-course h3 {
+  margin-top: 8px;
+  color: #233c5e;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.assistant-day-course p {
+  margin-top: 12px;
+  color: #66758b;
+  font-size: 12px;
+  direction: ltr;
+  justify-content: flex-end;
+}
+.assistant-day-course p svg {
+  width: 14px;
+  height: 14px;
+}
+.assistant-schedule-editor {
+  position: relative;
+  z-index: 1;
+  margin-top: 16px;
+  padding: 22px;
+  border: 1px solid #d8e5f5;
+  border-radius: 20px;
+  background: #f9fbfe;
+}
+.assistant-schedule-editor-intro h3 {
+  color: #203859;
+  font-size: 17px;
+  font-weight: 600;
+}
+.assistant-schedule-editor-intro p {
+  margin-top: 4px;
+  color: #66758b;
+  font-size: 12px;
+}
+.assistant-schedule-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+.assistant-schedule-course {
+  border: 1px solid #e0e8f2;
+  border-radius: 15px;
+  background: #fff;
+  overflow: hidden;
+}
+.assistant-schedule-course > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 62px;
+  padding: 12px 15px;
+}
+.assistant-schedule-course > summary > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.assistant-schedule-course > summary strong {
+  color: #263e60;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.assistant-schedule-course > summary small {
+  color: #718096;
+  font-size: 10px;
+}
+.assistant-schedule-course > summary > svg {
+  width: 15px;
+  height: 15px;
+  margin-inline-start: auto;
+  color: #657791;
+  transition: transform 160ms;
+}
+.assistant-schedule-course[open] > summary {
+  background: #f5f9ff;
+  border-bottom: 1px solid #e4ebf4;
+}
+.assistant-schedule-course[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.assistant-schedule-course-body {
+  padding: 16px;
+}
+.assistant-schedule-course fieldset {
+  margin-top: 0;
+}
+.assistant-schedule-course legend {
+  margin-bottom: 8px;
+  color: #52627a;
+  font-size: 11px;
+}
+.assistant-day-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.assistant-day-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.assistant-day-options span {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #dbe4ef;
+  border-radius: 9px;
+  color: #53657e;
+  font-size: 11px;
+  cursor: pointer;
+}
+.assistant-day-options input:checked + span {
+  border-color: #75aaf0;
+  background: #eaf3ff;
+  color: #1d4ed8;
+}
+.assistant-day-options input:focus-visible + span {
+  outline: 3px solid #93c5fd;
+  outline-offset: 2px;
+}
+.assistant-schedule-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.assistant-schedule-error {
+  margin-top: 10px;
+  color: #991b1b;
+  font-size: 12px;
+}
+.assistant-schedule-save {
+  margin-top: 18px;
+}
 .assistant-tab {
   display: flex;
   gap: 10px;
@@ -1134,6 +1616,9 @@
   }
 }
 @media (max-width: 800px) {
+  .assistant-schedule-fields {
+    grid-template-columns: 1fr 1fr;
+  }
   .assistant-workspace {
     padding: 28px 20px 48px;
   }
@@ -1209,6 +1694,60 @@
   }
 }
 @media (max-width: 540px) {
+  .assistant-now-heading {
+    align-items: center;
+  }
+  .assistant-now-heading h2 {
+    font-size: 16px;
+  }
+  .assistant-now-card {
+    min-height: 270px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 22px 20px 35px;
+    border-radius: 20px;
+  }
+  .assistant-now-symbol {
+    position: absolute;
+    inset-inline-end: 18px;
+    top: 18px;
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+    opacity: 0.8;
+  }
+  .assistant-now-symbol svg {
+    width: 25px;
+    height: 25px;
+  }
+  .assistant-now-content {
+    padding-top: 54px;
+  }
+  .assistant-now-content h3 {
+    font-size: 24px;
+  }
+  .assistant-now-details {
+    display: grid;
+  }
+  .assistant-progress {
+    height: 7px;
+  }
+  .assistant-progress-wrap {
+    inset-inline: 20px;
+    bottom: 15px;
+  }
+  .assistant-day-strip {
+    margin-inline-end: -18px;
+    grid-auto-columns: minmax(170px, 75vw);
+  }
+  .assistant-schedule-editor {
+    padding: 16px;
+  }
+  .assistant-schedule-course-body {
+    padding: 14px;
+  }
+  .assistant-schedule-fields {
+    grid-template-columns: 1fr;
+  }
   .assistant-workspace {
     padding: 24px 16px 40px;
   }
@@ -1216,7 +1755,7 @@
     font-size: 13px;
   }
   .assistant-tabs {
-    gap: 20px;
+    gap: 12px;
     margin-bottom: 22px;
   }
   .assistant-tab {
@@ -1230,6 +1769,9 @@
   }
   .assistant-tab > svg {
     width: 16px;
+  }
+  .assistant-tab-index {
+    display: none;
   }
   .assistant-base,
   .assistant-result {

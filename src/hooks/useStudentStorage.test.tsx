@@ -82,4 +82,26 @@ describe('local-first semester storage', () => {
       ),
     ).toThrow();
   });
+  it('preserves optional building and room details for lecture meetings', () => {
+    const c = {
+      ...newCourse(),
+      meetings: [
+        {
+          id: 'lecture',
+          days: [0],
+          start: '10:00',
+          end: '11:00',
+          building: 'مبنى الحاسوب',
+          room: '713',
+        },
+      ],
+    };
+    const restored = parseSemester(
+      JSON.stringify({ ...emptySemester(), courses: [c] }),
+    );
+    expect(restored.courses[0]?.meetings[0]).toMatchObject({
+      building: 'مبنى الحاسوب',
+      room: '713',
+    });
+  });
 });

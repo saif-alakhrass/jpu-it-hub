@@ -4,6 +4,7 @@ import { matchSubject } from '@/lib/subjectSearch';
 import { Icon } from '@/components/Icon';
 import { GPACalculatorTab } from '@/components/assistant/GPACalculatorTab';
 import { EnrolledCoursesHub } from '@/components/assistant/EnrolledCoursesHub';
+import { CurrentLectureWidget } from '@/components/assistant/CurrentLectureWidget';
 import { useStudentStorage } from '@/hooks/useStudentStorage';
 import { useAllSubjects } from '@/hooks/useSubjects';
 import '@/components/assistant/assistant.css';
@@ -11,6 +12,7 @@ import '@/components/assistant/assistant.css';
 const tabs = [
   { id: 'calculator', name: 'المعدل والمواد', icon: 'TrendingUp' },
   { id: 'library', name: 'مكتبة فصلي', icon: 'BookOpen' },
+  { id: 'schedule', name: 'المواعيد', icon: 'Clock' },
 ] as const;
 export function StudentAssistantPage() {
   const { data, update, error } = useStudentStorage();
@@ -30,12 +32,15 @@ export function StudentAssistantPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // Keep navigation state in this history entry so Back/Forward (including
   // phone gestures) restores the library after the page has unmounted.
-  const tab = searchParams.get('tab') === 'library' ? 'library' : 'calculator';
+  const requestedTab = searchParams.get('tab');
+  const tab = tabs.some(({ id }) => id === requestedTab)
+    ? (requestedTab as (typeof tabs)[number]['id'])
+    : 'calculator';
   const setTab = (next: (typeof tabs)[number]['id']) => {
     setSearchParams(
       (previous) => {
         const params = new URLSearchParams(previous);
-        if (next === 'library') params.set('tab', next);
+        if (next !== 'calculator') params.set('tab', next);
         else params.delete('tab');
         return params;
       },
@@ -143,6 +148,9 @@ export function StudentAssistantPage() {
               document.getElementById('assistant-tab-calculator')?.focus();
             }}
           />
+        )}
+        {tab === 'schedule' && (
+          <CurrentLectureWidget data={data} onChange={update} />
         )}
       </div>
     </div>
