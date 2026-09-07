@@ -222,9 +222,10 @@ describe('interconnected student assistant', () => {
     fireEvent.keyDown(library, { key: 'Home' });
     expect(document.activeElement).toBe(calculator);
   });
-  it('keeps only calculator and library tabs, with card export under the GPA result', () => {
+  it('keeps the focused assistant tabs, with card export under the GPA result', () => {
     mount();
-    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getByRole('tab', { name: 'المواعيد' })).toBeTruthy();
     expect(screen.queryByRole('tab', { name: 'الجدول والمواعيد' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'بطاقة الفصل' })).toBeNull();
     expect(
@@ -249,6 +250,21 @@ describe('interconnected student assistant', () => {
     expect(document.querySelector('.semester-card-print-root')).toBeNull();
     expect(document.body.classList.contains('semester-card-printing')).toBe(
       false,
+    );
+  });
+  it('opens the lecture widget only inside the schedule tab and restores its URL', () => {
+    mount(['/assistant?tab=schedule']);
+    const schedule = screen.getByRole('tab', { name: 'المواعيد' });
+    expect(schedule.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(
+      schedule.id,
+    );
+    expect(screen.getByText('محاضرات اليوم')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'مكتبة فصلي' }));
+    expect(screen.queryByText('محاضرات اليوم')).toBeNull();
+    fireEvent.click(schedule);
+    expect(screen.getByTestId('location').textContent).toContain(
+      'tab=schedule',
     );
   });
   it('keeps focus while editing and shares one course across tabs and reloads', async () => {

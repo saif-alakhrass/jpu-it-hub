@@ -4,6 +4,7 @@ export interface Meeting {
   start: string;
   end: string;
   room?: string;
+  building?: string;
 }
 export interface Deadline {
   id: string;
@@ -113,6 +114,7 @@ export function parseSemester(raw: string): StudentSemester {
         !str(m.start, 5) ||
         !str(m.end, 5) ||
         (m.room !== undefined && !str(m.room, 100)) ||
+        (m.building !== undefined && !str(m.building, 100)) ||
         !Array.isArray(m.days) ||
         m.days.length > 7 ||
         m.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6) ||
