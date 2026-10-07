@@ -6,6 +6,7 @@ import { Navbar } from '@/components/Navbar';
 import { Icon } from '@/components/Icon';
 import { ScrollRestoration } from '@/components/ScrollRestoration';
 import { HomePage } from '@/pages/HomePage';
+import { GettingStartedGuide } from '@/components/GettingStartedGuide';
 
 const loadSubjectPage = () => import('@/pages/SubjectPage');
 const loadAuthPage = () => import('@/pages/AuthPage');
@@ -29,6 +30,7 @@ export default function App() {
       <ScrollRestoration />
       <div className="flex min-h-screen flex-col">
         <Navbar />
+        <GettingStartedGuide />
         <main className="flex-1">
           <Suspense fallback={<PageLoading />}>
             <Routes>
