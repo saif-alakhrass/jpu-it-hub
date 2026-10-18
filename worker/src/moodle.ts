@@ -48,6 +48,11 @@ export interface MoodleMeetingPayload {
   location: string | null;
 }
 
+interface MoodleDashboardLocation {
+  course_external_id: string;
+  location: string;
+}
+
 const ARABIC_WEEKDAY_CODES: Record<string, number> = {
   'ح': 0,
   'ن': 1,
@@ -64,6 +69,44 @@ function normalizeCampusLocation(value: unknown): string | null {
   if (/هندس/u.test(normalized) || /حاسوب\s*(?:و|\/|-)?\s*هندس/u.test(normalized)) return 'هندسه وحاسوب';
   if (/حاسوب\s*ال(?:ا|أ)?عمال|ال(?:ا|أ)?عمال/u.test(normalized)) return 'الاعمال';
   return null;
+}
+
+/**
+ * The university's Moodle dashboard includes a custom teacher_timetable block.
+ * It is not exposed through Moodle's mobile web-service token, but it renders
+ * a course-id and building together in the authenticated dashboard HTML.
+ */
+export function extractMoodleDashboardLocations(value: unknown): MoodleDashboardLocation[] {
+  if (typeof value !== 'string') return [];
+  const found = new Map<string, string>();
+  const cards = value.matchAll(
+    /<div\s+class="ttcard"[^>]*>[\s\S]{0,2400}?course\/view\.php\?id=(\d+)[^>]*>[\s\S]{0,2400}?ttmini--building[^>]*>[\s\S]*?<\/i>\s*([^<]+?)\s*<\/span>/gu,
+  );
+  for (const card of cards) {
+    const courseId = card[1];
+    const location = normalizeCampusLocation(card[2]);
+    if (courseId && location) found.set(courseId, location);
+  }
+  return [...found.entries()].map(([course_external_id, location]) => ({ course_external_id, location }));
+}
+
+export function applyMoodleDashboardLocations(
+  meetings: MoodleMeetingPayload[],
+  dashboardLocations: MoodleDashboardLocation[],
+): MoodleMeetingPayload[] {
+  const locationsByCourse = new Map<string, Set<string>>();
+  for (const item of dashboardLocations) {
+    const locations = locationsByCourse.get(item.course_external_id) ?? new Set<string>();
+    locations.add(item.location);
+    locationsByCourse.set(item.course_external_id, locations);
+  }
+  return meetings.map((meeting) => {
+    if (meeting.location) return meeting;
+    const locations = locationsByCourse.get(meeting.course_external_id);
+    // Do not guess when a course genuinely uses more than one building.
+    if (!locations || locations.size !== 1) return meeting;
+    return { ...meeting, location: [...locations][0]! };
+  });
 }
 
 interface MoodleUser {
@@ -348,6 +391,48 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
+function sessionCookie(response: Response): string | null {
+  // Moodle currently issues one session cookie here. Keep only its name/value;
+  // security attributes are response-only and must never be replayed as cookies.
+  const setCookie = response.headers.get('set-cookie');
+  return setCookie?.split(';', 1)[0]?.trim() || null;
+}
+
+async function fetchMoodleDashboardLocations(
+  baseUrl: string,
+  studentId: string,
+  password: string,
+): Promise<MoodleDashboardLocation[]> {
+  const loginPage = await fetchWithTimeout(`${baseUrl}/login/index.php?loginredirect=1`, {
+    redirect: 'manual',
+  });
+  if (!loginPage.ok) return [];
+  const loginHtml = await loginPage.text();
+  const loginToken = loginHtml.match(/name=["']logintoken["']\s+value=["']([^"']+)["']/iu)?.[1];
+  if (!loginToken) return [];
+
+  const initialCookie = sessionCookie(loginPage);
+  const loginResponse = await fetchWithTimeout(`${baseUrl}/login/index.php`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(initialCookie ? { Cookie: initialCookie } : {}),
+    },
+    body: new URLSearchParams({ username: studentId, password, logintoken: loginToken }),
+  });
+  const authenticatedCookie = sessionCookie(loginResponse);
+  const cookies = [initialCookie, authenticatedCookie].filter((value): value is string => Boolean(value)).join('; ');
+  if (!cookies) return [];
+
+  const dashboardUrl = new URL(loginResponse.headers.get('location') || '/my/', baseUrl).toString();
+  const dashboard = await fetchWithTimeout(dashboardUrl, {
+    headers: { Cookie: cookies },
+  });
+  if (!dashboard.ok) return [];
+  return extractMoodleDashboardLocations(await dashboard.text());
+}
+
 export async function readJsonResponse<T>(response: Response, code: string, allowEmpty = false): Promise<T> {
   const body = await response.text();
   if (!body.trim() && allowEmpty && response.ok) return null as T;
@@ -471,6 +556,18 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
       // available if the university disables or restricts this Moodle method.
       // Keep the timetable parsed from the official course names.
     }
+  }
+
+  try {
+    // JPU's dashboard timetable supplies the campus building, while the
+    // Moodle mobile API only provides it inconsistently. This enrichment is
+    // optional: a missing/customised block must never block authentication.
+    meetings = applyMoodleDashboardLocations(
+      meetings,
+      await fetchMoodleDashboardLocations(baseUrl, studentId, password),
+    );
+  } catch {
+    // The Moodle mobile API data remains the safe fallback.
   }
 
   let verifiedEmail: string | null = null;

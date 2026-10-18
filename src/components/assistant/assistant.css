@@ -765,6 +765,21 @@
   line-height: 1.9;
   margin-top: 15px;
 }
+.assistant-inline-action {
+  display: inline-flex;
+  margin-inline-start: 10px;
+  padding: 0;
+  border: 0;
+  color: #1d4ed8;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.assistant-inline-action:hover {
+  color: #1e40af;
+}
 .assistant-courses-heading {
   padding: 24px 26px;
   border-bottom: 1px solid var(--assistant-line);

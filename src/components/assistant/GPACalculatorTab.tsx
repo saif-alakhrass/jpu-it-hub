@@ -23,6 +23,7 @@ interface Props {
 export function GPACalculatorTab({ data, onChange, subjects }: Props) {
   const [showCard, setShowCard] = useState(false);
   const [goalScope, setGoalScope] = useState<'semester' | 'future'>('semester');
+  const [editingCourses, setEditingCourses] = useState(false);
   const result = calculateGpa(data);
   const rating =
     result.cumulative === null ? null : classifyAverage(result.cumulative);
@@ -113,7 +114,29 @@ export function GPACalculatorTab({ data, onChange, subjects }: Props) {
             >
               <Icon name="Plus" /> أضف مادة
             </button>
+            <button
+              className="assistant-button assistant-button-outline"
+              type="button"
+              aria-pressed={editingCourses}
+              onClick={() => setEditingCourses((value) => !value)}
+            >
+              <Icon name="Pencil" /> {editingCourses ? 'إنهاء التعديل' : 'تعديل الحاسبة'}
+            </button>
           </div>
+          {editingCourses && (
+            <div className="assistant-note mx-5 mb-3">
+              التعديل هنا للمحاكاة فقط؛ لا يغيّر مواد Moodle أو مكتبة فصلك.
+              {(data.excludedAcademicCourseIds?.length ?? 0) > 0 && (
+                <button
+                  className="assistant-inline-action"
+                  type="button"
+                  onClick={() => onChange({ ...data, excludedAcademicCourseIds: [] })}
+                >
+                  استعادة مواد الفصل
+                </button>
+              )}
+            </div>
+          )}
           {!data.courses.length && (
             <div className="assistant-empty">
               <span className="assistant-empty-icon">
@@ -145,8 +168,12 @@ export function GPACalculatorTab({ data, onChange, subjects }: Props) {
                     onChange({
                       ...data,
                       courses: data.courses.filter((x) => x.id !== c.id),
+                      excludedAcademicCourseIds: c.academicCourseId
+                        ? [...new Set([...(data.excludedAcademicCourseIds ?? []), c.academicCourseId])]
+                        : data.excludedAcademicCourseIds,
                     });
                 }}
+                canRemove={editingCourses || c.academicSource !== 'moodle'}
               />
             ))}
           </div>
@@ -366,12 +393,14 @@ const CourseEditor = memo(function CourseEditor({
   subjects,
   onChange,
   onRemove,
+  canRemove,
 }: {
   course: EnrolledCourse;
   index: number;
   subjects: Subject[];
   onChange: (patch: Partial<EnrolledCourse>) => void;
   onRemove: () => void;
+  canRemove: boolean;
 }) {
   const [optionsOpen, setOptionsOpen] = useState(c.retake);
   const linked = subjects.find((s) => s.id === c.subjectId);
@@ -392,7 +421,7 @@ const CourseEditor = memo(function CourseEditor({
           {c.academicSource === 'moodle' ? 'مادة الفصل الحالي · Moodle' : linked ? 'مرتبطة بالمكتبة' : 'مادة خاصة'}
           {c.retake ? ' · معادة' : ''}
         </span>
-        {c.academicSource !== 'moodle' && (
+        {canRemove && (
           <button
             className="assistant-remove"
             type="button"

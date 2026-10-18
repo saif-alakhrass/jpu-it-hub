@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AcademicAuthError, extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId, readJsonResponse } from '../src/moodle';
+import { AcademicAuthError, applyMoodleDashboardLocations, extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, extractMoodleDashboardLocations, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId, readJsonResponse } from '../src/moodle';
 
 describe('Moodle academic authentication input', () => {
   it('normalizes a safe student ID', () => {
@@ -84,6 +84,38 @@ describe('JPU course-name schedule extraction', () => {
 
   it('does not invent meetings for names without a recognized timetable suffix', () => {
     expect(extractMeetingsFromCourseNames([{ id: 1, fullname: 'مادة بدون موعد' }])).toEqual([]);
+  });
+});
+
+describe('JPU Moodle dashboard location extraction', () => {
+  it('reads the campus building from the authenticated timetable block', () => {
+    const html = `
+      <div class="ttcard"><a href="https://www.jpu.edu.jo/lms/course/view.php?id=5743">أمن المعلومات</a>
+      <span class="ttmini--building"><i class="fa fa-building"></i> هندسةوحاسوب </span></div>
+      <div class="ttcard"><a href="course/view.php?id=5730">تنقيب البيانات</a>
+      <span class="ttmini--building"><i></i> الاعمال </span></div>`;
+    expect(extractMoodleDashboardLocations(html)).toEqual([
+      { course_external_id: '5743', location: 'هندسه وحاسوب' },
+      { course_external_id: '5730', location: 'الاعمال' },
+    ]);
+  });
+
+  it('enriches only a missing and unambiguous meeting location', () => {
+    const meetings = [
+      { course_external_id: '5743', external_id: 'one', weekday: 0, starts_at: '08:00', ends_at: '08:40', room: null, location: null },
+      { course_external_id: '5730', external_id: 'two', weekday: 1, starts_at: '09:00', ends_at: '09:40', room: null, location: 'الغزالي' },
+      { course_external_id: '5700', external_id: 'three', weekday: 2, starts_at: '10:00', ends_at: '10:40', room: null, location: null },
+    ];
+    expect(applyMoodleDashboardLocations(meetings, [
+      { course_external_id: '5743', location: 'هندسه وحاسوب' },
+      { course_external_id: '5730', location: 'الاعمال' },
+      { course_external_id: '5700', location: 'الغزالي' },
+      { course_external_id: '5700', location: 'الاعمال' },
+    ])).toEqual([
+      expect.objectContaining({ external_id: 'one', location: 'هندسه وحاسوب' }),
+      expect.objectContaining({ external_id: 'two', location: 'الغزالي' }),
+      expect.objectContaining({ external_id: 'three', location: null }),
+    ]);
   });
 });
 

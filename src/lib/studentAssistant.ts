@@ -36,6 +36,9 @@ export interface StudentSemester {
   startsOn: string;
   endsOn: string;
   courses: EnrolledCourse[];
+  // Locally hidden Moodle courses are excluded from GPA simulations only.
+  // They remain synced in the academic profile and the semester library.
+  excludedAcademicCourseIds?: string[];
   futurePlan?: { semesterHours: string; average: string };
 }
 export const STUDENT_STORAGE_KEY = 'jpu-it-hub:student-semester:v1';
@@ -144,6 +147,14 @@ export function parseSemester(raw: string): StudentSemester {
   }
   if (!unique(value.courses as EnrolledCourse[]))
     throw new Error('Duplicate course');
+  if (
+    value.excludedAcademicCourseIds !== undefined &&
+    (!Array.isArray(value.excludedAcademicCourseIds)
+      || value.excludedAcademicCourseIds.length > MAX_COURSES
+      || !value.excludedAcademicCourseIds.every(id)
+      || new Set(value.excludedAcademicCourseIds).size !== value.excludedAcademicCourseIds.length)
+  )
+    throw new Error('Invalid excluded academic courses');
   const plan = value.futurePlan;
   if (
     plan !== undefined &&

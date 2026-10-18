@@ -59,4 +59,11 @@ describe('academic course matching and assistant hydration', () => {
     );
     expect(result.courses[0]!.meetings[0]).toMatchObject({ building: 'الغزالي', room: '204' });
   });
+
+  it('can exclude a synced course from the local GPA simulation only', () => {
+    const current = { ...emptySemester(), excludedAcademicCourseIds: [academic().id] };
+    const result = mergeAcademicCoursesIntoSemester(current, [academic()], subjects);
+    expect(result.courses).toEqual([]);
+    expect(result.excludedAcademicCourseIds).toEqual([academic().id]);
+  });
 });
