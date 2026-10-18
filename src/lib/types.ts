@@ -11,6 +11,7 @@ export interface Profile {
   department: string | null;
   credit_hours: number | null;
   bio: string | null;
+  avatar_url?: string | null;
   is_super_admin: boolean;
   created_at: string;
 }

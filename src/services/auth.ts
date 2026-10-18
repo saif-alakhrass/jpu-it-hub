@@ -59,7 +59,7 @@ export async function signOutUser(): Promise<void> {
 export async function loadProfile(uid: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, role, is_super_admin, created_at, academic_year, department, credit_hours, bio')
+    .select('id, full_name, role, is_super_admin, created_at, academic_year, department, credit_hours, bio, avatar_url')
     .eq('id', uid)
     .maybeSingle();
   if (error) return null;

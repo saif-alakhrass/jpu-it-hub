@@ -4,6 +4,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { signInWithEmail, signUpWithEmail, signInWithGoogle as signInWithGoogleSvc, signOutUser, loadProfile as loadProfileSvc } from '@/services/auth';
 import type { Profile } from '@/lib/types';
 import { AuthContext } from '@/context/authState';
+import { signInWithMoodle as signInWithMoodleSvc } from '@/services/academicAuth';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -63,6 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return signInWithEmail(email, password);
   }
 
+  async function signInWithMoodle(studentId: string, password: string) {
+    if (!isSupabaseConfigured) return { error: 'مفاتيح الاتصال بقاعدة البيانات غير متوفرة', coursesSynced: 0 };
+    return signInWithMoodleSvc(studentId, password);
+  }
+
   async function signUp(email: string, password: string, fullName: string) {
     if (!isSupabaseConfigured) return { error: 'مفاتيح الاتصال بقاعدة البيانات غير متوفرة', notice: null };
     const res = await signUpWithEmail(email, password, fullName);
@@ -101,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         session, profile, loading, role, isAdmin, isSuperAdmin, isTrusted, canPublishDirectly,
-        signIn, signUp, signInWithGoogle, signOut, refreshProfile,
+        signIn, signInWithMoodle, signUp, signInWithGoogle, signOut, refreshProfile,
       }}
     >
       {children}
