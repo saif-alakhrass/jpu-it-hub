@@ -119,12 +119,10 @@ export function AboutPage() {
   const staff = team.filter((m) => m !== founder && m !== assistant);
 
   const founderLinks: SocialLink[] = [
-    { href: 'https://github.com/saif-alakhrass', icon: 'Github', label: 'GitHub' },
     { href: 'https://www.linkedin.com/', icon: 'Linkedin', label: 'LinkedIn' },
     { href: 'mailto:saif.alakhrass@example.com', icon: 'Mail', label: 'تواصل معي' },
   ];
   const assistantLinks: SocialLink[] = [
-    { href: 'https://github.com/', icon: 'Github', label: 'GitHub' },
     { href: 'https://www.linkedin.com/', icon: 'Linkedin', label: 'LinkedIn' },
     { href: 'mailto:assistant@example.com', icon: 'Mail', label: 'تواصل' },
   ];
