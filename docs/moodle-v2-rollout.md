@@ -1,7 +1,7 @@
 # Moodle V2 rollout
 
-The Moodle integration is disabled by default and must first be deployed to an
-isolated Supabase, Cloudflare Worker, and Vercel staging environment.
+The Moodle integration was validated in an isolated Supabase, Cloudflare
+Worker, and Vercel staging environment before the production rollout.
 
 ## Required Worker configuration
 

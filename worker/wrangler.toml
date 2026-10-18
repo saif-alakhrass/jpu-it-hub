@@ -20,9 +20,9 @@ CORS_ALLOWED_ORIGINS = "http://localhost:5173,https://jpu-it-hub.vercel.app,http
 MAX_FILE_SIZE_BYTES = "20971520"
 UPLOAD_WINDOW_MINUTES = "10"
 SIGNED_URL_EXPIRY_SECONDS = "300"
-ACADEMIC_AUTH_ENABLED = "false"
+ACADEMIC_AUTH_ENABLED = "true"
+MOODLE_BASE_URL = "https://www.jpu.edu.jo/lms"
 MOODLE_SERVICE_NAME = "moodle_mobile_app"
-# Set MOODLE_BASE_URL only in the isolated staging environment first.
 
 # Isolated JPU-IT Hub V2 staging environment. It uses a separate Worker,
 # database project, and R2 bucket so Moodle integration testing cannot touch
