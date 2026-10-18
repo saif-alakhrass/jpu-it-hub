@@ -57,6 +57,13 @@ describe('Moodle recurring meeting normalization', () => {
       { id: 3, courseid: 10, timestart: 1_798_449_600, timeduration: 3600, eventtype: 'course' },
     ], [10])).toEqual([]);
   });
+
+  it('falls back safely when Moodle returns its non-IANA default timezone marker', () => {
+    const meetings = normalizeMoodleMeetings([
+      { id: 1, courseid: 10, timestart: 1_798_449_600, timeduration: 3600, repeatid: 1 },
+    ], [10], '99');
+    expect(meetings).toHaveLength(1);
+  });
 });
 
 describe('Supabase generated session token response', () => {

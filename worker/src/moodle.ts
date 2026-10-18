@@ -197,6 +197,12 @@ export function normalizeMoodleMeetings(
 ): MoodleMeetingPayload[] {
   const events = Array.isArray(value) ? value : [];
   const enrolled = new Set(enrolledCourseIds);
+  let resolvedTimezone = timezone;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: resolvedTimezone }).format(0);
+  } catch {
+    resolvedTimezone = 'Asia/Amman';
+  }
   const candidates = events.flatMap((raw) => {
     if (!raw || typeof raw !== 'object') return [];
     const event = raw as MoodleCalendarEvent;
@@ -211,8 +217,8 @@ export function normalizeMoodleMeetings(
       || (event.eventtype && !['course', 'group'].includes(event.eventtype))
     ) return [];
     try {
-      const start = localDateParts(event.timestart as number, timezone);
-      const end = localDateParts((event.timestart as number) + (event.timeduration as number), timezone);
+      const start = localDateParts(event.timestart as number, resolvedTimezone);
+      const end = localDateParts((event.timestart as number) + (event.timeduration as number), resolvedTimezone);
       if (start.weekday === undefined || end.weekday !== start.weekday || end.time <= start.time) return [];
       const place = typeof event.location === 'string' && event.location.trim() ? event.location.trim() : null;
       return [{
