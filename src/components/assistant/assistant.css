@@ -118,6 +118,19 @@
   color: var(--assistant-muted);
   line-height: 1.8;
 }
+.assistant-academic-sync {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: -16px 0 24px;
+  padding: 11px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 13px;
+  font-weight: 600;
+}
 .assistant-privacy {
   max-width: 330px;
   margin-top: 8px;

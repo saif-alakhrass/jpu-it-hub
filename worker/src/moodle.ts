@@ -19,13 +19,48 @@ interface MoodleSiteInfo {
   userpictureurl?: string;
   userissiteadmin?: boolean;
   functions?: Array<{ name?: string }>;
+  timezone?: string;
   errorcode?: string;
+}
+
+interface MoodleCalendarEvent {
+  id?: number;
+  courseid?: number;
+  timestart?: number;
+  timeduration?: number;
+  repeatid?: number;
+  eventtype?: string;
+  modulename?: string;
+  location?: string;
+}
+
+interface MoodleCalendarResponse {
+  events?: MoodleCalendarEvent[];
+}
+
+export interface MoodleMeetingPayload {
+  course_external_id: string;
+  external_id: string;
+  weekday: number;
+  starts_at: string;
+  ends_at: string;
+  room: string | null;
+  location: string | null;
 }
 
 interface MoodleUser {
   id?: number;
   username?: string;
   email?: string;
+  department?: string;
+  profileimageurl?: string;
+  customfields?: Array<{ type?: string; value?: unknown; name?: string; shortname?: string }>;
+}
+
+export interface AcademicProfileFields {
+  academicYear: string | null;
+  department: string | null;
+  creditHours: number | null;
 }
 
 export interface MoodleCourse {
@@ -105,8 +140,116 @@ export function normalizeMoodleCourses(value: unknown): MoodleCourse[] {
   return [...unique.values()];
 }
 
+function fieldKey(value: string): string {
+  return value.toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+export function extractAcademicProfile(user: MoodleUser | undefined): AcademicProfileFields {
+  const fields = new Map<string, unknown>();
+  for (const field of user?.customfields ?? []) {
+    for (const key of [field.shortname, field.name]) {
+      if (typeof key === 'string' && key.trim()) fields.set(fieldKey(key), field.value);
+    }
+  }
+  const find = (aliases: string[]) => {
+    for (const alias of aliases) {
+      const value = fields.get(fieldKey(alias));
+      if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+    }
+    return null;
+  };
+  const creditValue = find(['credit_hours', 'credithours', 'completedhours', 'passedhours', 'الساعات المقطوعة', 'ساعات مقطوعة']);
+  const creditDigits = creditValue?.replace(/[^0-9.]/g, '') ?? '';
+  const parsedCredits = creditDigits ? Number(creditDigits) : null;
+  return {
+    academicYear: find(['academic_year', 'academicyear', 'studyyear', 'level', 'السنة الدراسية', 'المستوى']),
+    department: user?.department?.trim() || find(['department', 'major', 'specialization', 'programme', 'program', 'القسم', 'التخصص']),
+    creditHours: parsedCredits !== null && Number.isFinite(parsedCredits) && parsedCredits >= 0 && parsedCredits <= 400
+      ? Math.round(parsedCredits)
+      : null,
+  };
+}
+
 function safeUnixTimestamp(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function localDateParts(timestamp: number, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(timestamp * 1000));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  const weekdays: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    weekday: weekdays[value('weekday')],
+    time: `${value('hour')}:${value('minute')}`,
+  };
+}
+
+export function normalizeMoodleMeetings(
+  value: unknown,
+  enrolledCourseIds: number[],
+  timezone = 'Asia/Amman',
+): MoodleMeetingPayload[] {
+  const events = Array.isArray(value) ? value : [];
+  const enrolled = new Set(enrolledCourseIds);
+  const candidates = events.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const event = raw as MoodleCalendarEvent;
+    if (
+      !Number.isSafeInteger(event.id)
+      || !Number.isSafeInteger(event.courseid)
+      || !enrolled.has(event.courseid as number)
+      || !Number.isSafeInteger(event.timestart)
+      || !Number.isSafeInteger(event.timeduration)
+      || (event.timeduration as number) <= 0
+      || (typeof event.modulename === 'string' && event.modulename.trim())
+      || (event.eventtype && !['course', 'group'].includes(event.eventtype))
+    ) return [];
+    try {
+      const start = localDateParts(event.timestart as number, timezone);
+      const end = localDateParts((event.timestart as number) + (event.timeduration as number), timezone);
+      if (start.weekday === undefined || end.weekday !== start.weekday || end.time <= start.time) return [];
+      const place = typeof event.location === 'string' && event.location.trim() ? event.location.trim() : null;
+      return [{
+        event,
+        key: `${event.courseid}|${start.weekday}|${start.time}|${end.time}|${place ?? ''}`,
+        weekday: start.weekday,
+        startsAt: start.time,
+        endsAt: end.time,
+        place,
+      }];
+    } catch {
+      return [];
+    }
+  });
+
+  const patternCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    patternCounts.set(candidate.key, (patternCounts.get(candidate.key) ?? 0) + 1);
+  }
+  const meetings = new Map<string, MoodleMeetingPayload>();
+  for (const candidate of candidates) {
+    const repeated = Number.isSafeInteger(candidate.event.repeatid) && (candidate.event.repeatid as number) > 0;
+    if (!repeated && (patternCounts.get(candidate.key) ?? 0) < 2) continue;
+    if (meetings.has(candidate.key)) continue;
+    meetings.set(candidate.key, {
+      course_external_id: String(candidate.event.courseid),
+      external_id: repeated
+        ? `moodle-calendar-repeat-${candidate.event.repeatid}`
+        : `moodle-calendar-pattern-${candidate.event.id}`,
+      weekday: candidate.weekday,
+      starts_at: candidate.startsAt,
+      ends_at: candidate.endsAt,
+      room: candidate.place,
+      location: null,
+    });
+  }
+  return [...meetings.values()];
 }
 
 function configuredMoodleBaseUrl(env: MoodleAuthEnv): string {
@@ -229,7 +372,34 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
     { userid: String(site.userid) },
   ));
 
+  let meetings: MoodleMeetingPayload[] | null = null;
+  if (availableFunctions.has('core_calendar_get_calendar_events')) {
+    try {
+      const params: Record<string, string> = {
+        'options[userevents]': '0',
+        'options[siteevents]': '0',
+        'options[timestart]': String(Math.floor(Date.now() / 1000) - 7 * 86_400),
+        'options[timeend]': String(Math.floor(Date.now() / 1000) + 180 * 86_400),
+      };
+      courses.forEach((course, index) => {
+        params[`events[courseids][${index}]`] = String(course.id);
+      });
+      const calendar = await callMoodle<MoodleCalendarResponse>(
+        baseUrl,
+        tokenResult.token,
+        'core_calendar_get_calendar_events',
+        params,
+      );
+      meetings = normalizeMoodleMeetings(calendar.events, courses.map((course) => course.id), site.timezone || 'Asia/Amman');
+    } catch {
+      // Calendar data is optional. Authentication and course sync must remain
+      // available if the university disables or restricts this Moodle method.
+      meetings = null;
+    }
+  }
+
   let verifiedEmail: string | null = null;
+  let matchingUser: MoodleUser | undefined;
   if (site.username && availableFunctions.has('core_user_get_users_by_field')) {
     const users = await callMoodle<MoodleUser[]>(
       baseUrl,
@@ -237,7 +407,7 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
       'core_user_get_users_by_field',
       { field: 'username', 'values[0]': site.username },
     );
-    const matchingUser = Array.isArray(users)
+    matchingUser = Array.isArray(users)
       ? users.find((user) => user.id === site.userid && user.username === site.username)
       : undefined;
     if (matchingUser?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(matchingUser.email)) {
@@ -245,7 +415,7 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
     }
   }
 
-  return { site, courses, verifiedEmail };
+  return { site, courses, meetings, verifiedEmail, matchingUser };
 }
 
 function syntheticEmail(providerUserId: string): string {
@@ -314,7 +484,7 @@ async function verifyAndSyncMoodleIdentity(
   }
 
   await enforceLoginRateLimit(env, request, studentId);
-  const { site, courses, verifiedEmail } = await authenticateMoodle(env, studentId, body.password);
+  const { site, courses, meetings, verifiedEmail, matchingUser } = await authenticateMoodle(env, studentId, body.password);
   const providerUserId = String(site.userid);
   const email = verifiedEmail || syntheticEmail(providerUserId);
   let userId = forcedUserId || await rpc<string | null>(env, 'academic_resolve_user', {
@@ -335,6 +505,20 @@ async function verifyAndSyncMoodleIdentity(
     p_courses: courses,
     p_term_key: 'current',
   });
+  const academicProfile = extractAcademicProfile(matchingUser);
+  await rpc<null>(env, 'academic_update_profile', {
+    p_user_id: userId,
+    p_academic_year: academicProfile.academicYear,
+    p_department: academicProfile.department,
+    p_credit_hours: academicProfile.creditHours,
+  });
+  if (meetings !== null) {
+    await rpc<number>(env, 'academic_replace_meetings', {
+      p_user_id: userId,
+      p_provider: PROVIDER,
+      p_meetings: meetings,
+    });
+  }
   return { email, sync };
 }
 

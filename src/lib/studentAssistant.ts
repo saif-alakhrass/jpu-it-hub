@@ -15,6 +15,8 @@ export interface Deadline {
 }
 export interface EnrolledCourse {
   id: string;
+  academicCourseId?: string;
+  academicSource?: 'moodle';
   name: string;
   subjectId: string | null;
   hours: string;
@@ -98,6 +100,8 @@ export function parseSemester(raw: string): StudentSemester {
     if (
       !obj(c) ||
       !id(c.id) ||
+      !(c.academicCourseId === undefined || id(c.academicCourseId)) ||
+      !(c.academicSource === undefined || c.academicSource === 'moodle') ||
       !['name', 'hours', 'grade', 'oldGrade'].every((k) => str(c[k])) ||
       typeof c.retake !== 'boolean' ||
       !(c.subjectId === null || id(c.subjectId)) ||

@@ -388,18 +388,20 @@ const CourseEditor = memo(function CourseEditor({
         <span
           className={'assistant-link-status ' + (linked ? 'is-linked' : '')}
         >
-          <Icon name={linked ? 'BookMarked' : 'Pencil'} />
-          {linked ? 'مرتبطة بالمكتبة' : 'مادة خاصة'}
+          <Icon name={c.academicSource === 'moodle' ? 'RefreshCw' : linked ? 'BookMarked' : 'Pencil'} />
+          {c.academicSource === 'moodle' ? 'مادة الفصل الحالي · Moodle' : linked ? 'مرتبطة بالمكتبة' : 'مادة خاصة'}
           {c.retake ? ' · معادة' : ''}
         </span>
-        <button
-          className="assistant-remove"
-          type="button"
-          aria-label={'حذف المادة ' + (index + 1)}
-          onClick={onRemove}
-        >
-          <Icon name="Trash2" />
-        </button>
+        {c.academicSource !== 'moodle' && (
+          <button
+            className="assistant-remove"
+            type="button"
+            aria-label={'حذف المادة ' + (index + 1)}
+            onClick={onRemove}
+          >
+            <Icon name="Trash2" />
+          </button>
+        )}
       </div>
       <div className="assistant-course-fields">
         <div className="assistant-course-name">

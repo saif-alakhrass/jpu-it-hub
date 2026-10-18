@@ -7,10 +7,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { DifficultyBadge } from '@/components/DifficultyBadge';
 import { getCourseMeta } from '@/lib/courseDetails';
-import { MAJORS, type Difficulty } from '@/lib/types';
+import { MAJORS, type Difficulty, type Subject } from '@/lib/types';
 import { SubjectCardSkeletonGrid } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
-import { useSubjectsPaged } from '@/hooks/useSubjects';
+import { useAllSubjects, useSubjectsPaged } from '@/hooks/useSubjects';
+import { useAcademicCourses } from '@/hooks/useAcademicCourses';
+import { matchAcademicCourseToSubject } from '@/lib/academicCourses';
 import { createSubject } from '@/services/subjects';
 import { getUserErrorMessage } from '@/lib/serviceError';
 import { useQueryClient } from '@tanstack/react-query';
@@ -56,6 +58,15 @@ export function HomePage() {
   const [submitting, setSubmitting] = useState(false);
 
   const { data, loading, error, page, setPage, reload } = useSubjectsPaged(search, major, initialView.page);
+  const academic = useAcademicCourses(session?.user.id);
+  const catalog = useAllSubjects();
+  const currentSubjectIds = new Set(
+    academic.courses
+      .map((course) => matchAcademicCourseToSubject(course, catalog.subjects))
+      .filter((id): id is string => Boolean(id)),
+  );
+  const currentSubjects = catalog.subjects.filter((subject) => currentSubjectIds.has(subject.id));
+  const regularSubjects = data.items.filter((subject) => !currentSubjectIds.has(subject.id));
   const restoredScroll = useRef(false);
 
   function warmSubject(subjectId: string, includeContent = false) {
@@ -176,7 +187,7 @@ export function HomePage() {
           ctaLabel="إعادة المحاولة"
           onCta={() => void reload()}
         />
-      ) : data.items.length === 0 ? (
+      ) : data.items.length === 0 && currentSubjects.length === 0 ? (
         <EmptyState
           icon="FolderOpen"
           title="لا توجد مواد مطابقة"
@@ -186,59 +197,27 @@ export function HomePage() {
         />
       ) : (
         <>
+          {!search && currentSubjects.length > 0 && (
+            <section className="mb-10" aria-labelledby="current-semester-subjects">
+              <div className="mb-4 flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold text-brand-400">متزامنة من Moodle</p>
+                  <h2 id="current-semester-subjects" className="mt-1 text-xl font-extrabold text-slate-100">مواد فصلك الحالي</h2>
+                </div>
+                <span className="badge border border-brand-500/30 bg-brand-500/15 text-brand-300">{currentSubjects.length} مواد</span>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {currentSubjects.map((subject) => (
+                  <SubjectCard key={subject.id} subject={subject} current onOpen={() => { warmSubject(subject.id, true); navigate(`/subject/${subject.id}`); }} onWarm={warmSubject} />
+                ))}
+              </div>
+            </section>
+          )}
+          {!search && currentSubjects.length > 0 && <h2 className="mb-4 text-lg font-bold text-slate-200">باقي مواد المكتبة</h2>}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.items.map((s) => {
-              const depts = s.departments?.length ? s.departments : [s.major];
-              const isShared = depts.length > 1;
-              const meta = getCourseMeta(s.name, s.course_description ?? s.description);
-              const difficulty: Difficulty = s.difficulty ?? meta.difficulty;
-              const description = s.course_description ?? s.description ?? meta.description;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => { warmSubject(s.id, true); navigate(`/subject/${s.id}`); }}
-                  onPointerEnter={(event) => { if (event.pointerType === 'mouse') warmSubject(s.id); }}
-                  onPointerDown={(event) => { if (event.pointerType === 'mouse') warmSubject(s.id, true); }}
-                  onFocus={() => warmSubject(s.id)}
-                  className="performance-item card group p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow"
-                >
-                  <div className="mb-3 flex items-start justify-between">
-                    <span className="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100">
-                      <Icon name="BookOpen" className="h-5 w-5" />
-                    </span>
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {depts.map((d) => (
-                        <span key={d} className="badge bg-ink-800 text-slate-300 border border-ink-600 text-[10px]">
-                          {d}
-                        </span>
-                      ))}
-                      {isShared && (
-                        <span className="badge bg-brand-500/15 text-brand-300 border border-brand-500/30 text-[10px]">
-                          <Icon name="Layers" className="h-3 w-3" />
-                          مشترك
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <h3 className="mb-1 text-lg font-bold text-slate-100 group-hover:text-brand-300 transition">
-                    {s.name}
-                  </h3>
-                  {s.code && (
-                    <span className="mb-1 inline-block font-mono text-xs text-brand-600">{s.code}</span>
-                  )}
-                  <p className="text-sm text-slate-400 line-clamp-2 min-h-[2.5rem]">
-                    {description}
-                  </p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <DifficultyBadge difficulty={difficulty} />
-                    <span className="flex items-center gap-1 text-xs text-brand-600 font-bold opacity-0 transition group-hover:opacity-100">
-                      عرض الموارد
-                      <Icon name="ChevronLeft" className="h-4 w-4" />
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
+            {regularSubjects.map((subject) => (
+              <SubjectCard key={subject.id} subject={subject} onOpen={() => { warmSubject(subject.id, true); navigate(`/subject/${subject.id}`); }} onWarm={warmSubject} />
+            ))}
           </div>
 
           <Pagination page={page} totalPages={data.totalPages} onPageChange={setPage} />
@@ -287,5 +266,38 @@ export function HomePage() {
 
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
+  );
+}
+
+function SubjectCard({ subject: s, current = false, onOpen, onWarm }: { subject: Subject; current?: boolean; onOpen: () => void; onWarm: (id: string, includeContent?: boolean) => void }) {
+  const depts = s.departments?.length ? s.departments : [s.major];
+  const isShared = depts.length > 1;
+  const meta = getCourseMeta(s.name, s.course_description ?? s.description);
+  const difficulty: Difficulty = s.difficulty ?? meta.difficulty;
+  const description = s.course_description ?? s.description ?? meta.description;
+  return (
+    <button
+      onClick={onOpen}
+      onPointerEnter={(event) => { if (event.pointerType === 'mouse') onWarm(s.id); }}
+      onPointerDown={(event) => { if (event.pointerType === 'mouse') onWarm(s.id, true); }}
+      onFocus={() => onWarm(s.id)}
+      className={`performance-item card group relative p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow ${current ? 'border-brand-500/40 bg-gradient-to-br from-brand-500/10 to-ink-850' : ''}`}
+    >
+      {current && <span className="absolute left-3 top-3 badge border border-brand-400/30 bg-brand-500/20 text-brand-200"><Icon name="CheckCircle2" className="h-3 w-3" /> فصل حالي</span>}
+      <div className="mb-3 flex items-start justify-between">
+        <span className="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100"><Icon name="BookOpen" className="h-5 w-5" /></span>
+        <div className={`flex flex-wrap justify-end gap-1 ${current ? 'pl-20' : ''}`}>
+          {depts.map((d) => <span key={d} className="badge bg-ink-800 text-slate-300 border border-ink-600 text-[10px]">{d}</span>)}
+          {isShared && <span className="badge bg-brand-500/15 text-brand-300 border border-brand-500/30 text-[10px]"><Icon name="Layers" className="h-3 w-3" />مشترك</span>}
+        </div>
+      </div>
+      <h3 className="mb-1 text-lg font-bold text-slate-100 group-hover:text-brand-300 transition">{s.name}</h3>
+      {s.code && <span className="mb-1 inline-block font-mono text-xs text-brand-600">{s.code}</span>}
+      <p className="text-sm text-slate-400 line-clamp-2 min-h-[2.5rem]">{description}</p>
+      <div className="mt-3 flex items-center justify-between">
+        <DifficultyBadge difficulty={difficulty} />
+        <span className="flex items-center gap-1 text-xs text-brand-600 font-bold opacity-0 transition group-hover:opacity-100">عرض الموارد<Icon name="ChevronLeft" className="h-4 w-4" /></span>
+      </div>
+    </button>
   );
 }
