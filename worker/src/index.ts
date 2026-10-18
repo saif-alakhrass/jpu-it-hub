@@ -630,6 +630,7 @@ export default {
           return corsResponse(env, request, 200, result);
         } catch (error) {
           if (error instanceof AcademicAuthError) {
+            console.error('Academic Moodle login failed', { code: error.code, status: error.status });
             return corsResponse(env, request, error.status, { error: error.message, code: error.code });
           }
           throw error;
@@ -671,6 +672,7 @@ export default {
           return corsResponse(env, request, 200, result);
         } catch (error) {
           if (error instanceof AcademicAuthError) {
+            console.error('Academic Moodle link failed', { code: error.code, status: error.status });
             return corsResponse(env, request, error.status, { error: error.message, code: error.code });
           }
           throw error;

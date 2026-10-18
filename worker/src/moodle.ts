@@ -348,9 +348,11 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-async function readJson<T>(response: Response, code: string): Promise<T> {
+export async function readJsonResponse<T>(response: Response, code: string, allowEmpty = false): Promise<T> {
+  const body = await response.text();
+  if (!body.trim() && allowEmpty && response.ok) return null as T;
   try {
-    return await response.json() as T;
+    return JSON.parse(body) as T;
   } catch {
     throw new AcademicAuthError(502, code, 'استلمنا استجابة غير صالحة من الخدمة المطلوبة.');
   }
@@ -371,7 +373,7 @@ async function rpc<T>(env: MoodleAuthEnv, name: string, body: Record<string, unk
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new AcademicAuthError(503, 'ACADEMIC_DATABASE_ERROR', 'تعذر تجهيز الحساب حاليًا.');
-  return await readJson<T>(response, 'ACADEMIC_DATABASE_RESPONSE_INVALID');
+  return await readJsonResponse<T>(response, 'ACADEMIC_DATABASE_RESPONSE_INVALID', true);
 }
 
 async function sha256(value: string): Promise<string> {
@@ -403,7 +405,7 @@ async function callMoodle<T>(baseUrl: string, token: string, wsfunction: string,
     body,
   });
   if (!response.ok) throw new AcademicAuthError(502, 'MOODLE_UNAVAILABLE', 'تعذر الاتصال بمنصة الجامعة.');
-  const data = await readJson<T & { exception?: string; errorcode?: string }>(response, 'MOODLE_RESPONSE_INVALID');
+  const data = await readJsonResponse<T & { exception?: string; errorcode?: string }>(response, 'MOODLE_RESPONSE_INVALID');
   if (data.exception || data.errorcode) {
     throw new AcademicAuthError(502, 'MOODLE_API_ERROR', 'تعذر جلب البيانات الأكاديمية من منصة الجامعة.');
   }
@@ -422,7 +424,7 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
     }),
   });
   if (!response.ok) throw new AcademicAuthError(502, 'MOODLE_UNAVAILABLE', 'تعذر الاتصال بمنصة الجامعة.');
-  const tokenResult = await readJson<MoodleTokenResponse>(response, 'MOODLE_RESPONSE_INVALID');
+  const tokenResult = await readJsonResponse<MoodleTokenResponse>(response, 'MOODLE_RESPONSE_INVALID');
   if (!tokenResult.token) {
     throw new AcademicAuthError(401, 'INVALID_CREDENTIALS', 'الرقم الجامعي أو كلمة المرور غير صحيحة.');
   }
@@ -505,7 +507,7 @@ async function createSupabaseUser(env: MoodleAuthEnv, email: string, fullName: s
       user_metadata: { full_name: fullName, academic_provider: PROVIDER },
     }),
   });
-  const user = await readJson<SupabaseUserResponse>(response, 'ACCOUNT_RESPONSE_INVALID');
+  const user = await readJsonResponse<SupabaseUserResponse>(response, 'ACCOUNT_RESPONSE_INVALID');
   if (!response.ok || !user.id) throw new AcademicAuthError(503, 'ACCOUNT_CREATION_FAILED', 'تعذر إنشاء حساب الموقع.');
   return user.id;
 }
@@ -521,7 +523,7 @@ async function generateSessionTokenHash(env: MoodleAuthEnv, email: string): Prom
     headers: serviceHeaders(env),
     body: JSON.stringify({ type: 'magiclink', email }),
   });
-  const result = await readJson<GenerateLinkResponse>(response, 'SESSION_RESPONSE_INVALID');
+  const result = await readJsonResponse<GenerateLinkResponse>(response, 'SESSION_RESPONSE_INVALID');
   // GoTrue has returned both shapes across versions: current Supabase projects
   // expose hashed_token at the top level, while older releases nested it under
   // properties. Accept both so a platform upgrade cannot break login sessions.

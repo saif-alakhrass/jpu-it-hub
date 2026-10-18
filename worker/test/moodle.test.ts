@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId } from '../src/moodle';
+import { AcademicAuthError, extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId, readJsonResponse } from '../src/moodle';
 
 describe('Moodle academic authentication input', () => {
   it('normalizes a safe student ID', () => {
@@ -97,6 +97,17 @@ describe('Supabase generated session token response', () => {
   it('rejects missing or empty token hashes', () => {
     expect(extractGeneratedTokenHash({})).toBeNull();
     expect(extractGeneratedTokenHash({ hashed_token: '' })).toBeNull();
+  });
+});
+
+describe('upstream JSON response parsing', () => {
+  it('accepts an empty successful body only for RPC calls that allow it', async () => {
+    await expect(readJsonResponse<null>(new Response(null, { status: 204 }), 'RPC_INVALID', true)).resolves.toBeNull();
+  });
+
+  it('keeps Moodle and other required JSON responses strict', async () => {
+    await expect(readJsonResponse(new Response('', { status: 200 }), 'MOODLE_INVALID'))
+      .rejects.toMatchObject({ code: 'MOODLE_INVALID', status: 502 } satisfies Partial<AcademicAuthError>);
   });
 });
 
