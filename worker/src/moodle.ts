@@ -514,6 +514,14 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
     throw new AcademicAuthError(401, 'INVALID_CREDENTIALS', 'الرقم الجامعي أو كلمة المرور غير صحيحة.');
   }
 
+  // The dashboard timetable is served by Moodle's regular HTML session rather
+  // than its mobile API. It takes three dependent network requests, so start it
+  // as soon as the credentials are verified instead of adding it to the end of
+  // the critical login path. Failure remains non-fatal because the mobile API
+  // still supplies the authoritative course list and most meeting data.
+  const dashboardLocationsPromise = fetchMoodleDashboardLocations(baseUrl, studentId, password)
+    .catch(() => [] as MoodleDashboardLocation[]);
+
   const site = await callMoodle<MoodleSiteInfo>(baseUrl, tokenResult.token, 'core_webservice_get_site_info');
   if (!site.userid || !site.fullname) {
     throw new AcademicAuthError(502, 'INVALID_MOODLE_PROFILE', 'لم ترجع منصة الجامعة ملفًا شخصيًا صالحًا.');
@@ -522,69 +530,66 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
   if (availableFunctions.size > 0 && !availableFunctions.has('core_enrol_get_users_courses')) {
     throw new AcademicAuthError(503, 'MOODLE_COURSES_UNAVAILABLE', 'خدمة مواد الطالب غير مفعّلة في منصة الجامعة.');
   }
-  const courses = normalizeMoodleCourses(await callMoodle<unknown>(
+  const coursesPromise = callMoodle<unknown>(
     baseUrl,
     tokenResult.token,
     'core_enrol_get_users_courses',
     { userid: String(site.userid) },
-  ));
-
-  let meetings = extractMeetingsFromCourseNames(courses);
-  if (availableFunctions.has('core_calendar_get_calendar_events')) {
-    try {
-      const params: Record<string, string> = {
-        'options[userevents]': '0',
-        'options[siteevents]': '0',
-        'options[timestart]': String(Math.floor(Date.now() / 1000) - 7 * 86_400),
-        'options[timeend]': String(Math.floor(Date.now() / 1000) + 180 * 86_400),
-      };
-      courses.forEach((course, index) => {
-        params[`events[courseids][${index}]`] = String(course.id);
-      });
-      const calendar = await callMoodle<MoodleCalendarResponse>(
+  )
+    .then(normalizeMoodleCourses);
+  const userPromise = site.username && availableFunctions.has('core_user_get_users_by_field')
+    ? callMoodle<MoodleUser[]>(
         baseUrl,
         tokenResult.token,
-        'core_calendar_get_calendar_events',
-        params,
-      );
-      meetings = mergeMeetingPayloads(
-        meetings,
-        normalizeMoodleMeetings(calendar.events, courses.map((course) => course.id), site.timezone || 'Asia/Amman'),
-      );
-    } catch {
-      // Calendar data is optional. Authentication and course sync must remain
-      // available if the university disables or restricts this Moodle method.
-      // Keep the timetable parsed from the official course names.
-    }
-  }
+        'core_user_get_users_by_field',
+        { field: 'username', 'values[0]': site.username },
+      )
+    : Promise.resolve([] as MoodleUser[]);
+  const [courses, users] = await Promise.all([coursesPromise, userPromise]);
 
-  try {
-    // JPU's dashboard timetable supplies the campus building, while the
-    // Moodle mobile API only provides it inconsistently. This enrichment is
-    // optional: a missing/customised block must never block authentication.
-    meetings = applyMoodleDashboardLocations(
-      meetings,
-      await fetchMoodleDashboardLocations(baseUrl, studentId, password),
-    );
-  } catch {
-    // The Moodle mobile API data remains the safe fallback.
-  }
-
-  let verifiedEmail: string | null = null;
-  let matchingUser: MoodleUser | undefined;
-  if (site.username && availableFunctions.has('core_user_get_users_by_field')) {
-    const users = await callMoodle<MoodleUser[]>(
+  let meetings = extractMeetingsFromCourseNames(courses);
+  let calendarMeetingsPromise = Promise.resolve([] as MoodleMeetingPayload[]);
+  if (availableFunctions.has('core_calendar_get_calendar_events')) {
+    const params: Record<string, string> = {
+      'options[userevents]': '0',
+      'options[siteevents]': '0',
+      'options[timestart]': String(Math.floor(Date.now() / 1000) - 7 * 86_400),
+      'options[timeend]': String(Math.floor(Date.now() / 1000) + 180 * 86_400),
+    };
+    courses.forEach((course, index) => {
+      params[`events[courseids][${index}]`] = String(course.id);
+    });
+    calendarMeetingsPromise = callMoodle<MoodleCalendarResponse>(
       baseUrl,
       tokenResult.token,
-      'core_user_get_users_by_field',
-      { field: 'username', 'values[0]': site.username },
-    );
-    matchingUser = Array.isArray(users)
-      ? users.find((user) => user.id === site.userid && user.username === site.username)
-      : undefined;
-    if (matchingUser?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(matchingUser.email)) {
-      verifiedEmail = matchingUser.email.trim().toLowerCase();
-    }
+      'core_calendar_get_calendar_events',
+      params,
+    )
+      .then((calendar) => normalizeMoodleMeetings(
+        calendar.events,
+        courses.map((course) => course.id),
+        site.timezone || 'Asia/Amman',
+      ))
+      // Calendar data is optional. Authentication and course sync must remain
+      // available if the university disables or restricts this Moodle method.
+      .catch(() => [] as MoodleMeetingPayload[]);
+  }
+
+  const [calendarMeetings, dashboardLocations] = await Promise.all([
+    calendarMeetingsPromise,
+    dashboardLocationsPromise,
+  ]);
+  meetings = applyMoodleDashboardLocations(
+    mergeMeetingPayloads(meetings, calendarMeetings),
+    dashboardLocations,
+  );
+
+  let verifiedEmail: string | null = null;
+  const matchingUser = site.username
+    ? users.find((user) => user.id === site.userid && user.username === site.username)
+    : undefined;
+  if (matchingUser?.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(matchingUser.email)) {
+    verifiedEmail = matchingUser.email.trim().toLowerCase();
   }
 
   return { site, courses, meetings, verifiedEmail, matchingUser };
@@ -678,17 +683,19 @@ async function verifyAndSyncMoodleIdentity(
     p_term_key: 'current',
   });
   const academicProfile = extractAcademicProfile(matchingUser);
-  await rpc<null>(env, 'academic_update_profile', {
-    p_user_id: userId,
-    p_academic_year: academicProfile.academicYear,
-    p_department: academicProfile.department,
-    p_credit_hours: academicProfile.creditHours,
-  });
-  await rpc<number>(env, 'academic_replace_meetings', {
-    p_user_id: userId,
-    p_provider: PROVIDER,
-    p_meetings: meetings,
-  });
+  await Promise.all([
+    rpc<null>(env, 'academic_update_profile', {
+      p_user_id: userId,
+      p_academic_year: academicProfile.academicYear,
+      p_department: academicProfile.department,
+      p_credit_hours: academicProfile.creditHours,
+    }),
+    rpc<number>(env, 'academic_replace_meetings', {
+      p_user_id: userId,
+      p_provider: PROVIDER,
+      p_meetings: meetings,
+    }),
+  ]);
   return { email, sync };
 }
 
