@@ -76,9 +76,8 @@ export function mergeAcademicCoursesIntoSemester(
   academicCourses: AcademicCourseEnrollment[],
   subjects: Subject[],
 ): StudentSemester {
-  const excluded = new Set(semester.excludedAcademicCourseIds ?? []);
   const remaining = semester.courses.filter((course) => !course.academicCourseId);
-  const official = academicCourses.filter((academic) => !excluded.has(academic.id)).map((academic) => {
+  const official = academicCourses.map((academic) => {
     const subjectId = matchAcademicCourseToSubject(academic, subjects);
     const existingIndex = semester.courses.findIndex((course) => sameCourse(course, academic, subjectId));
     const existing = existingIndex >= 0 ? semester.courses[existingIndex] : undefined;
@@ -106,7 +105,9 @@ export function mergeAcademicCoursesIntoSemester(
         deadlines: [],
         meetings: [],
       }),
-      name: academic.fullName,
+      // A student may rename the course locally for a clearer GPA simulation.
+      // Sync retains that choice while it still refreshes its identity/timetable.
+      name: existing?.name.trim() || academic.fullName,
       subjectId,
       academicCourseId: academic.id,
       academicSource: 'moodle' as const,
