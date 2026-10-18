@@ -54,7 +54,17 @@ const ARABIC_WEEKDAY_CODES: Record<string, number> = {
   'ث': 2,
   'ر': 3,
   'خ': 4,
+  'س': 6,
 };
+
+function normalizeCampusLocation(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (/غ?زالي|عزالي/u.test(normalized)) return 'الغزالي';
+  if (/هندس/u.test(normalized)) return 'الهندسة';
+  if (/حاسوب\s*الأ?عمال|الأ?عمال/u.test(normalized)) return 'حاسوب الأعمال';
+  return null;
+}
 
 interface MoodleUser {
   id?: number;
@@ -228,7 +238,7 @@ export function normalizeMoodleMeetings(
       const start = localDateParts(event.timestart as number, resolvedTimezone);
       const end = localDateParts((event.timestart as number) + (event.timeduration as number), resolvedTimezone);
       if (start.weekday === undefined || end.weekday !== start.weekday || end.time <= start.time) return [];
-      const place = typeof event.location === 'string' && event.location.trim() ? event.location.trim() : null;
+      const place = normalizeCampusLocation(event.location);
       return [{
         event,
         key: `${event.courseid}|${start.weekday}|${start.time}|${end.time}|${place ?? ''}`,
@@ -259,8 +269,8 @@ export function normalizeMoodleMeetings(
       weekday: candidate.weekday,
       starts_at: candidate.startsAt,
       ends_at: candidate.endsAt,
-      room: candidate.place,
-      location: null,
+      room: null,
+      location: candidate.place,
     });
   }
   return [...meetings.values()];
@@ -276,7 +286,7 @@ function normalizeCourseTime(value: string): string | null {
 
 export function extractMeetingsFromCourseNames(courses: MoodleCourse[]): MoodleMeetingPayload[] {
   const meetings: MoodleMeetingPayload[] = [];
-  const schedulePattern = /\/\s*([حنثرخ](?:\s+[حنثرخ])*)\s*\(\s*(\d{1,2}(?:[.:]\d{1,2})?)\s*-\s*(\d{1,2}(?:[.:]\d{1,2})?)\s*\)\s*$/u;
+  const schedulePattern = /\/\s*([حنثرخس](?:\s+[حنثرخس])*)\s*\(\s*(\d{1,2}(?:[.:]\d{1,2})?)\s*-\s*(\d{1,2}(?:[.:]\d{1,2})?)\s*\)\s*$/u;
   for (const course of courses) {
     const match = course.fullname.match(schedulePattern);
     if (!match) continue;
@@ -293,7 +303,7 @@ export function extractMeetingsFromCourseNames(courses: MoodleCourse[]): MoodleM
         starts_at: startsAt,
         ends_at: endsAt,
         room: null,
-        location: null,
+        location: normalizeCampusLocation(course.fullname),
       });
     }
   }

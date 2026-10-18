@@ -43,11 +43,11 @@ describe('Moodle recurring meeting normalization', () => {
   it('keeps trusted recurring course patterns and maps them to Amman local time', () => {
     const mondayNineAmman = 1_798_449_600;
     const meetings = normalizeMoodleMeetings([
-      { id: 1, courseid: 10, timestart: mondayNineAmman, timeduration: 3600, eventtype: 'course', location: 'قاعة 713' },
-      { id: 2, courseid: 10, timestart: mondayNineAmman + 7 * 86_400, timeduration: 3600, eventtype: 'course', location: 'قاعة 713' },
+      { id: 1, courseid: 10, timestart: mondayNineAmman, timeduration: 3600, eventtype: 'course', location: 'مبنى الهندسة' },
+      { id: 2, courseid: 10, timestart: mondayNineAmman + 7 * 86_400, timeduration: 3600, eventtype: 'course', location: 'مبنى الهندسة' },
     ], [10]);
     expect(meetings).toHaveLength(1);
-    expect(meetings[0]).toMatchObject({ course_external_id: '10', weekday: 1, room: 'قاعة 713' });
+    expect(meetings[0]).toMatchObject({ course_external_id: '10', weekday: 1, room: null, location: 'الهندسة' });
   });
 
   it('ignores assignments, unknown courses, and one-off events', () => {
@@ -71,10 +71,12 @@ describe('JPU course-name schedule extraction', () => {
     expect(extractMeetingsFromCourseNames([
       { id: 5743, fullname: 'أمن المعلومات - شعبة (2)(مدمج) / ح ث (8-9.3)' },
       { id: 5707, fullname: 'تحليل وتصميم الخوارزميات - شعبة (2)(وجاهي) / ح ن (12.3-14)' },
+      { id: 5708, fullname: 'مادة السبت - مبنى حاسوب الأعمال / س (10-11)' },
     ])).toEqual(expect.arrayContaining([
       expect.objectContaining({ course_external_id: '5743', weekday: 0, starts_at: '08:00', ends_at: '09:30' }),
       expect.objectContaining({ course_external_id: '5743', weekday: 2, starts_at: '08:00', ends_at: '09:30' }),
       expect.objectContaining({ course_external_id: '5707', weekday: 1, starts_at: '12:30', ends_at: '14:00' }),
+      expect.objectContaining({ course_external_id: '5708', weekday: 6, starts_at: '10:00', location: 'حاسوب الأعمال' }),
     ]));
   });
 

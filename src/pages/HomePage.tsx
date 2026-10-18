@@ -67,6 +67,10 @@ export function HomePage() {
   );
   const currentSubjects = catalog.subjects.filter((subject) => currentSubjectIds.has(subject.id));
   const regularSubjects = data.items.filter((subject) => !currentSubjectIds.has(subject.id));
+  const highlightedCurrentSubjects = search
+    ? data.items.filter((subject) => currentSubjectIds.has(subject.id))
+    : page === 0 ? currentSubjects : [];
+  const orderedSubjects = [...highlightedCurrentSubjects, ...regularSubjects];
   const restoredScroll = useRef(false);
 
   function warmSubject(subjectId: string, includeContent = false) {
@@ -187,7 +191,7 @@ export function HomePage() {
           ctaLabel="إعادة المحاولة"
           onCta={() => void reload()}
         />
-      ) : data.items.length === 0 && currentSubjects.length === 0 ? (
+      ) : orderedSubjects.length === 0 ? (
         <EmptyState
           icon="FolderOpen"
           title="لا توجد مواد مطابقة"
@@ -197,26 +201,9 @@ export function HomePage() {
         />
       ) : (
         <>
-          {!search && currentSubjects.length > 0 && (
-            <section className="mb-10" aria-labelledby="current-semester-subjects">
-              <div className="mb-4 flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-xs font-bold text-brand-400">متزامنة من Moodle</p>
-                  <h2 id="current-semester-subjects" className="mt-1 text-xl font-extrabold text-slate-100">مواد فصلك الحالي</h2>
-                </div>
-                <span className="badge border border-brand-500/30 bg-brand-500/15 text-brand-300">{currentSubjects.length} مواد</span>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {currentSubjects.map((subject) => (
-                  <SubjectCard key={subject.id} subject={subject} current onOpen={() => { warmSubject(subject.id, true); navigate(`/subject/${subject.id}`); }} onWarm={warmSubject} />
-                ))}
-              </div>
-            </section>
-          )}
-          {!search && currentSubjects.length > 0 && <h2 className="mb-4 text-lg font-bold text-slate-200">باقي مواد المكتبة</h2>}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {regularSubjects.map((subject) => (
-              <SubjectCard key={subject.id} subject={subject} onOpen={() => { warmSubject(subject.id, true); navigate(`/subject/${subject.id}`); }} onWarm={warmSubject} />
+            {orderedSubjects.map((subject) => (
+              <SubjectCard key={subject.id} subject={subject} current={currentSubjectIds.has(subject.id)} onOpen={() => { warmSubject(subject.id, true); navigate(`/subject/${subject.id}`); }} onWarm={warmSubject} />
             ))}
           </div>
 
@@ -281,9 +268,9 @@ function SubjectCard({ subject: s, current = false, onOpen, onWarm }: { subject:
       onPointerEnter={(event) => { if (event.pointerType === 'mouse') onWarm(s.id); }}
       onPointerDown={(event) => { if (event.pointerType === 'mouse') onWarm(s.id, true); }}
       onFocus={() => onWarm(s.id)}
-      className={`performance-item card group relative p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow ${current ? 'border-brand-500/40 bg-gradient-to-br from-brand-500/10 to-ink-850' : ''}`}
+      className={`performance-item card group relative p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow ${current ? 'border-accent-400/70 bg-gradient-to-br from-accent-400/15 via-white to-brand-50 shadow-[0_8px_24px_-18px_rgba(224,155,28,0.8)]' : ''}`}
     >
-      {current && <span className="absolute left-3 top-3 badge border border-brand-400/30 bg-brand-500/20 text-brand-200"><Icon name="CheckCircle2" className="h-3 w-3" /> فصل حالي</span>}
+      {current && <span className="absolute left-3 top-3 badge border border-accent-500/35 bg-accent-400/20 text-accent-600"><Icon name="Sparkles" className="h-3 w-3" /> فصل حالي</span>}
       <div className="mb-3 flex items-start justify-between">
         <span className="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100"><Icon name="BookOpen" className="h-5 w-5" /></span>
         <div className={`flex flex-wrap justify-end gap-1 ${current ? 'pl-20' : ''}`}>

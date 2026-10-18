@@ -73,16 +73,29 @@ describe('current lecture widget', () => {
     fireEvent.change(screen.getByLabelText('تنتهي'), {
       target: { value: '12:00' },
     });
-    fireEvent.change(screen.getByLabelText('المبنى'), {
-      target: { value: 'مبنى الحاسوب' },
+    fireEvent.change(screen.getByLabelText('الموقع'), {
+      target: { value: 'حاسوب الأعمال' },
     });
-    fireEvent.change(screen.getByLabelText('رقم القاعة'), {
+    fireEvent.change(screen.getByLabelText('رقم القاعة (اختياري)'), {
       target: { value: '713' },
     });
-    expect(screen.getByText('مبنى الحاسوب · قاعة 713')).toBeTruthy();
+    expect(screen.getByText('حاسوب الأعمال · قاعة 713')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'حفظ وإخفاء الإعداد' }));
     expect(screen.queryByLabelText('تبدأ')).toBeNull();
     expect(screen.getByRole('button', { name: 'تعديل الجدول' })).toBeTruthy();
+  });
+
+  it('treats the room number and campus location as optional', () => {
+    const data = {
+      ...emptySemester(),
+      courses: [{
+        ...newCourse(),
+        name: 'أمن المعلومات',
+        meetings: [{ id: 'm1', days: [0], start: '10:00', end: '12:00', building: '', room: '' }],
+      }],
+    };
+    render(<Harness initial={data} />);
+    expect(screen.getByText('جارية الآن', { selector: '.assistant-live' })).toBeTruthy();
   });
 
   it('explains an invalid end time without treating it as a live lecture', () => {

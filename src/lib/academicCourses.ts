@@ -83,7 +83,18 @@ export function mergeAcademicCoursesIntoSemester(
     const existing = existingIndex >= 0 ? semester.courses[existingIndex] : undefined;
     const manualIndex = remaining.findIndex((course) => sameCourse(course, academic, subjectId));
     if (manualIndex >= 0) remaining.splice(manualIndex, 1);
-    const syncedMeetings = officialMeetings(academic);
+    const syncedMeetings = officialMeetings(academic).map((meeting) => {
+      const previous = existing?.meetings.find((item) =>
+        item.start === meeting.start
+        && item.end === meeting.end
+        && item.days.some((day) => meeting.days.includes(day)),
+      );
+      return {
+        ...meeting,
+        building: meeting.building || previous?.building || '',
+        room: meeting.room || previous?.room || '',
+      };
+    });
     return {
       ...(existing ?? {
         id: `academic-${academic.id}`,

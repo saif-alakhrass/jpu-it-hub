@@ -43,4 +43,20 @@ describe('academic course matching and assistant hydration', () => {
     expect(result.courses[0]!.grade).toBe('91');
     expect(result.courses[0]!.meetings[0]).toMatchObject({ days: [1, 3], start: '09:00', room: '713' });
   });
+
+  it('preserves an optional room and selected campus when Moodle only supplies time', () => {
+    const existing = {
+      ...newCourse(), academicCourseId: academic().id, academicSource: 'moodle' as const,
+      meetings: [{ id: 'old', days: [0, 2], start: '08:00', end: '09:30', building: 'الغزالي', room: '204' }],
+    };
+    const result = mergeAcademicCoursesIntoSemester(
+      { ...emptySemester(), courses: [existing] },
+      [academic({ meetings: [
+        { id: 'new-1', weekday: 0, startsAt: '08:00:00', endsAt: '09:30:00', room: null, location: null },
+        { id: 'new-2', weekday: 2, startsAt: '08:00:00', endsAt: '09:30:00', room: null, location: null },
+      ] })],
+      subjects,
+    );
+    expect(result.courses[0]!.meetings[0]).toMatchObject({ building: 'الغزالي', room: '204' });
+  });
 });
