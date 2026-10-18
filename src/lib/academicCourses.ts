@@ -76,8 +76,9 @@ export function mergeAcademicCoursesIntoSemester(
   academicCourses: AcademicCourseEnrollment[],
   subjects: Subject[],
 ): StudentSemester {
+  const excluded = new Set(semester.excludedAcademicCourseIds ?? []);
   const remaining = semester.courses.filter((course) => !course.academicCourseId);
-  const official = academicCourses.map((academic) => {
+  const official = academicCourses.filter((academic) => !excluded.has(academic.id)).map((academic) => {
     const subjectId = matchAcademicCourseToSubject(academic, subjects);
     const existingIndex = semester.courses.findIndex((course) => sameCourse(course, academic, subjectId));
     const existing = existingIndex >= 0 ? semester.courses[existingIndex] : undefined;

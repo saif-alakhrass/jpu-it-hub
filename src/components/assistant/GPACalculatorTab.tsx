@@ -139,17 +139,32 @@ export function GPACalculatorTab({ data, onChange, subjects }: Props) {
                     window.confirm(
                       'حذف «' +
                         (c.name || 'هذه المادة') +
-                        '» من مساعدك المحلي؟ لا يحذف ذلك شيئًا من مكتبة الموقع.',
+                        '» من حاسبة المعدل؟ لا يحذف ذلك شيئًا من Moodle أو مكتبة فصلك.',
                     )
                   )
                     onChange({
                       ...data,
                       courses: data.courses.filter((x) => x.id !== c.id),
+                      excludedAcademicCourseIds: c.academicCourseId
+                        ? [...new Set([...(data.excludedAcademicCourseIds ?? []), c.academicCourseId])]
+                        : data.excludedAcademicCourseIds,
                     });
                 }}
               />
             ))}
           </div>
+          {(data.excludedAcademicCourseIds?.length ?? 0) > 0 && (
+            <p className="assistant-note px-5 pb-4">
+              أخفيت {data.excludedAcademicCourseIds!.length} من مواد Moodle من الحاسبة فقط.{' '}
+              <button
+                className="assistant-inline-action"
+                type="button"
+                onClick={() => onChange({ ...data, excludedAcademicCourseIds: [] })}
+              >
+                استعادة مواد Moodle
+              </button>
+            </p>
+          )}
           {data.courses.length > 0 && (
             <div className="assistant-course-footer">
               <span>
@@ -392,16 +407,14 @@ const CourseEditor = memo(function CourseEditor({
           {c.academicSource === 'moodle' ? 'مادة الفصل الحالي · Moodle' : linked ? 'مرتبطة بالمكتبة' : 'مادة خاصة'}
           {c.retake ? ' · معادة' : ''}
         </span>
-        {c.academicSource !== 'moodle' && (
-          <button
-            className="assistant-remove"
-            type="button"
-            aria-label={'حذف المادة ' + (index + 1)}
-            onClick={onRemove}
-          >
-            <Icon name="Trash2" />
-          </button>
-        )}
+        <button
+          className="assistant-remove"
+          type="button"
+          aria-label={'حذف المادة ' + (index + 1) + ' من الحاسبة'}
+          onClick={onRemove}
+        >
+          <Icon name="Trash2" />
+        </button>
       </div>
       <div className="assistant-course-fields">
         <div className="assistant-course-name">

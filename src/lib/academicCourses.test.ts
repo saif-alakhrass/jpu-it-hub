@@ -88,4 +88,9 @@ describe('academic course matching and assistant hydration', () => {
     };
     expect(mergeAcademicCoursesIntoSemester(current, [academic()], subjects).courses[0]!.name).toBe('');
   });
+
+  it('keeps a removed Moodle course out of the GPA calculator after a refresh', () => {
+    const current = { ...emptySemester(), excludedAcademicCourseIds: [academic().id] };
+    expect(mergeAcademicCoursesIntoSemester(current, [academic()], subjects).courses).toEqual([]);
+  });
 });
