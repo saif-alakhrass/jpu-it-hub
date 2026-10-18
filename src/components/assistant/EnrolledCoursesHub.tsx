@@ -136,6 +136,7 @@ export function EnrolledCoursesHub({
                       {subject
                         ? subject.code || 'مرتبطة بالمكتبة'
                         : 'غير مرتبطة'}
+                      {course.academicSource === 'moodle' ? ' · فصل حالي' : ''}
                     </span>
                   </span>
                   <Icon name="ChevronLeft" />

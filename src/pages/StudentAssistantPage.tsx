@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { matchSubject } from '@/lib/subjectSearch';
 import { Icon } from '@/components/Icon';
@@ -7,6 +7,9 @@ import { EnrolledCoursesHub } from '@/components/assistant/EnrolledCoursesHub';
 import { CurrentLectureWidget } from '@/components/assistant/CurrentLectureWidget';
 import { useStudentStorage } from '@/hooks/useStudentStorage';
 import { useAllSubjects } from '@/hooks/useSubjects';
+import { useAcademicCourses } from '@/hooks/useAcademicCourses';
+import { useAuth } from '@/hooks/useAuth';
+import { mergeAcademicCoursesIntoSemester } from '@/lib/academicCourses';
 import '@/components/assistant/assistant.css';
 
 const tabs = [
@@ -16,7 +19,14 @@ const tabs = [
 ] as const;
 export function StudentAssistantPage() {
   const { data, update, error } = useStudentStorage();
+  const { session } = useAuth();
   const { subjects, loading, error: libraryError } = useAllSubjects();
+  const academic = useAcademicCourses(session?.user.id);
+  useEffect(() => {
+    if (!session || academic.loading || loading) return;
+    const merged = mergeAcademicCoursesIntoSemester(data, academic.courses, subjects);
+    if (JSON.stringify(merged.courses) !== JSON.stringify(data.courses)) update(merged);
+  }, [academic.courses, academic.loading, data, loading, session, subjects, update]);
   // Resolve names entered while offline once the catalog arrives. Keep explicit
   // selections intact; no effect or extra local-storage write on every render.
   const resolvedData = useMemo(
@@ -73,6 +83,11 @@ export function StudentAssistantPage() {
           </p>
         </details>
       </header>
+      {session && academic.courses.length > 0 && (
+        <p className="assistant-academic-sync" role="status">
+          <Icon name="RefreshCw" /> تمت مزامنة {academic.courses.length} مواد من Moodle لهذا الفصل.
+        </p>
+      )}
       {error && (
         <p
           role="alert"
@@ -150,7 +165,7 @@ export function StudentAssistantPage() {
           />
         )}
         {tab === 'schedule' && (
-          <CurrentLectureWidget data={data} onChange={update} />
+          <CurrentLectureWidget data={resolvedData} onChange={update} />
         )}
       </div>
     </div>

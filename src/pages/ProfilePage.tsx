@@ -46,6 +46,7 @@ export function ProfilePage() {
   const [department, setDepartment] = useState('');
   const [creditHours, setCreditHours] = useState('');
   const [bio, setBio] = useState('');
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   useEffect(() => {
     if (!session) { navigate('/auth'); return; }
@@ -105,7 +106,17 @@ export function ProfilePage() {
       <div className="card mb-6 overflow-hidden">
         <div className="relative h-28 bg-gradient-to-l from-brand-600/30 via-ink-800 to-ink-850">
           <div className="absolute -bottom-10 right-6 flex items-end gap-4">
-            <div className="grid h-20 w-20 place-items-center rounded-2xl border-4 border-ink-850 bg-gradient-to-br from-brand-400 to-brand-600 text-2xl font-extrabold text-ink-950 shadow-glow">{initials(profile.full_name)}</div>
+            <div className="grid h-20 w-20 overflow-hidden place-items-center rounded-2xl border-4 border-ink-850 bg-gradient-to-br from-brand-400 to-brand-600 text-2xl font-extrabold text-ink-950 shadow-glow">
+              {profile.avatar_url && !avatarFailed ? (
+                <img
+                  src={profile.avatar_url}
+                  alt={`صورة ${profile.full_name ?? 'الطالب'}`}
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  onError={() => setAvatarFailed(true)}
+                />
+              ) : initials(profile.full_name)}
+            </div>
           </div>
         </div>
         <div className="px-6 pb-6 pt-12">

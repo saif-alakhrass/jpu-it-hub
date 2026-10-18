@@ -15,6 +15,8 @@ export interface Deadline {
 }
 export interface EnrolledCourse {
   id: string;
+  academicCourseId?: string;
+  academicSource?: 'moodle';
   name: string;
   subjectId: string | null;
   hours: string;
@@ -34,6 +36,9 @@ export interface StudentSemester {
   startsOn: string;
   endsOn: string;
   courses: EnrolledCourse[];
+  // Moodle courses hidden from the GPA calculator only. Their academic data
+  // remains available in the synced semester library.
+  excludedAcademicCourseIds?: string[];
   futurePlan?: { semesterHours: string; average: string };
 }
 export const STUDENT_STORAGE_KEY = 'jpu-it-hub:student-semester:v1';
@@ -98,6 +103,8 @@ export function parseSemester(raw: string): StudentSemester {
     if (
       !obj(c) ||
       !id(c.id) ||
+      !(c.academicCourseId === undefined || id(c.academicCourseId)) ||
+      !(c.academicSource === undefined || c.academicSource === 'moodle') ||
       !['name', 'hours', 'grade', 'oldGrade'].every((k) => str(c[k])) ||
       typeof c.retake !== 'boolean' ||
       !(c.subjectId === null || id(c.subjectId)) ||
@@ -140,6 +147,14 @@ export function parseSemester(raw: string): StudentSemester {
   }
   if (!unique(value.courses as EnrolledCourse[]))
     throw new Error('Duplicate course');
+  if (
+    value.excludedAcademicCourseIds !== undefined &&
+    (!Array.isArray(value.excludedAcademicCourseIds)
+      || value.excludedAcademicCourseIds.length > MAX_COURSES
+      || !value.excludedAcademicCourseIds.every(id)
+      || new Set(value.excludedAcademicCourseIds).size !== value.excludedAcademicCourseIds.length)
+  )
+    throw new Error('Invalid excluded academic courses');
   const plan = value.futurePlan;
   if (
     plan !== undefined &&

@@ -4,14 +4,16 @@ import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from '@/lib/router';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { mapAuthError } from '@/lib/authErrors';
+import { isMoodleAuthEnabled } from '@/services/academicAuth';
 
 export function AuthPage() {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signInWithMoodle, signUp, signInWithGoogle } = useAuth();
   const { navigate } = useRouter();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [studentId, setStudentId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,6 +24,12 @@ export function AuthPage() {
     setNotice(null);
     setLoading(true);
     try {
+      if (isMoodleAuthEnabled) {
+        const res = await signInWithMoodle(studentId, password);
+        if (res.error) { setError(res.error); return; }
+        navigate('/');
+        return;
+      }
       const res = mode === 'signin' ? await signIn(email, password) : await signUp(email, password, fullName);
       if (res.error) { setError(res.error); return; }
       if (res.notice) { setNotice(res.notice); return; }
@@ -43,8 +51,14 @@ export function AuthPage() {
           <span className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 text-ink-950 shadow-glow">
             <Icon name="GraduationCap" className="h-7 w-7" />
           </span>
-          <h1 className="text-2xl font-extrabold text-slate-100">{mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}</h1>
-          <p className="mt-1 text-sm text-slate-400">{mode === 'signin' ? 'ادخل للوصول لرفع الموارد' : 'انضم لمجتمع JPU-IT'}</p>
+          <h1 className="text-2xl font-extrabold text-slate-100">
+            {isMoodleAuthEnabled ? 'الدخول بحساب الجامعة' : mode === 'signin' ? 'تسجيل الدخول' : 'إنشاء حساب'}
+          </h1>
+          <p className="mt-1 text-sm text-slate-400">
+            {isMoodleAuthEnabled
+              ? 'استخدم نفس بيانات Moodle؛ سنجهّز موادك تلقائيًا.'
+              : mode === 'signin' ? 'ادخل للوصول لرفع الموارد' : 'انضم لمجتمع JPU-IT'}
+          </p>
         </div>
         {!isSupabaseConfigured && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-accent-500/40 bg-accent-500/10 p-3 text-sm text-accent-400">
@@ -63,26 +77,57 @@ export function AuthPage() {
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'signup' && (
+          {isMoodleAuthEnabled ? (
             <div>
+              <label className="mb-1.5 block text-sm font-bold text-slate-300">الرقم الجامعي</label>
+              <input
+                value={studentId}
+                onChange={(event) => setStudentId(event.target.value)}
+                required
+                autoComplete="username"
+                inputMode="numeric"
+                placeholder="أدخل رقمك الجامعي"
+                className="input"
+                dir="ltr"
+              />
+            </div>
+          ) : null}
+          {mode === 'signup' && (
+            <div className={isMoodleAuthEnabled ? 'hidden' : undefined}>
               <label className="mb-1.5 block text-sm font-bold text-slate-300">الاسم الكامل</label>
               <input value={fullName} onChange={(e) => setFullName(e.target.value)} required placeholder="اسمك..." className="input" />
             </div>
           )}
-          <div>
+          {!isMoodleAuthEnabled && <div>
             <label className="mb-1.5 block text-sm font-bold text-slate-300">البريد الإلكتروني</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@example.com" className="input" dir="ltr" />
-          </div>
+          </div>}
           <div>
             <label className="mb-1.5 block text-sm font-bold text-slate-300">كلمة المرور</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} placeholder="••••••••" className="input" dir="ltr" />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={isMoodleAuthEnabled ? 1 : 6}
+              autoComplete="current-password"
+              placeholder="••••••••"
+              className="input"
+              dir="ltr"
+            />
           </div>
           <button type="submit" disabled={loading} className="btn-primary w-full">
             {loading ? <Icon name="Loader2" className="h-4 w-4 animate-spin" /> : <Icon name="Lock" className="h-4 w-4" />}
-            {mode === 'signin' ? 'دخول' : 'إنشاء الحساب'}
+            {loading && isMoodleAuthEnabled ? 'جارٍ التحقق ومزامنة المواد...' : isMoodleAuthEnabled ? 'دخول ومزامنة البيانات' : mode === 'signin' ? 'دخول' : 'إنشاء الحساب'}
           </button>
         </form>
-        <div className="my-5 flex items-center gap-3">
+        {isMoodleAuthEnabled && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-brand-400/20 bg-brand-400/5 p-3 text-xs leading-6 text-slate-400">
+            <Icon name="ShieldCheck" className="mt-0.5 h-4 w-4 shrink-0 text-brand-400" />
+            <span>تُستخدم البيانات عبر اتصال مشفّر للتحقق من Moodle، ولا نخزّن كلمة المرور.</span>
+          </div>
+        )}
+        {!isMoodleAuthEnabled && <><div className="my-5 flex items-center gap-3">
           <div className="h-px flex-1 bg-white/10" /><span className="text-xs text-slate-500">أو</span><div className="h-px flex-1 bg-white/10" />
         </div>
         <button onClick={signInWithGoogle} className="btn-ghost w-full">
@@ -94,7 +139,7 @@ export function AuthPage() {
           <button onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(null); setNotice(null); }} className="ms-1 font-bold text-brand-400 hover:text-brand-300">
             {mode === 'signin' ? 'أنشئ حساباً' : 'سجّل الدخول'}
           </button>
-        </p>
+        </p></>}
       </div>
     </div>
   );

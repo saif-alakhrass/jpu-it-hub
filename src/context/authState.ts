@@ -12,6 +12,7 @@ export interface AuthState {
   isTrusted: boolean;
   canPublishDirectly: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null; notice?: string | null }>;
+  signInWithMoodle: (studentId: string, password: string) => Promise<{ error: string | null; coursesSynced: number }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null; notice?: string | null }>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;

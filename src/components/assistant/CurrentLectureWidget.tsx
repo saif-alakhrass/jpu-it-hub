@@ -22,6 +22,8 @@ const days = [
   [6, 'السبت'],
 ] as const;
 
+const campusLocations = ['', 'الغزالي', 'الاعمال', 'هندسه وحاسوب'] as const;
+
 const dayName = new Intl.DateTimeFormat('ar-JO', { weekday: 'long' });
 const time = new Intl.DateTimeFormat('ar-JO', {
   hour: '2-digit',
@@ -220,7 +222,7 @@ export function CurrentLectureWidget({
         >
           <div className="assistant-schedule-editor-intro">
             <h3>رتّب جدولك مرة واحدة</h3>
-            <p>اختر أيام كل مادة ووقتها ومكانها. تُحفظ البيانات على جهازك.</p>
+            <p>الأيام والأوقات المتاحة من Moodle تُعبّأ تلقائيًا. اختر الموقع فقط عند الحاجة، ورقم القاعة اختياري.</p>
           </div>
           <div className="assistant-schedule-list">
             {data.courses.map((course) => {
@@ -297,21 +299,25 @@ export function CurrentLectureWidget({
                         />
                       </label>
                       <label className="assistant-field">
-                        المبنى
-                        <input
+                        الموقع
+                        <select
                           className="input"
-                          maxLength={100}
                           value={meeting.building ?? ''}
                           onChange={(event) =>
                             updateMeeting(course.id, {
                               building: event.target.value,
                             })
                           }
-                          placeholder="مثلاً: مبنى الحاسوب"
-                        />
+                        >
+                          {campusLocations.map((location) => (
+                            <option key={location || 'empty'} value={location}>
+                              {location || 'غير محدد'}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="assistant-field">
-                        رقم القاعة
+                        رقم القاعة <small>(اختياري)</small>
                         <input
                           className="input"
                           maxLength={100}
@@ -321,7 +327,7 @@ export function CurrentLectureWidget({
                               room: event.target.value,
                             })
                           }
-                          placeholder="مثلاً: 713"
+                          placeholder="اتركه فارغًا إذا لم تعرفه"
                         />
                       </label>
                     </div>

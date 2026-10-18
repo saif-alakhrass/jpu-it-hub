@@ -16,6 +16,8 @@
  *   and a cleanup record is logged for retry.
  */
 
+import { AcademicAuthError, handleMoodleLink, handleMoodleLogin } from './moodle';
+
 export interface Env {
   FILES_BUCKET: R2Bucket;
   SUPABASE_URL: string;
@@ -29,6 +31,9 @@ export interface Env {
   MAX_FILE_SIZE_BYTES: string;
   UPLOAD_WINDOW_MINUTES: string;
   SIGNED_URL_EXPIRY_SECONDS: string;
+  MOODLE_BASE_URL?: string;
+  MOODLE_SERVICE_NAME?: string;
+  ACADEMIC_AUTH_ENABLED?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +621,22 @@ export default {
         return corsResponse(env, request, 200, { status: 'ok' });
       }
 
+      // Moodle credentials are accepted only by this server-side endpoint.
+      // A successful request also completes the academic sync before issuing
+      // the one-time Supabase session exchange token.
+      if (path === '/v2/auth/moodle' && request.method === 'POST') {
+        try {
+          const result = await handleMoodleLogin(env, request);
+          return corsResponse(env, request, 200, result);
+        } catch (error) {
+          if (error instanceof AcademicAuthError) {
+            console.error('Academic Moodle login failed', { code: error.code, status: error.status });
+            return corsResponse(env, request, error.status, { error: error.message, code: error.code });
+          }
+          throw error;
+        }
+      }
+
       // iOS Safari needs a real top-level HTTP download response. The ticket
       // is a short-lived signed capability issued only after JWT validation.
       if (path === '/download-file' && request.method === 'GET') {
@@ -641,6 +662,22 @@ export default {
       }
 
       const isAdmin = profile.role === 'admin';
+
+      // Pre-link an existing account while its current Supabase session is
+      // still active. This is mandatory for admin/super-admin accounts so an
+      // email match alone can never inherit elevated authority.
+      if (path === '/v2/auth/moodle/link' && request.method === 'POST') {
+        try {
+          const result = await handleMoodleLink(env, request, userId);
+          return corsResponse(env, request, 200, result);
+        } catch (error) {
+          if (error instanceof AcademicAuthError) {
+            console.error('Academic Moodle link failed', { code: error.code, status: error.status });
+            return corsResponse(env, request, error.status, { error: error.message, code: error.code });
+          }
+          throw error;
+        }
+      }
 
       // Route: POST /upload-presign — get a presigned PUT URL for uploading
       if (path === '/upload-presign' && request.method === 'POST') {

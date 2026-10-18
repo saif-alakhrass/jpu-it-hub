@@ -12,12 +12,14 @@ export default defineConfig(({ mode }) => {
   const r2WorkerUrl = env.VITE_R2_WORKER_URL || '';
   const r2WorkerProxyTarget = env.R2_WORKER_PROXY_TARGET || '';
   const clientWorkerUrl = mode === 'development' && r2WorkerProxyTarget ? '/r2-worker' : r2WorkerUrl;
+  const moodleAuthEnabled = env.VITE_MOODLE_AUTH_ENABLED || 'false';
 
   return {
     define: {
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
       'import.meta.env.VITE_R2_WORKER_URL': JSON.stringify(clientWorkerUrl),
+      'import.meta.env.VITE_MOODLE_AUTH_ENABLED': JSON.stringify(moodleAuthEnabled),
     },
     plugins: [react()],
     resolve: {

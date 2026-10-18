@@ -31,3 +31,10 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+.vercel/
+.env.local
+
+# Local state generated while working with isolated staging services.
+supabase/.temp/
+worker/supabase/.temp/
