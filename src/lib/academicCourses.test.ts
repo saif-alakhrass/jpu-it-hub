@@ -74,4 +74,18 @@ describe('academic course matching and assistant hydration', () => {
     const result = mergeAcademicCoursesIntoSemester(current, [academic()], subjects);
     expect(result.courses[0]!.name).toBe('برمجة متقدمة — محاكاة');
   });
+
+  it('allows a locally cleared synced course name to remain empty', () => {
+    const current = {
+      ...emptySemester(),
+      courses: [{
+        ...newCourse(),
+        id: 'academic-11111111-1111-1111-1111-111111111111',
+        academicCourseId: academic().id,
+        academicSource: 'moodle' as const,
+        name: '',
+      }],
+    };
+    expect(mergeAcademicCoursesIntoSemester(current, [academic()], subjects).courses[0]!.name).toBe('');
+  });
 });

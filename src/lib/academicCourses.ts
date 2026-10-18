@@ -105,9 +105,9 @@ export function mergeAcademicCoursesIntoSemester(
         deadlines: [],
         meetings: [],
       }),
-      // A student may rename the course locally for a clearer GPA simulation.
-      // Sync retains that choice while it still refreshes its identity/timetable.
-      name: existing?.name.trim() || academic.fullName,
+      // A student may rename or clear the course locally for a clearer GPA
+      // simulation. The Moodle name is only the initial value for a new row.
+      name: existing ? existing.name : academic.fullName,
       subjectId,
       academicCourseId: academic.id,
       academicSource: 'moodle' as const,
