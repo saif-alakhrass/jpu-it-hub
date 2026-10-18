@@ -48,6 +48,7 @@ interface SupabaseUserResponse {
 }
 
 interface GenerateLinkResponse {
+  hashed_token?: string;
   properties?: {
     hashed_token?: string;
   };
@@ -266,6 +267,11 @@ async function createSupabaseUser(env: MoodleAuthEnv, email: string, fullName: s
   return user.id;
 }
 
+export function extractGeneratedTokenHash(result: GenerateLinkResponse): string | null {
+  const hash = result.hashed_token || result.properties?.hashed_token;
+  return typeof hash === 'string' && hash.length > 0 ? hash : null;
+}
+
 async function generateSessionTokenHash(env: MoodleAuthEnv, email: string): Promise<string> {
   const response = await fetchWithTimeout(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/admin/generate_link`, {
     method: 'POST',
@@ -273,7 +279,10 @@ async function generateSessionTokenHash(env: MoodleAuthEnv, email: string): Prom
     body: JSON.stringify({ type: 'magiclink', email }),
   });
   const result = await readJson<GenerateLinkResponse>(response, 'SESSION_RESPONSE_INVALID');
-  const hash = result.properties?.hashed_token;
+  // GoTrue has returned both shapes across versions: current Supabase projects
+  // expose hashed_token at the top level, while older releases nested it under
+  // properties. Accept both so a platform upgrade cannot break login sessions.
+  const hash = extractGeneratedTokenHash(result);
   if (!response.ok || !hash) throw new AcademicAuthError(503, 'SESSION_CREATION_FAILED', 'تم التحقق، لكن تعذر بدء جلسة الموقع.');
   return hash;
 }

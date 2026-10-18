@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeMoodleCourses, normalizeStudentId } from '../src/moodle';
+import { extractGeneratedTokenHash, normalizeMoodleCourses, normalizeStudentId } from '../src/moodle';
 
 describe('Moodle academic authentication input', () => {
   it('normalizes a safe student ID', () => {
@@ -36,5 +36,20 @@ describe('Moodle course normalization', () => {
 
   it('returns an empty list for a non-array response', () => {
     expect(normalizeMoodleCourses({ exception: 'failure' })).toEqual([]);
+  });
+});
+
+describe('Supabase generated session token response', () => {
+  it('accepts the current top-level hashed token response', () => {
+    expect(extractGeneratedTokenHash({ hashed_token: 'current-token' })).toBe('current-token');
+  });
+
+  it('keeps compatibility with the legacy nested response', () => {
+    expect(extractGeneratedTokenHash({ properties: { hashed_token: 'legacy-token' } })).toBe('legacy-token');
+  });
+
+  it('rejects missing or empty token hashes', () => {
+    expect(extractGeneratedTokenHash({})).toBeNull();
+    expect(extractGeneratedTokenHash({ hashed_token: '' })).toBeNull();
   });
 });
