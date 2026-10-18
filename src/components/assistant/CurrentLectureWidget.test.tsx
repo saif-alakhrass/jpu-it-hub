@@ -74,12 +74,12 @@ describe('current lecture widget', () => {
       target: { value: '12:00' },
     });
     fireEvent.change(screen.getByLabelText('الموقع'), {
-      target: { value: 'حاسوب الأعمال' },
+      target: { value: 'الاعمال' },
     });
     fireEvent.change(screen.getByLabelText('رقم القاعة (اختياري)'), {
       target: { value: '713' },
     });
-    expect(screen.getByText('حاسوب الأعمال · قاعة 713')).toBeTruthy();
+    expect(screen.getByText('الاعمال · قاعة 713')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'حفظ وإخفاء الإعداد' }));
     expect(screen.queryByLabelText('تبدأ')).toBeNull();
     expect(screen.getByRole('button', { name: 'تعديل الجدول' })).toBeTruthy();

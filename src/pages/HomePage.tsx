@@ -268,9 +268,9 @@ function SubjectCard({ subject: s, current = false, onOpen, onWarm }: { subject:
       onPointerEnter={(event) => { if (event.pointerType === 'mouse') onWarm(s.id); }}
       onPointerDown={(event) => { if (event.pointerType === 'mouse') onWarm(s.id, true); }}
       onFocus={() => onWarm(s.id)}
-      className={`performance-item card group relative p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow ${current ? 'border-accent-400/70 bg-gradient-to-br from-accent-400/15 via-white to-brand-50 shadow-[0_8px_24px_-18px_rgba(224,155,28,0.8)]' : ''}`}
+      className={`performance-item card group relative p-5 text-right transition-all duration-300 hover:border-brand-300 hover:shadow-glow ${current ? 'border-brand-400/70 bg-gradient-to-br from-brand-500/15 via-white to-brand-50 shadow-[0_8px_24px_-18px_rgba(14,116,144,0.65)]' : ''}`}
     >
-      {current && <span className="absolute left-3 top-3 badge border border-accent-500/35 bg-accent-400/20 text-accent-600"><Icon name="Sparkles" className="h-3 w-3" /> فصل حالي</span>}
+      {current && <span className="absolute left-3 top-3 badge border border-brand-400/40 bg-brand-500/15 text-brand-300">⚓ <span>فصل حالي</span></span>}
       <div className="mb-3 flex items-start justify-between">
         <span className="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-600 transition group-hover:bg-brand-100"><Icon name="BookOpen" className="h-5 w-5" /></span>
         <div className={`flex flex-wrap justify-end gap-1 ${current ? 'pl-20' : ''}`}>

@@ -22,7 +22,7 @@ const days = [
   [6, 'السبت'],
 ] as const;
 
-const campusLocations = ['', 'الغزالي', 'الهندسة', 'حاسوب الأعمال'] as const;
+const campusLocations = ['', 'الغزالي', 'الاعمال', 'هندسه وحاسوب'] as const;
 
 const dayName = new Intl.DateTimeFormat('ar-JO', { weekday: 'long' });
 const time = new Intl.DateTimeFormat('ar-JO', {

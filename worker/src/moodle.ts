@@ -61,8 +61,8 @@ function normalizeCampusLocation(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   if (/غ?زالي|عزالي/u.test(normalized)) return 'الغزالي';
-  if (/هندس/u.test(normalized)) return 'الهندسة';
-  if (/حاسوب\s*الأ?عمال|الأ?عمال/u.test(normalized)) return 'حاسوب الأعمال';
+  if (/هندس/u.test(normalized) || /حاسوب\s*(?:و|\/|-)?\s*هندس/u.test(normalized)) return 'هندسه وحاسوب';
+  if (/حاسوب\s*ال(?:ا|أ)?عمال|ال(?:ا|أ)?عمال/u.test(normalized)) return 'الاعمال';
   return null;
 }
 
