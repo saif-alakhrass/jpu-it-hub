@@ -48,6 +48,14 @@ export interface MoodleMeetingPayload {
   location: string | null;
 }
 
+const ARABIC_WEEKDAY_CODES: Record<string, number> = {
+  'ح': 0,
+  'ن': 1,
+  'ث': 2,
+  'ر': 3,
+  'خ': 4,
+};
+
 interface MoodleUser {
   id?: number;
   username?: string;
@@ -258,6 +266,52 @@ export function normalizeMoodleMeetings(
   return [...meetings.values()];
 }
 
+function normalizeCourseTime(value: string): string | null {
+  const [hourPart, minutePart = '0'] = value.replace(':', '.').split('.');
+  const hour = Number(hourPart);
+  const minute = Number(minutePart.length === 1 ? `${minutePart}0` : minutePart);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+export function extractMeetingsFromCourseNames(courses: MoodleCourse[]): MoodleMeetingPayload[] {
+  const meetings: MoodleMeetingPayload[] = [];
+  const schedulePattern = /\/\s*([حنثرخ](?:\s+[حنثرخ])*)\s*\(\s*(\d{1,2}(?:[.:]\d{1,2})?)\s*-\s*(\d{1,2}(?:[.:]\d{1,2})?)\s*\)\s*$/u;
+  for (const course of courses) {
+    const match = course.fullname.match(schedulePattern);
+    if (!match) continue;
+    const startsAt = normalizeCourseTime(match[2] as string);
+    const endsAt = normalizeCourseTime(match[3] as string);
+    if (!startsAt || !endsAt || startsAt >= endsAt) continue;
+    const weekdays = [...new Set((match[1] as string).split(/\s+/).map((code) => ARABIC_WEEKDAY_CODES[code]))]
+      .filter((weekday): weekday is number => weekday !== undefined);
+    for (const weekday of weekdays) {
+      meetings.push({
+        course_external_id: String(course.id),
+        external_id: `moodle-course-name-${course.id}-${weekday}-${startsAt.replace(':', '')}`,
+        weekday,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        room: null,
+        location: null,
+      });
+    }
+  }
+  return meetings;
+}
+
+function mergeMeetingPayloads(...sources: MoodleMeetingPayload[][]): MoodleMeetingPayload[] {
+  const merged = new Map<string, MoodleMeetingPayload>();
+  for (const source of sources) {
+    for (const meeting of source) {
+      const key = [meeting.course_external_id, meeting.weekday, meeting.starts_at, meeting.ends_at].join('|');
+      const current = merged.get(key);
+      merged.set(key, current && !meeting.room ? current : meeting);
+    }
+  }
+  return [...merged.values()];
+}
+
 function configuredMoodleBaseUrl(env: MoodleAuthEnv): string {
   if (env.ACADEMIC_AUTH_ENABLED !== 'true') {
     throw new AcademicAuthError(404, 'ACADEMIC_AUTH_DISABLED', 'تسجيل الدخول الجامعي غير مفعّل بعد.');
@@ -378,7 +432,7 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
     { userid: String(site.userid) },
   ));
 
-  let meetings: MoodleMeetingPayload[] | null = null;
+  let meetings = extractMeetingsFromCourseNames(courses);
   if (availableFunctions.has('core_calendar_get_calendar_events')) {
     try {
       const params: Record<string, string> = {
@@ -396,11 +450,14 @@ async function authenticateMoodle(env: MoodleAuthEnv, studentId: string, passwor
         'core_calendar_get_calendar_events',
         params,
       );
-      meetings = normalizeMoodleMeetings(calendar.events, courses.map((course) => course.id), site.timezone || 'Asia/Amman');
+      meetings = mergeMeetingPayloads(
+        meetings,
+        normalizeMoodleMeetings(calendar.events, courses.map((course) => course.id), site.timezone || 'Asia/Amman'),
+      );
     } catch {
       // Calendar data is optional. Authentication and course sync must remain
       // available if the university disables or restricts this Moodle method.
-      meetings = null;
+      // Keep the timetable parsed from the official course names.
     }
   }
 
@@ -518,13 +575,11 @@ async function verifyAndSyncMoodleIdentity(
     p_department: academicProfile.department,
     p_credit_hours: academicProfile.creditHours,
   });
-  if (meetings !== null) {
-    await rpc<number>(env, 'academic_replace_meetings', {
-      p_user_id: userId,
-      p_provider: PROVIDER,
-      p_meetings: meetings,
-    });
-  }
+  await rpc<number>(env, 'academic_replace_meetings', {
+    p_user_id: userId,
+    p_provider: PROVIDER,
+    p_meetings: meetings,
+  });
   return { email, sync };
 }
 

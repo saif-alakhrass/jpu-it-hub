@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractAcademicProfile, extractGeneratedTokenHash, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId } from '../src/moodle';
+import { extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId } from '../src/moodle';
 
 describe('Moodle academic authentication input', () => {
   it('normalizes a safe student ID', () => {
@@ -63,6 +63,23 @@ describe('Moodle recurring meeting normalization', () => {
       { id: 1, courseid: 10, timestart: 1_798_449_600, timeduration: 3600, repeatid: 1 },
     ], [10], '99');
     expect(meetings).toHaveLength(1);
+  });
+});
+
+describe('JPU course-name schedule extraction', () => {
+  it('extracts university weekday abbreviations and half-hour notation', () => {
+    expect(extractMeetingsFromCourseNames([
+      { id: 5743, fullname: 'أمن المعلومات - شعبة (2)(مدمج) / ح ث (8-9.3)' },
+      { id: 5707, fullname: 'تحليل وتصميم الخوارزميات - شعبة (2)(وجاهي) / ح ن (12.3-14)' },
+    ])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ course_external_id: '5743', weekday: 0, starts_at: '08:00', ends_at: '09:30' }),
+      expect.objectContaining({ course_external_id: '5743', weekday: 2, starts_at: '08:00', ends_at: '09:30' }),
+      expect.objectContaining({ course_external_id: '5707', weekday: 1, starts_at: '12:30', ends_at: '14:00' }),
+    ]));
+  });
+
+  it('does not invent meetings for names without a recognized timetable suffix', () => {
+    expect(extractMeetingsFromCourseNames([{ id: 1, fullname: 'مادة بدون موعد' }])).toEqual([]);
   });
 });
 
