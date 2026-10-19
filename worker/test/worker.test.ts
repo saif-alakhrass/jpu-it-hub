@@ -234,8 +234,10 @@ describe('CORS', () => {
     expect(getCorsHeaders(mockEnv, 'https://jpu-it-hub.vercel.app').get('Access-Control-Allow-Origin')).toBe('https://jpu-it-hub.vercel.app');
   });
   it('allows this project preview without allowing other Vercel projects', () => {
-    const preview = 'https://jpu-it-hub-git-codex-fix-jpu-it-hub.vercel.app';
-    expect(getCorsHeaders(mockEnv, preview).get('Access-Control-Allow-Origin')).toBe(preview);
+    const branchPreview = 'https://jpu-it-hub-git-codex-fix-jpu-it-hub.vercel.app';
+    const deploymentPreview = 'https://jpu-it-mfe1yvf6k-jpu-it-hub.vercel.app';
+    expect(getCorsHeaders(mockEnv, branchPreview).get('Access-Control-Allow-Origin')).toBe(branchPreview);
+    expect(getCorsHeaders(mockEnv, deploymentPreview).get('Access-Control-Allow-Origin')).toBe(deploymentPreview);
     expect(getCorsHeaders(mockEnv, 'https://evil-project-jpu-it-hub.vercel.app').get('Access-Control-Allow-Origin')).toBeNull();
   });
   it('rejects unknown origin', () => {

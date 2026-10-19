@@ -132,7 +132,7 @@ function getCorsHeaders(env: Env, origin: string | null): Headers {
   // hostnames are generated per deployment, so enumerating one URL would make
   // the next preview fail CORS again.
   const isProjectPreview = origin !== null
-    && /^https:\/\/jpu-it-hub-[a-z0-9-]+-jpu-it-hub\.vercel\.app$/.test(origin);
+    && /^https:\/\/jpu-it(?:-hub)?-[a-z0-9-]+-jpu-it-hub\.vercel\.app$/.test(origin);
   const headers = new Headers({
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Object-Key',
