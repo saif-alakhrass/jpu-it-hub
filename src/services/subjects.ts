@@ -3,6 +3,7 @@ import type { Subject, Difficulty } from '@/lib/types';
 import { PAGE_SIZE } from '@/lib/constants';
 import { failService } from '@/lib/serviceError';
 import { searchSubjects } from '@/lib/subjectSearch';
+import { cleanupObjectsViaWorker, isR2Configured } from '@/lib/r2Client';
 
 export interface PaginatedSubjects {
   items: Subject[];
@@ -114,16 +115,39 @@ export interface DeleteSubjectResult {
 export async function deleteSubject(id: string): Promise<DeleteSubjectResult> {
   const { data: files, error: filesError } = await supabase
     .from('files')
-    .select('storage_path')
+    .select('storage_path, object_key, storage_provider')
     .eq('subject_id', id);
   if (filesError) return { ok: false, storageCleanupFailed: false };
 
+  const r2Keys = (files ?? [])
+    .filter((file) => file.storage_provider === 'r2')
+    .map((file) => file.object_key || file.storage_path)
+    .filter((path): path is string => Boolean(path));
+  let accessToken: string | undefined;
+  if (r2Keys.length > 0) {
+    if (!isR2Configured()) return { ok: false, storageCleanupFailed: false };
+    const { data } = await supabase.auth.getSession();
+    accessToken = data.session?.access_token;
+    if (!accessToken) return { ok: false, storageCleanupFailed: false };
+  }
+
+  const legacyPaths = (files ?? [])
+    .filter((file) => file.storage_provider !== 'r2')
+    .map((file) => file.storage_path)
+    .filter((path): path is string => Boolean(path));
+  // Commit the database deletion first. Storage cleanup is then best-effort and
+  // cannot leave live file rows pointing at objects that have already vanished.
   const { error } = await supabase.from('subjects').delete().eq('id', id);
   if (error) return { ok: false, storageCleanupFailed: false };
 
-  const paths = (files ?? []).map((file) => file.storage_path).filter(Boolean);
-  if (paths.length === 0) return { ok: true, storageCleanupFailed: false };
-
-  const { error: storageError } = await supabase.storage.from('files').remove(paths);
-  return { ok: true, storageCleanupFailed: Boolean(storageError) };
+  let storageCleanupFailed = false;
+  if (r2Keys.length > 0 && accessToken) {
+    const result = await cleanupObjectsViaWorker(accessToken, r2Keys);
+    storageCleanupFailed ||= !result || !result.success || Boolean(result.cleanup_queued);
+  }
+  if (legacyPaths.length > 0) {
+    const { error: storageError } = await supabase.storage.from('files').remove(legacyPaths);
+    storageCleanupFailed ||= Boolean(storageError);
+  }
+  return { ok: true, storageCleanupFailed };
 }

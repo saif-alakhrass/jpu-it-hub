@@ -6,6 +6,10 @@ const migration = readFileSync(
   resolve(process.cwd(), 'supabase/migrations/20261018090000_v2_moodle_academic_identity.sql'),
   'utf8',
 );
+const rateLimitMigration = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations/20261019100000_serialize_academic_login_limits.sql'),
+  'utf8',
+);
 
 describe('Moodle V2 database contract', () => {
   it('keeps private identities outside the public schema', () => {
@@ -32,5 +36,11 @@ describe('Moodle V2 database contract', () => {
 
   it('uses an idempotent enrollment upsert', () => {
     expect(migration).toContain('ON CONFLICT (user_id, course_id, term_key) DO UPDATE SET');
+  });
+
+  it('serializes concurrent attempts for the same academic login key', () => {
+    expect(rateLimitMigration).toContain('pg_advisory_xact_lock');
+    expect(rateLimitMigration).toContain('hashtextextended(p_key_hash, 0)');
+    expect(rateLimitMigration).toContain('TO service_role');
   });
 });

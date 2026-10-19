@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AcademicAuthError, applyMoodleDashboardLocations, extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, extractMoodleDashboardLocations, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId, readJsonResponse } from '../src/moodle';
+import { AcademicAuthError, applyMoodleDashboardLocations, extractAcademicProfile, extractGeneratedTokenHash, extractMeetingsFromCourseNames, extractMoodleDashboardLocations, mergeSessionCookies, normalizeMoodleCourses, normalizeMoodleMeetings, normalizeStudentId, readJsonResponse, resolveMoodleDashboardUrl } from '../src/moodle';
 
 describe('Moodle academic authentication input', () => {
   it('normalizes a safe student ID', () => {
@@ -88,6 +88,22 @@ describe('JPU course-name schedule extraction', () => {
 });
 
 describe('JPU Moodle dashboard location extraction', () => {
+  it('replaces an initial Moodle cookie with the authenticated value', () => {
+    expect(mergeSessionCookies('MoodleSession=initial', 'MoodleSession=authenticated', 'Other=value'))
+      .toBe('MoodleSession=authenticated; Other=value');
+  });
+
+  it('keeps dashboard redirects inside the configured Moodle path', () => {
+    expect(resolveMoodleDashboardUrl('https://www.jpu.edu.jo/lms', null))
+      .toBe('https://www.jpu.edu.jo/lms/my/');
+    expect(resolveMoodleDashboardUrl('https://www.jpu.edu.jo/lms', '/lms/my/'))
+      .toBe('https://www.jpu.edu.jo/lms/my/');
+    expect(resolveMoodleDashboardUrl('https://www.jpu.edu.jo/lms', 'https://evil.example/steal'))
+      .toBeNull();
+    expect(resolveMoodleDashboardUrl('https://www.jpu.edu.jo/lms', '/outside'))
+      .toBeNull();
+  });
+
   it('reads the campus building from the authenticated timetable block', () => {
     const html = `
       <div class="ttcard"><a href="https://www.jpu.edu.jo/lms/course/view.php?id=5743">أمن المعلومات</a>

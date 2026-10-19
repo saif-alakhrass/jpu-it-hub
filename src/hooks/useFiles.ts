@@ -8,20 +8,24 @@ import {
   type PaginatedFiles,
 } from '@/services/files';
 import type { FileBatch, FileRow, FileTab } from '@/lib/types';
+import { isUuid } from '@/lib/ids';
 
 export function useSubjectFiles(subjectId: string, tab?: FileTab) {
   const queryClient = useQueryClient();
+  const enabled = isUuid(subjectId);
   const filesKey = useMemo(() => ['files', 'subject', subjectId, tab ?? 'all'] as const, [subjectId, tab]);
   const batchesKey = useMemo(() => ['batches', 'subject', subjectId, tab ?? 'all'] as const, [subjectId, tab]);
   const filesQuery = useQuery({
     queryKey: filesKey,
     queryFn: () => fetchFilesForSubject(subjectId, tab),
     placeholderData: keepPreviousData,
+    enabled,
   });
   const batchesQuery = useQuery({
     queryKey: batchesKey,
     queryFn: () => fetchBatchesForSubject(subjectId, tab),
     placeholderData: keepPreviousData,
+    enabled,
   });
   const reload = useCallback(async () => {
     await Promise.all([filesQuery.refetch(), batchesQuery.refetch()]);

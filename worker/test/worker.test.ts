@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   getExtension,
   isAllowedExtension,
   checkMagicBytes,
+  checkFileContent,
   sanitizeObjectKey,
   validateObjectKey,
   canAccessFile,
   canDeleteFile,
   checkInMemoryRateLimit,
-  verifyJwt,
   extractToken,
   getCorsHeaders,
   createPresignedUrl,
@@ -18,6 +18,11 @@ import {
   createDownloadTicket,
   verifyDownloadTicket,
   getUploadLimit,
+  positiveInteger,
+  getUploadWindowMs,
+  getSignedExpiry,
+  processR2CleanupQueue,
+  handleCleanupObjects,
 } from '../src/index';
 import type { Env, FileRecord } from '../src/index';
 
@@ -25,7 +30,6 @@ const mockEnv: Env = {
   FILES_BUCKET: {} as R2Bucket,
   SUPABASE_URL: 'https://test.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-key',
-  JWT_SECRET: 'test-jwt-secret-at-least-32-characters-long',
   R2_ACCESS_KEY_ID: 'test-access-key',
   R2_SECRET_ACCESS_KEY: 'test-secret-key',
   R2_ACCOUNT_ID: 'test-account-id',
@@ -34,6 +38,10 @@ const mockEnv: Env = {
   UPLOAD_WINDOW_MINUTES: '10',
   SIGNED_URL_EXPIRY_SECONDS: '300',
 };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
   return {
@@ -90,6 +98,21 @@ describe('magic byte validation', () => {
   });
   it('rejects too-short data', () => {
     expect(checkMagicBytes(new Uint8Array([0x25, 0x50]), 'pdf')).toBe(false);
+  });
+
+  it('rejects a generic ZIP renamed as an Office document', () => {
+    const genericZip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, ...new TextEncoder().encode('random/file.txt')]);
+    expect(checkFileContent(genericZip, 'docx')).toBe(false);
+    expect(checkFileContent(genericZip, 'pptx')).toBe(false);
+  });
+
+  it('requires the matching OOXML application folder', () => {
+    const document = new Uint8Array([0x50, 0x4b, 0x03, 0x04, ...new TextEncoder().encode('[Content_Types].xml word/document.xml')]);
+    const presentation = new Uint8Array([0x50, 0x4b, 0x03, 0x04, ...new TextEncoder().encode('[Content_Types].xml ppt/presentation.xml')]);
+    expect(checkFileContent(document, 'docx')).toBe(true);
+    expect(checkFileContent(document, 'pptx')).toBe(false);
+    expect(checkFileContent(presentation, 'pptx')).toBe(true);
+    expect(checkFileContent(presentation, 'docx')).toBe(false);
   });
 });
 
@@ -150,8 +173,8 @@ describe('access control', () => {
     expect(canAccessFile(makeFile({ status: 'rejected', uploader_id: other }), uid, false)).toBe(false);
   });
   it('only admin deletes', () => {
-    expect(canDeleteFile(makeFile({ uploader_id: uid }), uid, false)).toBe(false);
-    expect(canDeleteFile(makeFile({ uploader_id: uid }), uid, true)).toBe(true);
+    expect(canDeleteFile(false)).toBe(false);
+    expect(canDeleteFile(true)).toBe(true);
   });
 });
 
@@ -160,6 +183,15 @@ describe('rate limiting', () => {
     expect(getUploadLimit('student')).toBe(10);
     expect(getUploadLimit('trusted')).toBe(20);
     expect(getUploadLimit('admin')).toBe(50);
+  });
+
+  it('falls back safely when numeric environment values are malformed', () => {
+    expect(positiveInteger('NaN', 20)).toBe(20);
+    expect(positiveInteger('-1', 20)).toBe(20);
+    expect(positiveInteger('12.5', 20)).toBe(20);
+    expect(getUploadWindowMs({ ...mockEnv, UPLOAD_WINDOW_MINUTES: 'invalid' })).toBe(10 * 60 * 1000);
+    expect(getSignedExpiry({ ...mockEnv, SIGNED_URL_EXPIRY_SECONDS: 'invalid' })).toBe(300);
+    expect(getSignedExpiry({ ...mockEnv, SIGNED_URL_EXPIRY_SECONDS: '9999999' })).toBe(604800);
   });
 
   it('allows within limit', () => {
@@ -192,10 +224,6 @@ describe('JWT', () => {
   it('null for malformed', () => {
     expect(extractToken(new Request('https://x', { headers: { Authorization: 'Basic abc' } }))).toBe(null);
   });
-  it('rejects bad tokens', async () => {
-    expect(await verifyJwt('bad', mockEnv)).toBe(null);
-    expect(await verifyJwt('', mockEnv)).toBe(null);
-  });
 });
 
 describe('CORS', () => {
@@ -204,6 +232,13 @@ describe('CORS', () => {
   });
   it('allows production', () => {
     expect(getCorsHeaders(mockEnv, 'https://jpu-it-hub.vercel.app').get('Access-Control-Allow-Origin')).toBe('https://jpu-it-hub.vercel.app');
+  });
+  it('allows this project preview without allowing other Vercel projects', () => {
+    const branchPreview = 'https://jpu-it-hub-git-codex-fix-jpu-it-hub.vercel.app';
+    const deploymentPreview = 'https://jpu-it-mfe1yvf6k-jpu-it-hub.vercel.app';
+    expect(getCorsHeaders(mockEnv, branchPreview).get('Access-Control-Allow-Origin')).toBe(branchPreview);
+    expect(getCorsHeaders(mockEnv, deploymentPreview).get('Access-Control-Allow-Origin')).toBe(deploymentPreview);
+    expect(getCorsHeaders(mockEnv, 'https://evil-project-jpu-it-hub.vercel.app').get('Access-Control-Allow-Origin')).toBeNull();
   });
   it('rejects unknown origin', () => {
     expect(getCorsHeaders(mockEnv, 'https://evil.com').get('Access-Control-Allow-Origin')).toBe(null);
@@ -268,6 +303,15 @@ describe('download access', () => {
     expect(url).toContain('response-content-disposition=attachment%3B%20filename%3D%22Lecture%201.pdf%22%3B%20filename%2A%3D');
     expect(parsed.searchParams.get('X-Amz-Signature')).toMatch(/^[a-f0-9]{64}$/);
   });
+  it('uses the configured bucket when signing staging URLs', async () => {
+    const url = await createPresignedUrl(
+      { ...mockEnv, R2_BUCKET_NAME: 'jpu-it-hub-files-v2-staging' },
+      'user/file.pdf',
+      'GET',
+      300,
+    );
+    expect(new URL(url).pathname).toBe('/jpu-it-hub-files-v2-staging/user/file.pdf');
+  });
   it('preserves the stored upload name in the download response', () => {
     const value = downloadContentDisposition(makeFile({ title: 'Lecture 1', file_type: 'pptx' }));
     expect(value).toContain('filename="Lecture 1.pptx"');
@@ -292,8 +336,94 @@ describe('download access', () => {
 
 describe('delete access', () => {
   it('only admin', () => {
-    expect(canDeleteFile(makeFile({ uploader_id: 'u1' }), 'u1', false)).toBe(false);
-    expect(canDeleteFile(makeFile({ uploader_id: 'u1' }), 'admin', true)).toBe(true);
+    expect(canDeleteFile(false)).toBe(false);
+    expect(canDeleteFile(true)).toBe(true);
+  });
+});
+
+describe('cascade object cleanup', () => {
+  const key = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890/b2c3d4e5-f6a7-8901-bcde-f12345678901.pdf';
+
+  it('requires an administrator', async () => {
+    const response = await handleCleanupObjects(
+      mockEnv,
+      new Request('https://worker.test/cleanup-objects', {
+        method: 'POST', body: JSON.stringify({ object_keys: [key] }),
+      }),
+      false,
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it('deduplicates and removes validated object keys', async () => {
+    const deleteObject = vi.fn().mockResolvedValue(undefined);
+    const response = await handleCleanupObjects(
+      { ...mockEnv, FILES_BUCKET: { delete: deleteObject } as unknown as R2Bucket },
+      new Request('https://worker.test/cleanup-objects', {
+        method: 'POST', body: JSON.stringify({ object_keys: [key, key] }),
+      }),
+      true,
+    );
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledOnce();
+    await expect(response.json()).resolves.toMatchObject({ success: true, cleanup_queued: false });
+  });
+
+  it('rejects unsafe object keys before touching storage', async () => {
+    const deleteObject = vi.fn();
+    const response = await handleCleanupObjects(
+      { ...mockEnv, FILES_BUCKET: { delete: deleteObject } as unknown as R2Bucket },
+      new Request('https://worker.test/cleanup-objects', {
+        method: 'POST', body: JSON.stringify({ object_keys: ['../../secret'] }),
+      }),
+      true,
+    );
+    expect(response.status).toBe(400);
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('scheduled R2 cleanup', () => {
+  it('deletes queued objects and marks their records completed', async () => {
+    const deleteObject = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{
+        id: 'cleanup-id',
+        object_key: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890/b2c3d4e5-f6a7-8901-bcde-f12345678901.pdf',
+        attempts: 0,
+      }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(processR2CleanupQueue({
+      ...mockEnv,
+      FILES_BUCKET: { delete: deleteObject } as unknown as R2Bucket,
+    })).resolves.toBe(1);
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining('r2_cleanup_queue?id=eq.cleanup-id'),
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+    const update = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(update.body))).toMatchObject({ status: 'completed', attempts: 1 });
+  });
+
+  it('marks unsafe object keys failed without touching R2', async () => {
+    const deleteObject = vi.fn();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{
+        id: 'cleanup-id', object_key: '../../secret', attempts: 0,
+      }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(processR2CleanupQueue({
+      ...mockEnv,
+      FILES_BUCKET: { delete: deleteObject } as unknown as R2Bucket,
+    })).resolves.toBe(0);
+    expect(deleteObject).not.toHaveBeenCalled();
+    const update = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(update.body))).toMatchObject({ status: 'failed', attempts: 1 });
   });
 });
 
