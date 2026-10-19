@@ -398,6 +398,26 @@ function sessionCookie(response: Response): string | null {
   return setCookie?.split(';', 1)[0]?.trim() || null;
 }
 
+export function mergeSessionCookies(...cookies: Array<string | null>): string {
+  const values = new Map<string, string>();
+  for (const cookie of cookies) {
+    if (!cookie) continue;
+    const separator = cookie.indexOf('=');
+    if (separator <= 0) continue;
+    values.set(cookie.slice(0, separator).trim(), cookie.slice(separator + 1).trim());
+  }
+  return [...values.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+export function resolveMoodleDashboardUrl(baseUrl: string, location: string | null): string | null {
+  const base = new URL(`${baseUrl.replace(/\/$/, '')}/`);
+  const dashboard = new URL(location || 'my/', base);
+  // Never forward Moodle's authenticated cookie outside the configured Moodle
+  // origin or path, even if an upstream redirect is misconfigured.
+  if (dashboard.origin !== base.origin || !dashboard.pathname.startsWith(base.pathname)) return null;
+  return dashboard.toString();
+}
+
 async function fetchMoodleDashboardLocations(
   baseUrl: string,
   studentId: string,
@@ -422,10 +442,11 @@ async function fetchMoodleDashboardLocations(
     body: new URLSearchParams({ username: studentId, password, logintoken: loginToken }),
   });
   const authenticatedCookie = sessionCookie(loginResponse);
-  const cookies = [initialCookie, authenticatedCookie].filter((value): value is string => Boolean(value)).join('; ');
+  const cookies = mergeSessionCookies(initialCookie, authenticatedCookie);
   if (!cookies) return [];
 
-  const dashboardUrl = new URL(loginResponse.headers.get('location') || '/my/', baseUrl).toString();
+  const dashboardUrl = resolveMoodleDashboardUrl(baseUrl, loginResponse.headers.get('location'));
+  if (!dashboardUrl) return [];
   const dashboard = await fetchWithTimeout(dashboardUrl, {
     headers: { Cookie: cookies },
   });

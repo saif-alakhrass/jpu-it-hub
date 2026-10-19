@@ -88,6 +88,9 @@ export function getFileIcon(ext: string): string {
 }
 
 export function validateFile(file: File): { ok: true } | { ok: false; message: string } {
+  if (file.size <= 0) {
+    return { ok: false, message: 'الملف فارغ ولا يمكن رفعه' };
+  }
   if (file.size > MAX_FILE_SIZE_BYTES) {
     return { ok: false, message: `حجم الملف يتجاوز الحد الأقصى (${MAX_FILE_SIZE_MB} ميجابايت)` };
   }

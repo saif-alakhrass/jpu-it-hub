@@ -23,10 +23,10 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   SUPABASE_ANON_KEY?: string;
-  JWT_SECRET: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   R2_ACCOUNT_ID: string;
+  R2_BUCKET_NAME?: string;
   CORS_ALLOWED_ORIGINS: string;
   MAX_FILE_SIZE_BYTES: string;
   UPLOAD_WINDOW_MINUTES: string;
@@ -68,6 +68,7 @@ const MAGIC_BYTES: Record<string, number[]> = {
 const DEFAULT_MAX_SIZE = 20 * 1024 * 1024; // 20 MB
 const DEFAULT_UPLOAD_WINDOW_MIN = 10;
 const DEFAULT_SIGNED_EXPIRY = 300; // 5 minutes
+const MAX_SIGNED_EXPIRY = 604800; // 7 days (AWS SigV4 limit)
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,6 +106,12 @@ interface Profile {
   role: 'admin' | 'trusted' | 'student';
 }
 
+interface CleanupRecord {
+  id: string;
+  object_key: string;
+  attempts: number;
+}
+
 const UPLOAD_LIMITS_BY_ROLE: Record<Profile['role'], number> = {
   student: 10,
   trusted: 20,
@@ -125,7 +132,7 @@ function getCorsHeaders(env: Env, origin: string | null): Headers {
   // hostnames are generated per deployment, so enumerating one URL would make
   // the next preview fail CORS again.
   const isProjectPreview = origin !== null
-    && /^https:\/\/jpu-it-[a-z0-9]+-jpu-it-hub\.vercel\.app$/.test(origin);
+    && /^https:\/\/jpu-it-hub-[a-z0-9-]+-jpu-it-hub\.vercel\.app$/.test(origin);
   const headers = new Headers({
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Object-Key',
@@ -142,6 +149,9 @@ function corsResponse(env: Env, request: Request, status: number, body?: unknown
   const origin = request.headers.get('Origin');
   const headers = getCorsHeaders(env, origin);
   headers.set('Content-Type', contentType);
+  headers.set('Cache-Control', 'no-store');
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('X-Content-Type-Options', 'nosniff');
   return new Response(body !== undefined ? JSON.stringify(body) : null, { status, headers });
 }
 
@@ -152,32 +162,6 @@ function corsError(env: Env, request: Request, status: number, message: string):
 // ---------------------------------------------------------------------------
 // JWT verification
 // ---------------------------------------------------------------------------
-
-interface JwtHeader {
-  alg: 'HS256' | 'ES256';
-  kid?: string;
-}
-
-interface JwksResponse {
-  keys: Array<JsonWebKey & { kid?: string }>;
-}
-
-interface SupabaseAuthUser {
-  id: string;
-  email?: string;
-}
-
-async function verifyWithSupabase(token: string, env: Env): Promise<SupabaseAuthUser | null> {
-  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_ROLE_KEY,
-    },
-  });
-  if (!response.ok) return null;
-  const user = await response.json() as SupabaseAuthUser;
-  return user.id ? user : null;
-}
 
 function decodeBase64Url(value: string): Uint8Array {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
@@ -190,100 +174,6 @@ function decodeJson<T>(value: string): T | null {
   } catch {
     return null;
   }
-}
-
-async function verifyEs256(
-  header: JwtHeader,
-  headerB64: string,
-  payloadB64: string,
-  signatureB64: string,
-  env: Env,
-): Promise<boolean> {
-  if (!header.kid) return false;
-  const response = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`);
-  if (!response.ok) return false;
-  const jwks = await response.json() as JwksResponse;
-  const jwk = jwks.keys.find((key) => key.kid === header.kid && key.kty === 'EC' && key.crv === 'P-256');
-  if (!jwk) return false;
-
-  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
-  return crypto.subtle.verify(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    key,
-    decodeBase64Url(signatureB64),
-    new TextEncoder().encode(`${headerB64}.${payloadB64}`),
-  );
-}
-
-async function verifyJwt(token: string, env: Env): Promise<JwtPayload | null> {
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
-
-  const [headerB64, payloadB64, signatureB64] = parts;
-  if (!headerB64 || !payloadB64 || !signatureB64) return null;
-
-  const header = decodeJson<JwtHeader>(headerB64);
-  const payload = decodeJson<JwtPayload>(payloadB64);
-  if (!header || !payload) return null;
-
-  if (header.alg === 'ES256') {
-    try {
-      const locallyValid = await verifyEs256(header, headerB64, payloadB64, signatureB64, env);
-      if (!locallyValid) {
-        // Supabase is the authoritative JWT verifier. This fallback supports
-        // current asymmetric signing-key formats while keeping every request
-        // authenticated server-to-server.
-        const user = await verifyWithSupabase(token, env);
-        if (!user || user.id !== payload.sub) return null;
-      }
-    } catch {
-      return null;
-    }
-  } else if (header.alg !== 'HS256') {
-    return null;
-  }
-
-  // Verify legacy HS256 signatures.
-  if (header.alg === 'HS256') {
-    let locallyValid = false;
-    try {
-      if (env.JWT_SECRET) {
-        const key = await crypto.subtle.importKey(
-          'raw',
-          new TextEncoder().encode(env.JWT_SECRET),
-          { name: 'HMAC', hash: 'SHA-256' },
-          false,
-          ['verify'],
-        );
-        locallyValid = await crypto.subtle.verify(
-          'HMAC',
-          key,
-          decodeBase64Url(signatureB64),
-          new TextEncoder().encode(`${headerB64}.${payloadB64}`),
-        );
-      }
-    } catch {
-      locallyValid = false;
-    }
-    if (!locallyValid) {
-      const user = await verifyWithSupabase(token, env);
-      if (!user || user.id !== payload.sub) return null;
-    }
-  }
-
-  // Check expiry
-  const now = Math.floor(Date.now() / 1000);
-  if (!payload.exp || payload.exp < now) return null;
-
-  // Check issuer (should be the Supabase URL)
-  if (env.SUPABASE_URL && payload.iss && !payload.iss.startsWith(env.SUPABASE_URL.replace(/\/$/, ''))) {
-    // Allow if issuer matches — don't reject if SUPABASE_URL is not set (for testing)
-  }
-
-  const expectedIssuer = `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
-  if (payload.iss !== expectedIssuer || payload.aud !== 'authenticated' || !payload.sub) return null;
-
-  return payload;
 }
 
 function extractToken(request: Request): string | null {
@@ -339,9 +229,11 @@ async function fetchFileRecord(env: Env, fileId: string): Promise<FileRecord | n
 
 async function insertFileRecord(env: Env, record: Record<string, unknown>): Promise<FileRecord | null> {
   const url = `${env.SUPABASE_URL}/rest/v1/files?select=id,subject_id,uploader_id,status,storage_path,object_key,storage_provider,file_type,file_size,mime_type,file_hash,batch_id`;
+  const headers = supabaseHeaders(env);
+  headers.set('Prefer', 'return=representation');
   const res = await fetch(url, {
     method: 'POST',
-    headers: supabaseHeaders(env),
+    headers,
     body: JSON.stringify(record),
   });
   if (!res.ok) return null;
@@ -358,7 +250,7 @@ async function deleteFileRecord(env: Env, fileId: string): Promise<boolean> {
   return res.ok;
 }
 
-async function checkDuplicateHash(env: Env, userId: string, subjectId: string, fileHash: string): Promise<boolean> {
+async function checkDuplicateHash(env: Env, subjectId: string, fileHash: string): Promise<boolean> {
   const url = `${env.SUPABASE_URL}/rest/v1/files?file_hash=eq.${fileHash}&subject_id=eq.${subjectId}&select=id`;
   const res = await fetch(url, { headers: supabaseHeaders(env) });
   if (!res.ok) return false;
@@ -366,13 +258,60 @@ async function checkDuplicateHash(env: Env, userId: string, subjectId: string, f
   return data.length > 0;
 }
 
-async function insertCleanupRecord(env: Env, objectKey: string, reason: string): Promise<void> {
+async function insertCleanupRecord(env: Env, objectKey: string, reason: string): Promise<boolean> {
   const url = `${env.SUPABASE_URL}/rest/v1/r2_cleanup_queue`;
-  await fetch(url, {
-    method: 'POST',
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: supabaseHeaders(env),
+      body: JSON.stringify({ object_key: objectKey, reason, status: 'pending' }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function updateCleanupRecord(
+  env: Env,
+  record: CleanupRecord,
+  status: 'pending' | 'completed' | 'failed',
+): Promise<void> {
+  const url = `${env.SUPABASE_URL}/rest/v1/r2_cleanup_queue?id=eq.${record.id}`;
+  const response = await fetch(url, {
+    method: 'PATCH',
     headers: supabaseHeaders(env),
-    body: JSON.stringify({ object_key: objectKey, reason, status: 'pending' }),
-  }).catch(() => {});
+    body: JSON.stringify({
+      status,
+      attempts: record.attempts + 1,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!response.ok) throw new Error(`Failed to update cleanup record (${response.status})`);
+}
+
+async function processR2CleanupQueue(env: Env): Promise<number> {
+  const url = `${env.SUPABASE_URL}/rest/v1/r2_cleanup_queue?status=eq.pending&select=id,object_key,attempts&order=created_at.asc&limit=50`;
+  const response = await fetch(url, { headers: supabaseHeaders(env) });
+  if (!response.ok) throw new Error(`Failed to load cleanup queue (${response.status})`);
+  const records = await response.json() as CleanupRecord[];
+  let completed = 0;
+
+  for (const record of records) {
+    if (!validateObjectKey(record.object_key)) {
+      await updateCleanupRecord(env, record, 'failed');
+      continue;
+    }
+    try {
+      // R2 deletion is idempotent: an already-absent object is also complete.
+      await env.FILES_BUCKET.delete(record.object_key);
+      await updateCleanupRecord(env, record, 'completed');
+      completed++;
+    } catch {
+      await updateCleanupRecord(env, record, record.attempts + 1 >= 5 ? 'failed' : 'pending');
+    }
+  }
+  return completed;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +352,7 @@ async function createPresignedUrl(
   responseContentDisposition?: string,
 ): Promise<string> {
   const accountId = env.R2_ACCOUNT_ID;
-  const bucketName = 'jpu-it-hub-files';
+  const bucketName = env.R2_BUCKET_NAME?.trim() || 'jpu-it-hub-files';
   const region = 'auto';
   const service = 's3';
   // R2's S3 endpoint uses path-style addressing, not bucket subdomains.
@@ -423,7 +362,7 @@ async function createPresignedUrl(
   const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
   const dateStamp = amzDate.substring(0, 8);
 
-  const expiry = Math.min(expirySeconds, 604800); // max 7 days
+  const expiry = Math.min(Math.max(Math.trunc(expirySeconds), 1), MAX_SIGNED_EXPIRY);
   const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
   const credential = `${env.R2_ACCESS_KEY_ID}/${credentialScope}`;
 
@@ -443,7 +382,7 @@ async function createPresignedUrl(
   const canonicalHeaders = `host:${host}\n`;
   const signedHeaders = 'host';
 
-  const payloadHash = method === 'PUT' ? 'UNSIGNED-PAYLOAD' : 'UNSIGNED-PAYLOAD';
+  const payloadHash = 'UNSIGNED-PAYLOAD';
 
   const canonicalRequest = [
     method,
@@ -515,8 +454,41 @@ function checkMagicBytes(data: Uint8Array, ext: string): boolean {
   return true;
 }
 
+function containsAscii(data: Uint8Array, value: string): boolean {
+  const expected = new TextEncoder().encode(value);
+  outer: for (let offset = 0; offset <= data.length - expected.length; offset++) {
+    for (let index = 0; index < expected.length; index++) {
+      if (data[offset + index] !== expected[index]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+function checkFileContent(data: Uint8Array, ext: string): boolean {
+  if (!checkMagicBytes(data, ext)) return false;
+  if (ext === 'docx' || ext === 'pptx') {
+    const applicationFolder = ext === 'docx' ? 'word/' : 'ppt/';
+    return containsAscii(data, '[Content_Types].xml') && containsAscii(data, applicationFolder);
+  }
+  return true;
+}
+
 function getMaxSize(env: Env): number {
-  return parseInt(env.MAX_FILE_SIZE_BYTES || String(DEFAULT_MAX_SIZE), 10);
+  return positiveInteger(env.MAX_FILE_SIZE_BYTES, DEFAULT_MAX_SIZE);
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getUploadWindowMs(env: Env): number {
+  return positiveInteger(env.UPLOAD_WINDOW_MINUTES, DEFAULT_UPLOAD_WINDOW_MIN) * 60 * 1000;
+}
+
+function getSignedExpiry(env: Env): number {
+  return Math.min(positiveInteger(env.SIGNED_URL_EXPIRY_SECONDS, DEFAULT_SIGNED_EXPIRY), MAX_SIGNED_EXPIRY);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +496,8 @@ function getMaxSize(env: Env): number {
 // ---------------------------------------------------------------------------
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHA256_RE = /^[0-9a-f]{64}$/i;
+const FILE_TABS = new Set(['summaries', 'exams', 'images', 'slides']);
 
 function sanitizeObjectKey(userId: string, fileId: string, ext: string): string {
   // Validate userId is a UUID
@@ -575,10 +549,8 @@ function canAccessFile(file: FileRecord, userId: string, isAdmin: boolean): bool
   return false;
 }
 
-function canDeleteFile(file: FileRecord, userId: string, isAdmin: boolean): boolean {
-  if (isAdmin) return true;
-  // Only admin can delete (matching existing RLS policy)
-  return false;
+function canDeleteFile(isAdmin: boolean): boolean {
+  return isAdmin;
 }
 
 // ---------------------------------------------------------------------------
@@ -708,7 +680,13 @@ export default {
 
       // Route: POST /delete — delete an R2 object + DB record
       if (path === '/delete' && request.method === 'POST') {
-        return handleDelete(env, request, userId, isAdmin);
+        return handleDelete(env, request, isAdmin);
+      }
+
+      // Route: POST /cleanup-objects — remove objects whose rows were deleted
+      // by a database cascade (for example, deleting a subject).
+      if (path === '/cleanup-objects' && request.method === 'POST') {
+        return handleCleanupObjects(env, request, isAdmin);
       }
 
       // Route: POST /confirm-upload — confirm upload and save DB record
@@ -718,7 +696,7 @@ export default {
 
       // Route: POST /verify-hash — check file hash for deduplication
       if (path === '/verify-hash' && request.method === 'POST') {
-        return handleVerifyHash(env, request, userId);
+        return handleVerifyHash(env, request);
       }
 
       return corsError(env, request, 404, 'Not found');
@@ -726,6 +704,13 @@ export default {
       console.error('Worker error:', err);
       return corsError(env, request, 500, 'Internal server error');
     }
+  },
+  async scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+    context.waitUntil(
+      processR2CleanupQueue(env).catch((error) => {
+        console.error('Scheduled R2 cleanup failed:', error);
+      }),
+    );
   },
 };
 
@@ -752,12 +737,20 @@ async function handleUploadPresign(
   const { file_name, file_size, file_type, subject_id, tab } = body;
 
   // Validate required fields
-  if (!file_name || !file_size || !file_type || !subject_id || !tab) {
+  if (!file_name || !file_type || !subject_id || !tab) {
     return corsError(env, request, 400, 'Missing required fields');
   }
 
+  if (file_name.length > 255 || !Number.isSafeInteger(file_size) || file_size <= 0) {
+    return corsError(env, request, 400, 'Invalid file metadata');
+  }
+
+  if (!UUID_RE.test(subject_id) || (body.batch_id != null && !UUID_RE.test(body.batch_id))) {
+    return corsError(env, request, 400, 'Invalid subject or batch ID');
+  }
+
   // Validate tab
-  if (!['summaries', 'exams', 'images', 'slides'].includes(tab)) {
+  if (!FILE_TABS.has(tab)) {
     return corsError(env, request, 400, 'Invalid tab');
   }
 
@@ -780,7 +773,7 @@ async function handleUploadPresign(
 
   // Rate limit check
   const maxUploads = getUploadLimit(role);
-  const windowMs = parseInt(env.UPLOAD_WINDOW_MINUTES || String(DEFAULT_UPLOAD_WINDOW_MIN), 10) * 60 * 1000;
+  const windowMs = getUploadWindowMs(env);
   if (!checkInMemoryRateLimit(userId, maxUploads, windowMs)) {
     return corsError(env, request, 429, `Rate limit exceeded: maximum ${maxUploads} uploads per 10 minutes`);
   }
@@ -791,7 +784,7 @@ async function handleUploadPresign(
   const mimeType = ALLOWED_MIME_TYPES[ext] || 'application/octet-stream';
 
   // Create presigned PUT URL
-  const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
+  const expiry = getSignedExpiry(env);
   const presignedUrl = await createPresignedUrl(env, objectKey, 'PUT', expiry);
 
   return corsResponse(env, request, 200, {
@@ -820,7 +813,7 @@ async function handleUploadProxy(env: Env, request: Request, userId: string): Pr
   }
 
   const ext = getExtension(objectKey);
-  if (!isAllowedExtension(ext) || !checkMagicBytes(new Uint8Array(bytes.slice(0, 16)), ext)) {
+  if (!isAllowedExtension(ext) || !checkFileContent(new Uint8Array(bytes), ext)) {
     return corsError(env, request, 400, 'File content does not match its type');
   }
 
@@ -847,19 +840,29 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
   const body = await request.json() as ConfirmUploadRequest;
   const { object_key, file_id, file_name, file_type, file_size, file_hash, mime_type, subject_id, tab, batch_id } = body;
 
-  // Validate object key
-  if (!validateObjectKey(object_key)) {
-    return corsError(env, request, 400, 'Invalid object key');
+  const normalizedType = typeof file_type === 'string' ? file_type.toLowerCase() : '';
+  const expectedKey = isAllowedExtension(normalizedType) && UUID_RE.test(file_id)
+    ? sanitizeObjectKey(userId, file_id, normalizedType)
+    : null;
+  const metadataValid = expectedKey === object_key
+    && typeof file_name === 'string'
+    && file_name.trim().length > 0
+    && file_name.trim().length <= 180
+    && Number.isSafeInteger(file_size)
+    && file_size > 0
+    && file_size <= getMaxSize(env)
+    && SHA256_RE.test(file_hash)
+    && mime_type === ALLOWED_MIME_TYPES[normalizedType]
+    && UUID_RE.test(subject_id)
+    && FILE_TABS.has(tab)
+    && (batch_id == null || UUID_RE.test(batch_id));
+  if (!metadataValid) {
+    return corsError(env, request, 400, 'Invalid upload metadata');
   }
 
-  // Verify the object key belongs to this user
-  const keyParts = object_key.split('/');
-  if (keyParts[0] !== userId) {
-    return corsError(env, request, 403, 'Object key does not belong to this user');
-  }
-
-  // Verify the R2 object actually exists
-  const r2Object = await env.FILES_BUCKET.head(object_key);
+  // Read the stored bytes so the service role never persists client-asserted
+  // file type or hash metadata. The upload limit keeps this bounded to 20 MB.
+  const r2Object = await env.FILES_BUCKET.get(object_key);
   if (!r2Object) {
     return corsError(env, request, 404, 'Object not found in R2 — upload may have failed');
   }
@@ -871,8 +874,19 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
     return corsError(env, request, 400, 'File size mismatch — object deleted');
   }
 
+  const bytes = await r2Object.arrayBuffer();
+  if (!checkFileContent(new Uint8Array(bytes), normalizedType)) {
+    await env.FILES_BUCKET.delete(object_key);
+    return corsError(env, request, 400, 'File content does not match its type — object deleted');
+  }
+  const verifiedHash = await sha256(bytes);
+  if (verifiedHash.toLowerCase() !== file_hash.toLowerCase()) {
+    await env.FILES_BUCKET.delete(object_key);
+    return corsError(env, request, 400, 'File hash mismatch — object deleted');
+  }
+
   // Check for duplicate hash within subject
-  const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
+  const isDuplicate = await checkDuplicateHash(env, subject_id, verifiedHash);
   if (isDuplicate) {
     // Delete the duplicate R2 object
     await env.FILES_BUCKET.delete(object_key);
@@ -884,15 +898,15 @@ async function handleConfirmUpload(env: Env, request: Request, userId: string): 
     id: file_id,
     subject_id,
     tab,
-    title: file_name,
+    title: file_name.trim(),
     storage_path: object_key,
     file_url: object_key,
     object_key,
     storage_provider: 'r2',
-    file_type: file_type.toLowerCase(),
+    file_type: normalizedType,
     file_size,
     mime_type,
-    file_hash,
+    file_hash: verifiedHash,
     batch_id: batch_id || null,
     uploader_id: userId,
   };
@@ -990,8 +1004,12 @@ async function handleTicketDownload(env: Env, request: Request): Promise<Respons
 
   const file = await fetchFileRecord(env, payload.file_id);
   if (!file) return corsError(env, request, 404, 'File not found');
-  const isAdmin = payload.role === 'admin';
-  if (file.tab === 'exams' && payload.role === 'student') return corsError(env, request, 403, 'Access denied');
+  // Re-check the current profile so a short-lived ticket cannot retain admin
+  // or trusted access after a role change.
+  const profile = await fetchProfile(env, payload.user_id);
+  if (!profile) return corsError(env, request, 401, 'Account is no longer available');
+  const isAdmin = profile.role === 'admin';
+  if (file.tab === 'exams' && profile.role === 'student') return corsError(env, request, 403, 'Access denied');
   if (!canAccessFile(file, payload.user_id, isAdmin)) return corsError(env, request, 403, 'Access denied');
   if (file.storage_provider !== 'r2') return corsError(env, request, 409, 'File is not stored in R2');
 
@@ -1086,7 +1104,7 @@ async function handleDownloadPresign(env: Env, request: Request, userId: string,
     return corsError(env, request, 500, 'Invalid object key in database');
   }
 
-  const expiry = parseInt(env.SIGNED_URL_EXPIRY_SECONDS || String(DEFAULT_SIGNED_EXPIRY), 10);
+  const expiry = getSignedExpiry(env);
   // Preview stays inline. Download is explicitly an attachment so browsers do
   // not open PDFs/images in a new tab when cross-origin blob fetching is blocked.
   const disposition = mode === 'download' ? downloadContentDisposition(file) : undefined;
@@ -1103,7 +1121,7 @@ interface DeleteRequest {
   file_id: string;
 }
 
-async function handleDelete(env: Env, request: Request, userId: string, isAdmin: boolean): Promise<Response> {
+async function handleDelete(env: Env, request: Request, isAdmin: boolean): Promise<Response> {
   const body = await request.json() as DeleteRequest;
   const { file_id } = body;
 
@@ -1117,7 +1135,7 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
   }
 
   // Access control — only admin can delete (matching RLS)
-  if (!canDeleteFile(file, userId, isAdmin)) {
+  if (!canDeleteFile(isAdmin)) {
     return corsError(env, request, 403, 'Only administrators can delete files');
   }
 
@@ -1130,13 +1148,14 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
   // Delete the R2 object
   const objectKey = file.object_key || file.storage_path;
   let r2Deleted = true;
+  let cleanupQueued = false;
 
   if (objectKey && file.storage_provider === 'r2') {
     try {
       await env.FILES_BUCKET.delete(objectKey);
     } catch {
       r2Deleted = false;
-      await insertCleanupRecord(env, objectKey, 'delete_failed');
+      cleanupQueued = await insertCleanupRecord(env, objectKey, 'delete_failed');
     }
   } else if (objectKey && file.storage_provider !== 'r2') {
     // Old Supabase Storage file — frontend handles Supabase storage deletion
@@ -1146,9 +1165,11 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
   if (!r2Deleted) {
     return corsResponse(env, request, 207, {
       success: false,
-      message: 'Database record deleted, but R2 object deletion failed. Cleanup queued for retry.',
+      message: cleanupQueued
+        ? 'Database record deleted, but R2 object deletion failed. Cleanup queued for retry.'
+        : 'Database record deleted, but R2 object deletion failed and cleanup could not be queued.',
       file_id,
-      cleanup_queued: true,
+      cleanup_queued: cleanupQueued,
     });
   }
 
@@ -1158,12 +1179,46 @@ async function handleDelete(env: Env, request: Request, userId: string, isAdmin:
   });
 }
 
+interface CleanupObjectsRequest {
+  object_keys?: unknown;
+}
+
+async function handleCleanupObjects(env: Env, request: Request, isAdmin: boolean): Promise<Response> {
+  if (!isAdmin) return corsError(env, request, 403, 'Only administrators can clean up objects');
+
+  const body = await request.json() as CleanupObjectsRequest;
+  if (!Array.isArray(body.object_keys) || body.object_keys.length === 0 || body.object_keys.length > 500) {
+    return corsError(env, request, 400, 'object_keys must contain between 1 and 500 items');
+  }
+  if (!body.object_keys.every((key): key is string => typeof key === 'string' && validateObjectKey(key))) {
+    return corsError(env, request, 400, 'Invalid object key');
+  }
+
+  let cleanupQueued = false;
+  let cleanupFailed = false;
+  for (const objectKey of new Set(body.object_keys)) {
+    try {
+      await env.FILES_BUCKET.delete(objectKey);
+    } catch {
+      const queued = await insertCleanupRecord(env, objectKey, 'cascade_delete_failed');
+      cleanupQueued ||= queued;
+      cleanupFailed ||= !queued;
+    }
+  }
+
+  return corsResponse(env, request, cleanupFailed ? 207 : 200, {
+    success: !cleanupFailed,
+    cleanup_queued: cleanupQueued,
+    message: cleanupFailed ? 'Some objects could not be deleted or queued for cleanup.' : undefined,
+  });
+}
+
 interface VerifyHashRequest {
   file_hash: string;
   subject_id: string;
 }
 
-async function handleVerifyHash(env: Env, request: Request, userId: string): Promise<Response> {
+async function handleVerifyHash(env: Env, request: Request): Promise<Response> {
   const body = await request.json() as VerifyHashRequest;
   const { file_hash, subject_id } = body;
 
@@ -1171,7 +1226,10 @@ async function handleVerifyHash(env: Env, request: Request, userId: string): Pro
     return corsError(env, request, 400, 'Missing file_hash or subject_id');
   }
 
-  const isDuplicate = await checkDuplicateHash(env, userId, subject_id, file_hash);
+  if (!SHA256_RE.test(file_hash) || !UUID_RE.test(subject_id)) {
+    return corsError(env, request, 400, 'Invalid file_hash or subject_id');
+  }
+  const isDuplicate = await checkDuplicateHash(env, subject_id, file_hash.toLowerCase());
   return corsResponse(env, request, 200, {
     is_duplicate: isDuplicate,
   });
@@ -1182,11 +1240,11 @@ async function handleVerifyHash(env: Env, request: Request, userId: string): Pro
 // ---------------------------------------------------------------------------
 
 export {
-  verifyJwt,
   extractToken,
   getExtension,
   isAllowedExtension,
   checkMagicBytes,
+  checkFileContent,
   sanitizeObjectKey,
   validateObjectKey,
   canAccessFile,
@@ -1201,5 +1259,10 @@ export {
   getCorsHeaders,
   downloadContentDisposition,
   getUploadLimit,
+  positiveInteger,
+  getUploadWindowMs,
+  getSignedExpiry,
+  processR2CleanupQueue,
+  handleCleanupObjects,
 };
 export type { FileRecord, Profile, JwtPayload };

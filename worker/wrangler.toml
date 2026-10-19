@@ -3,6 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+[triggers]
+crons = ["0 */6 * * *"]
+
 # R2 bucket binding — the bucket itself is private (no r2.dev public URL).
 [[r2_buckets]]
 binding = "FILES_BUCKET"
@@ -11,11 +14,11 @@ bucket_name = "jpu-it-hub-files"
 # Environment variables (non-secret). Secrets are set via:
 #   wrangler secret put SUPABASE_URL
 #   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-#   wrangler secret put JWT_SECRET
 #   wrangler secret put R2_ACCESS_KEY_ID
 #   wrangler secret put R2_SECRET_ACCESS_KEY
 #   wrangler secret put R2_ACCOUNT_ID
 [vars]
+R2_BUCKET_NAME = "jpu-it-hub-files"
 CORS_ALLOWED_ORIGINS = "http://localhost:5173,https://jpu-it-hub.vercel.app,https://jpu-it-hub.fyi,https://www.jpu-it-hub.fyi"
 MAX_FILE_SIZE_BYTES = "20971520"
 UPLOAD_WINDOW_MINUTES = "10"
@@ -36,6 +39,7 @@ binding = "FILES_BUCKET"
 bucket_name = "jpu-it-hub-files-v2-staging"
 
 [env.staging.vars]
+R2_BUCKET_NAME = "jpu-it-hub-files-v2-staging"
 CORS_ALLOWED_ORIGINS = "http://localhost:5173,https://jpu-it-hub-git-codex-v2-moodle-integration-jpu-it-hub.vercel.app"
 MAX_FILE_SIZE_BYTES = "20971520"
 UPLOAD_WINDOW_MINUTES = "10"

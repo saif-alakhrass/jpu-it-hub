@@ -132,6 +132,14 @@ export function useUpload() {
     accessToken: string,
   ): Promise<{ success: boolean; error: string }> {
     try {
+      // Hash and deduplicate before uploading. Doing this afterwards leaked an
+      // unreferenced R2 object whenever the file was already present.
+      const fileHash = await computeFileHash(item.file);
+      const isDup = await checkHashDuplicate(accessToken, fileHash, opts.subjectId);
+      if (isDup) {
+        return { success: false, error: 'ملف مكرر: يوجد ملف بنفس المحتوى في هذه المادة' };
+      }
+
       // 1. Request presigned PUT URL from Worker
       const presign = await requestUploadPresign(accessToken, {
         file_name: item.file.name,
@@ -157,18 +165,8 @@ export function useUpload() {
         return { success: false, error: 'فشل رفع الملف إلى التخزين' };
       }
 
-      // 3. Compute SHA-256 hash for dedup
-      const fileHash = await computeFileHash(item.file);
-
-      // 4. Check for duplicate (pre-confirm)
-      const isDup = await checkHashDuplicate(accessToken, fileHash, opts.subjectId);
-      if (isDup) {
-        // Clean up the R2 object since we won't save the DB record
-        // (Worker handles cleanup on confirm failure, but we can avoid it)
-        return { success: false, error: 'ملف مكرر: يوجد ملف بنفس المحتوى في هذه المادة' };
-      }
-
-      // 5. Confirm upload via Worker (saves DB record, verifies R2 object exists)
+      // 3. Confirm upload via Worker. It independently verifies the bytes,
+      // size, hash and metadata before creating the database record.
       const confirmed = await confirmUpload(accessToken, {
         object_key: presign.object_key,
         file_id: presign.file_id,
@@ -237,6 +235,9 @@ export function useUpload() {
         });
 
       if (insErr) {
+        // Keep storage and database consistent when validation, rate limiting,
+        // or a transient database error rejects the new record.
+        await supabase.storage.from('files').remove([filePath]);
         let msg = 'فشل حفظ سجل الملف';
         if (insErr.message.includes('Rate limit')) msg = 'تم تجاوز حد الرفع المسموح';
         return { success: false, error: msg };

@@ -227,3 +227,24 @@ export async function deleteFileViaWorker(
   return res.json() as Promise<DeleteResult>;
 }
 
+/** Remove R2 objects after their database rows were cascade-deleted. */
+export async function cleanupObjectsViaWorker(
+  accessToken: string,
+  objectKeys: string[],
+): Promise<DeleteResult | null> {
+  let success = true;
+  let cleanupQueued = false;
+  for (let offset = 0; offset < objectKeys.length; offset += 500) {
+    const res = await fetch(`${WORKER_URL}/cleanup-objects`, {
+      method: 'POST',
+      headers: getAuthHeaders(accessToken),
+      body: JSON.stringify({ object_keys: objectKeys.slice(offset, offset + 500) }),
+    });
+    if (!res.ok && res.status !== 207) return null;
+    const result = await res.json() as DeleteResult;
+    success &&= result.success;
+    cleanupQueued ||= Boolean(result.cleanup_queued);
+  }
+  return { success, cleanup_queued: cleanupQueued };
+}
+

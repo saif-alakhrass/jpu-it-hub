@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { fetchSubjectsPaged, fetchAllSubjects, fetchSubject, searchSubjectsPaged } from '@/services/subjects';
+import { isUuid } from '@/lib/ids';
 
 export const SUBJECT_STALE_TIME = 1000 * 60 * 15;
 
@@ -65,7 +66,7 @@ export function useSubject(subjectId: string) {
   return useQuery({
     queryKey: ['subjects', 'detail', subjectId],
     queryFn: () => fetchSubject(subjectId),
-    enabled: Boolean(subjectId),
+    enabled: isUuid(subjectId),
     staleTime: SUBJECT_STALE_TIME,
   });
 }

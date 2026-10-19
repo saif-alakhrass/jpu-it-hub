@@ -4,7 +4,7 @@ A full-stack academic resource-sharing platform for Jerash University's IT Facul
 
 ## Features
 
-- **Authentication & Roles** — Email/password + Google login via Supabase Auth
+- **Authentication & Roles** — University Moodle verification with Supabase Auth sessions (email/Google remains available when Moodle auth is disabled)
   - `admin` — full control, owner
   - `trusted` — uploads publish instantly
   - `student` — default role, uploads require admin approval
@@ -61,6 +61,7 @@ Frontend (Vercel)          Cloudflare Worker           Cloudflare R2
    - `VITE_SUPABASE_URL` — your Supabase project URL
    - `VITE_SUPABASE_ANON_KEY` — your Supabase anon key
    - `VITE_R2_WORKER_URL` — your deployed Cloudflare Worker URL (e.g. `https://jpu-it-hub-storage.your-subdomain.workers.dev`)
+   - `VITE_MOODLE_AUTH_ENABLED` — set to `true` only after the Moodle Worker and academic migrations are deployed
 3. `npm install`
 4. `npm run dev`
 
@@ -102,7 +103,6 @@ npm install
 # Set secrets (you will be prompted to paste each value — never commit these)
 npx wrangler secret put SUPABASE_URL
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-npx wrangler secret put JWT_SECRET
 npx wrangler secret put R2_ACCESS_KEY_ID
 npx wrangler secret put R2_SECRET_ACCESS_KEY
 npx wrangler secret put R2_ACCOUNT_ID
@@ -117,7 +117,6 @@ npx wrangler deploy
 |--------|-------------|------------------|
 | `SUPABASE_URL` | Your Supabase project URL | Supabase dashboard → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-only, never in frontend) | Supabase dashboard → Settings → API |
-| `JWT_SECRET` | Your Supabase project's JWT secret | Supabase dashboard → Settings → API → JWT Settings |
 | `R2_ACCESS_KEY_ID` | R2 API token access key | Cloudflare dashboard → R2 → Manage API Tokens |
 | `R2_SECRET_ACCESS_KEY` | R2 API token secret key | Cloudflare dashboard → R2 → Manage API Tokens |
 | `R2_ACCOUNT_ID` | Your Cloudflare account ID | Cloudflare dashboard → right sidebar |
